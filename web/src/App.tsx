@@ -7,6 +7,7 @@ import MiEspacio from './MiEspacio'
 import Rail from './Rail'
 import { MODULOS } from './modulos'
 import Inventario from './modulos/Inventario'
+import Crm from './modulos/Crm'
 import './estilos/miespacio.css'
 
 // Pantalla "sin acceso": usa las mismas clases (.login-page / .login-card) que Mi Espacio original.
@@ -65,7 +66,7 @@ export default function App() {
   const volver = () => { window.location.hash = '' }
 
   // Dentro de un módulo se muestra la barra lateral de acceso rápido (igual que la app original).
-  if (vista === 'inventario' && puede(perfil, 'inventario', 'ver')) {
+  if ((vista === 'inventario' && puede(perfil, 'inventario', 'ver')) || (vista === 'crm' && puede(perfil, 'crm', 'ver'))) {
     return (
       <>
         <Rail perfil={perfil} actual={vista} aviso={avisar}
@@ -75,7 +76,7 @@ export default function App() {
             else avisar(`${MODULOS[id]?.label ?? 'Este módulo'} todavía se está migrando. Sigue disponible en la app actual.`)
           }}
           accion={() => avisar('Esta acción depende del CRM, que todavía se está migrando.')} />
-        <div className="vm-modulo"><Inventario perfil={perfil} volver={volver} /></div>
+        <div className="vm-modulo">{vista === 'crm' ? <Crm perfil={perfil} aviso={avisar} /> : <Inventario perfil={perfil} volver={volver} />}</div>
         <div id="toast" role="status" className={aviso ? 'show' : ''}>{aviso}</div>
       </>
     )

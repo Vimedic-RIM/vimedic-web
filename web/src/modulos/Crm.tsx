@@ -1,0 +1,888 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Activity, AlarmClock, Bell, BellRing, BadgeDollarSign, CalendarClock, CalendarPlus, Calendar, CircleDot, CirclePlus,
+  ClipboardPlus, Contact, Copy, FilePlus2, FileText, Handshake, Hourglass, IdCard, ImagePlus, KanbanSquare, Lock,
+  Magnet, Mail, MapPin, Menu, MessageCircle, MessageSquareText, Phone, PhoneCall, PhoneMissed, Plus, Receipt, RefreshCw,
+  Repeat, Search, Settings, Settings2, SlidersHorizontal, Sparkles, Trash2, Trophy, TriangleAlert, User, UserPlus, UserRound,
+  Users, UserX, Wallet, X, CircleX,
+} from 'lucide-react'
+import { supabase, type Perfil } from '../supabase'
+import { puede } from '../permisos'
+import '../estilos/crm-original.css'
+
+/* ============================ Tipos y datos ============================ */
+type Etapa = { nombre: string; orden: number; es_final: boolean }
+type Asesor = { id: string; nombre: string }
+type Gestion = {
+  key: string; tabla: 'leads' | 'cotizaciones'; id: string; codigo: string; tipo: string; nombre: string; estado: string
+  asesorId: string | null; fechaTS: number; ultimaTS: number; proximoTS: number; total: number
+  telefono: string; email: string; identificacion: string; pdfUrl: string; medio: string; interes: string
+}
+type Interaccion = { id: string; fecha: string; tipo: string; nota: string | null; usuario_texto: string | null }
+
+const COLOR_ESTADO: Record<string, string> = {
+  Nuevo: '#17a9ba', Contactado: '#055c9d', Visita: '#7c3aed', 'En Negociación': '#c98a1f', Ganado: '#04896f', Perdido: '#c0392b',
+}
+const PALETA = ['#17a9ba', '#055c9d', '#7c3aed', '#c98a1f', '#04896f', '#c0392b', '#db2777', '#0891b2', '#65a30d', '#ea580c']
+const PAGINA_COLUMNA = 40
+const ETAPAS_POR_DEFECTO: Etapa[] = ['Nuevo', 'Contactado', 'Sin Respuesta', 'Seguimiento', 'En Negociación', 'Visita', 'Ganado', 'Perdido']
+  .map((nombre, i) => ({ nombre, orden: i + 1, es_final: nombre === 'Ganado' || nombre === 'Perdido' }))
+
+const TIPO_LEAD: Record<string, string> = { contacto: 'Contacto', whatsapp: 'Chat WhatsApp', cita: 'Cita', meta: 'Contacto', web: 'Contacto', otro: 'Contacto' }
+const TIPOS_FILTRO = ['ALL', 'Cotización', 'Venta', 'Cita', 'Chat WhatsApp', 'Contacto']
+const ETIQUETA_FILTRO: Record<string, string> = { ALL: 'Todos', Cotización: 'Cotizaciones', Venta: 'Ventas', Cita: 'Citas', 'Chat WhatsApp': 'Chat WhatsApp', Contacto: 'Contactos' }
+
+const norm = (s: string) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+const ts = (v: string | null | undefined) => (v ? new Date(v).getTime() : 0)
+const hace = (t: number) => {
+  const h = (Date.now() - t) / 3600000
+  if (h < 1) return Math.max(1, Math.round(h * 60)) + 'm'
+  if (h < 24) return Math.round(h) + 'h'
+  return Math.round(h / 24) + 'd'
+}
+const haceTexto = (t: number) => {
+  if (!t) return ''
+  const d = Math.floor((Date.now() - t) / 86400000)
+  if (d <= 0) { const h = Math.floor((Date.now() - t) / 3600000); return h <= 0 ? 'hace minutos' : `hace ${h} h` }
+  return d === 1 ? 'ayer' : `hace ${d} días`
+}
+const monto = (n: number) => {
+  n = Number(n) || 0
+  if (n >= 1e6) return '$' + (n / 1e6).toFixed(1).replace('.0', '') + 'M'
+  if (n >= 1e4) return '$' + (n / 1e3).toFixed(1).replace('.0', '') + 'k'
+  return '$' + n.toLocaleString('es-EC', { maximumFractionDigits: 0 })
+}
+const waLink = (tel: string) => { const d = String(tel || '').replace(/\D/g, ''); return d ? 'https://wa.me/' + (d.startsWith('0') ? '593' + d.slice(1) : d) : '' }
+const telLink = (tel: string) => (tel ? 'tel:' + String(tel).replace(/[^\d+]/g, '') : '')
+
+function iconoEstado(estado: string) {
+  const e = norm(estado)
+  if (/nuev/.test(e)) return Sparkles
+  if (/sin resp|no resp|contest|atiend|sin contacto|no contact/.test(e)) return PhoneMissed
+  if (/contact|llamad/.test(e)) return Phone
+  if (/visit|cita/.test(e)) return MapPin
+  if (/negoc/.test(e)) return Handshake
+  if (/cotiz|propuest|proforma/.test(e)) return FileText
+  if (/seguim|intento/.test(e)) return Repeat
+  if (/gan|venta|cerrad/.test(e)) return Trophy
+  if (/perd|descart|rechaz/.test(e)) return CircleX
+  if (/espera|pend/.test(e)) return Hourglass
+  return CircleDot
+}
+const iconoTipo = (t: string) => (t === 'Venta' ? Receipt : t === 'Cotización' ? FileText : t === 'Chat WhatsApp' ? MessageCircle : t === 'Contacto' ? UserPlus : Calendar)
+
+const abandonado = (g: Gestion) => g.estado === 'Nuevo' && g.fechaTS > 0 && Date.now() - g.fechaTS > 24 * 3600000
+const vencido = (g: Gestion) => g.estado !== 'Nuevo' && g.proximoTS > 0 && g.proximoTS < Date.now() && g.estado !== 'Ganado' && g.estado !== 'Perdido'
+const conIntento = (e: string) => /seguim|contactad|sin resp|intento/i.test(e)
+
+/* ============================ Pantalla principal ============================ */
+export default function Crm({ perfil, aviso }: { perfil: Perfil; aviso: (t: string) => void }) {
+  const [etapas, setEtapas] = useState<Etapa[]>(ETAPAS_POR_DEFECTO)
+  const [asesores, setAsesores] = useState<Asesor[]>([])
+  const [gestiones, setGestiones] = useState<Gestion[]>([])
+  const [cargando, setCargando] = useState(true)
+  const [error, setError] = useState('')
+  const [texto, setTexto] = useState('')
+  const [tipo, setTipo] = useState('ALL')
+  const [desde, setDesde] = useState('')
+  const [hasta, setHasta] = useState('')
+  const [panelFiltros, setPanelFiltros] = useState(false)
+  const [menuMovil, setMenuMovil] = useState(false)
+  const [panelAlertas, setPanelAlertas] = useState(false)
+  const [soloAlertas, setSoloAlertas] = useState<Set<string>>(new Set())
+  const [limites, setLimites] = useState<Record<string, number>>({})
+  const [etapaMovil, setEtapaMovil] = useState(0)
+  const [abierta, setAbierta] = useState<string | null>(null)
+  const [nueva, setNueva] = useState(false)
+  const [mover, setMover] = useState<{ key: string; x: number; y: number } | null>(null)
+  const [arrastrando, setArrastrando] = useState<string | null>(null)
+  const peticion = useRef(0)
+
+  const crear = puede(perfil, 'crm', 'crear')
+  const eliminar = puede(perfil, 'crm', 'eliminar')
+  const nombres = useMemo(() => new Map(asesores.map((a) => [a.id, a.nombre])), [asesores])
+  const estados = etapas.map((e) => e.nombre)
+  const colorEstado = (e: string) => COLOR_ESTADO[e] ?? PALETA[Math.max(0, estados.indexOf(e)) % PALETA.length]
+
+  const cargar = useCallback(async () => {
+    const n = ++peticion.current
+    setCargando(true)
+    const [l, c] = await Promise.all([
+      supabase.from('leads')
+        .select('id,codigo,origen_tipo,fecha,nombre,telefono,email,identificacion,interes,medio_captacion,asesor_id,estado_crm,ultima_actividad,proximo_seguimiento')
+        .is('deleted_at', null).order('fecha', { ascending: false }).limit(2000),
+      supabase.from('cotizaciones')
+        .select('id,codigo,fecha,tipo_registro,nombre,telefono,email,identificacion,asesor_id,estado_crm,ultima_actividad,proximo_seguimiento,total,pdf_url,lead_id,medio_captacion_lead,detalle_equipos')
+        .is('deleted_at', null).neq('tipo_registro', 'Histórico').order('fecha', { ascending: false }).limit(2000),
+    ])
+    if (n !== peticion.current) return
+    if (l.error || c.error) { setError('No se pudo cargar el CRM: ' + (l.error?.message || c.error?.message)); setCargando(false); return }
+    setError('')
+    const cots = (c.data ?? []) as Record<string, any>[] // eslint-disable-line @typescript-eslint/no-explicit-any
+    const conCotizacion = new Set(cots.map((x) => x.lead_id).filter(Boolean))
+    const deCot: Gestion[] = cots.map((x) => ({
+      key: 'cotizaciones:' + x.id, tabla: 'cotizaciones', id: x.id, codigo: x.codigo ?? '', tipo: x.tipo_registro === 'Venta' ? 'Venta' : 'Cotización',
+      nombre: x.nombre ?? '', estado: x.estado_crm || 'Nuevo', asesorId: x.asesor_id, fechaTS: ts(x.fecha), ultimaTS: ts(x.ultima_actividad),
+      proximoTS: ts(x.proximo_seguimiento), total: Number(x.total) || 0, telefono: x.telefono ?? '', email: x.email ?? '',
+      identificacion: x.identificacion ?? '', pdfUrl: x.pdf_url ?? '', medio: x.medio_captacion_lead ?? '', interes: x.detalle_equipos ?? '',
+    }))
+    const deLead: Gestion[] = ((l.data ?? []) as Record<string, any>[]) // eslint-disable-line @typescript-eslint/no-explicit-any
+      .filter((x) => !conCotizacion.has(x.id))
+      .map((x) => ({
+        key: 'leads:' + x.id, tabla: 'leads', id: x.id, codigo: x.codigo ?? '', tipo: TIPO_LEAD[x.origen_tipo] ?? 'Contacto',
+        nombre: x.nombre ?? '', estado: x.estado_crm || 'Nuevo', asesorId: x.asesor_id, fechaTS: ts(x.fecha), ultimaTS: ts(x.ultima_actividad),
+        proximoTS: ts(x.proximo_seguimiento), total: 0, telefono: x.telefono ?? '', email: x.email ?? '', identificacion: x.identificacion ?? '',
+        pdfUrl: '', medio: x.medio_captacion ?? '', interes: x.interes ?? '',
+      }))
+    setGestiones([...deLead, ...deCot])
+    setCargando(false)
+  }, [])
+
+  useEffect(() => {
+    supabase.from('etapas_pipeline').select('nombre,orden,es_final').is('deleted_at', null).order('orden')
+      .then(({ data }) => { if (data?.length) setEtapas(data as Etapa[]) })
+    supabase.from('v_directorio_empleados').select('id,nombre').order('nombre')
+      .then(({ data }) => setAsesores((data as Asesor[]) ?? []))
+  }, [])
+  useEffect(() => { cargar() }, [cargar])
+  useEffect(() => {
+    const canal = supabase.channel('crm-gestiones')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => cargar())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cotizaciones' }, () => cargar())
+      .subscribe()
+    return () => { supabase.removeChannel(canal) }
+  }, [cargar])
+  useEffect(() => {
+    const f = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest('#vmFiltrosWrap,#vmMovePanel,.vm-card-move')) { setPanelFiltros(false); setMover(null) } }
+    document.addEventListener('click', f)
+    return () => document.removeEventListener('click', f)
+  }, [])
+  useEffect(() => { document.body.classList.toggle('vm-moving', !!mover); return () => document.body.classList.remove('vm-moving') }, [mover])
+
+  const filtradas = useMemo(() => {
+    const q = norm(texto).trim()
+    const d = desde ? new Date(desde + 'T00:00:00').getTime() : 0
+    const h = hasta ? new Date(hasta + 'T23:59:59').getTime() : 0
+    return gestiones.filter((g) => {
+      if (tipo !== 'ALL' && g.tipo !== tipo) return false
+      if (d && g.fechaTS < d) return false
+      if (h && g.fechaTS > h) return false
+      if (!q) return true
+      const campo = norm([g.nombre, g.email, g.telefono, nombres.get(g.asesorId ?? '') ?? '', g.codigo, g.identificacion, g.interes].join(' '))
+      return q.split(/\s+/).every((p) => campo.includes(p))
+    })
+  }, [gestiones, texto, tipo, desde, hasta, nombres])
+
+  const alertaDesde = (g: Gestion): number | null => (abandonado(g) ? g.fechaTS : vencido(g) ? g.proximoTS : null)
+  const grupos = useMemo(() => {
+    const m = new Map<string, Gestion[]>(estados.map((e) => [e, []]))
+    filtradas.forEach((g) => { const e = m.has(g.estado) ? g.estado : null; if (e) m.get(e)!.push(g) })
+    const reciente = (g: Gestion) => g.fechaTS || g.ultimaTS
+    m.forEach((items, e) => {
+      if (soloAlertas.has(e)) {
+        const conAlerta = items.map((g) => ({ g, t: alertaDesde(g) })).filter((x) => x.t != null)
+        conAlerta.sort((a, b) => a.t! - b.t!)
+        m.set(e, conAlerta.map((x) => x.g))
+      } else m.set(e, items.slice().sort((a, b) => reciente(b) - reciente(a)))
+    })
+    return m
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtradas, etapas, soloAlertas])
+  const conteoAlertas = (e: string) => filtradas.filter((g) => g.estado === e && alertaDesde(g) != null).length
+
+  /* ---- Indicadores (mismos que la app original) ---- */
+  const kpis = useMemo(() => {
+    const ahora = Date.now(), d = new Date()
+    const hoy = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(), manana = hoy + 86400000
+    const mes = new Date(d.getFullYear(), d.getMonth(), 1).getTime()
+    const cerrado = (g: Gestion) => g.estado === 'Ganado' || g.estado === 'Perdido'
+    const abiertos = filtradas.filter((g) => !cerrado(g))
+    const cierre = (g: Gestion) => g.ultimaTS || g.fechaTS
+    const ventasHoy = filtradas.filter((g) => g.estado === 'Ganado' && cierre(g) >= hoy)
+    const ventasMes = filtradas.filter((g) => g.estado === 'Ganado' && cierre(g) >= mes)
+    const suma = (a: Gestion[]) => a.reduce((t, g) => t + g.total, 0)
+    const atencion = abiertos.filter((g) => (ahora - g.ultimaTS) / 86400000 >= 3).length
+    const nuevosHoy = filtradas.filter((g) => g.fechaTS >= hoy).length
+    const sinAsesor = abiertos.filter((g) => !g.asesorId).length
+    const visitasMes = filtradas.filter((g) => (g.tipo === 'Cita' || g.estado === 'Visita') && Math.max(g.fechaTS, g.ultimaTS) >= mes).length
+    void manana
+    return [
+      { label: 'Ventas hoy', value: monto(suma(ventasHoy)), extra: ventasHoy.length + ' cierre' + (ventasHoy.length === 1 ? '' : 's'), icon: BadgeDollarSign, color: '#04896f', destacado: true, alerta: false },
+      { label: 'Requieren atención', value: String(atencion), extra: '+3 días sin actividad', icon: BellRing, color: 'var(--red)', alerta: atencion > 0, destacado: false },
+      { label: 'Ventas del mes', value: monto(suma(ventasMes)), extra: ventasMes.length + ' cierres', icon: Trophy, color: 'var(--teal)', alerta: false, destacado: false },
+      { label: 'Gestiones hoy', value: String(nuevosHoy), extra: 'creadas hoy', icon: ClipboardPlus, color: 'var(--primary)', alerta: false, destacado: false },
+      { label: 'Visitas del mes', value: String(visitasMes), extra: 'citas y etapa Visita', icon: MapPin, color: '#7c3aed', alerta: false, destacado: false },
+      ...(sinAsesor ? [{ label: 'Sin asesor', value: String(sinAsesor), extra: '', icon: UserX, color: '#c0392b', alerta: true, destacado: false }] : []),
+    ]
+  }, [filtradas])
+  const pendientes = useMemo(() => filtradas.filter((g) => g.estado !== 'Ganado' && g.estado !== 'Perdido' && (Date.now() - g.ultimaTS) / 86400000 >= 3), [filtradas])
+
+  /* ---- Cambiar de etapa ---- */
+  async function cambiarEstado(key: string, nuevo: string) {
+    const g = gestiones.find((x) => x.key === key)
+    if (!g || g.estado === nuevo) return
+    if (g.estado === 'Ganado') { aviso('Esta gestión ya está en Ganado y pasó a facturación: no se puede mover de columna.'); return }
+    if (nuevo === 'Ganado') { aviso('Marcar como Ganado abre el formulario de venta, que todavía se está migrando.'); return }
+    const antes = gestiones
+    setGestiones((a) => a.map((x) => (x.key === key ? { ...x, estado: nuevo, ultimaTS: Date.now() } : x)))
+    const { error } = await supabase.from(g.tabla).update({ estado_crm: nuevo, ultima_actividad: new Date().toISOString() }).eq('id', g.id)
+    if (error) { setGestiones(antes); aviso('No se pudo mover: ' + error.message); return }
+    await supabase.from('interacciones').insert({
+      id: crypto.randomUUID(), codigo: 'INT-' + crypto.randomUUID().slice(0, 8), ref_tipo: g.tipo, ref_codigo: g.codigo || null,
+      [g.tabla === 'leads' ? 'lead_id' : 'cotizacion_id']: g.id, tipo: 'Cambio de Estado',
+      nota: `Estado actualizado a "${nuevo}".`, empleado_id: perfil.id, usuario_texto: perfil.nombre,
+    })
+  }
+
+  const columnaActiva = typeof window !== 'undefined' && window.innerWidth < 640
+
+  return (
+    <div>
+      <div id="refreshBar" className={cargando ? 'fixed top-0 left-0 right-0 h-[3px] z-[200] overflow-hidden' : 'hidden'} style={{ background: 'rgba(5,92,157,.12)' }}>
+        <div style={{ height: '100%', width: '40%', background: 'linear-gradient(90deg,var(--cyan),var(--primary))', animation: 'refreshBarSlide 1s ease-in-out infinite' }} />
+      </div>
+
+      {/* HEADER */}
+      <header className="sticky top-0 z-30 border-b border-slate-200" style={{ background: 'linear-gradient(135deg, var(--navy), var(--primary))' }}>
+        <div className="vm-head-pad w-full px-4 sm:pr-5 min-h-14 flex items-center justify-between gap-3 flex-wrap py-1.5">
+          <div className="flex sm:hidden items-center justify-between w-full py-1">
+            <button type="button" onClick={(e) => { e.stopPropagation(); setPanelAlertas((v) => !v) }} className="relative bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg transition-colors" title="Seguimientos pendientes">
+              <AlarmClock className="w-5 h-5" />
+              {pendientes.length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center">{pendientes.length}</span>}
+            </button>
+            <span className="text-white font-display font-bold text-sm">CRM Vimedic</span>
+            <button onClick={() => setMenuMovil((v) => !v)} className="relative bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg transition-colors" title="Menú"><Menu className="w-5 h-5" /></button>
+          </div>
+
+          <div className="hidden sm:block min-w-0 shrink-0 max-w-[260px]">
+            <h1 className="font-display font-bold text-white text-base leading-tight">CRM Vimedic</h1>
+            <p className="text-[11px] text-white/60 truncate">{perfil.nombre}</p>
+          </div>
+
+          <div className="hidden sm:flex items-center gap-2 ml-2">
+            <div className="relative">
+              <input type="text" value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Buscar nombre, cédula, Nº cotización o equipo..."
+                className="pl-8 pr-3 py-2 rounded-lg bg-white/10 text-white placeholder:text-white/50 text-xs w-56 xl:w-72 focus:outline-none focus:ring-2 focus:ring-white/40" />
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-white/60" />
+            </div>
+            <div className="relative" id="vmFiltrosWrap">
+              <button type="button" onClick={(e) => { e.stopPropagation(); setPanelFiltros((v) => !v) }} className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-bold px-3 py-2 rounded-lg transition-colors">
+                <SlidersHorizontal className="w-3.5 h-3.5" /><span>Filtros</span>
+                {(tipo !== 'ALL' || desde || hasta) && <span className="bg-white text-[10px] font-bold rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center" style={{ color: 'var(--primary)' }}>{(tipo !== 'ALL' ? 1 : 0) + (desde || hasta ? 1 : 0)}</span>}
+              </button>
+              {panelFiltros && (
+                <div className="absolute left-0 top-full mt-2 w-[340px] bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 z-50" onClick={(e) => e.stopPropagation()}>
+                  <p className="text-[10px] font-mono-spec uppercase text-slate-400 font-semibold mb-2">Tipo de gestión</p>
+                  <div className="flex flex-wrap gap-1.5 mb-3">
+                    {TIPOS_FILTRO.map((t) => (
+                      <button key={t} className={'tab-btn btn-filter text-[11px] font-semibold px-3 py-1.5 rounded-full border border-slate-200 bg-white text-slate-600' + (tipo === t ? ' active' : '')} onClick={() => setTipo(t)}>{ETIQUETA_FILTRO[t]}</button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] font-mono-spec uppercase text-slate-400 font-semibold mb-2">Fecha de creación</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="text-[10px] font-semibold text-slate-500">Desde<input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="w-full mt-1 text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2" style={{ ['--tw-ring-color' as string]: 'var(--cyan)' }} /></label>
+                    <label className="text-[10px] font-semibold text-slate-500">Hasta<input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} className="w-full mt-1 text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2" style={{ ['--tw-ring-color' as string]: 'var(--cyan)' }} /></label>
+                  </div>
+                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
+                    <button type="button" onClick={() => { setTipo('ALL'); setDesde(''); setHasta('') }} className="text-[11px] font-semibold text-slate-500 hover:text-slate-700 underline">Limpiar todo</button>
+                    <button type="button" onClick={() => setPanelFiltros(false)} className="text-xs font-bold text-white px-3 py-1.5 rounded-lg" style={{ background: 'var(--primary)' }}>Listo</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="hidden sm:flex items-center gap-1.5 ml-2">
+            {crear && <button type="button" onClick={() => setNueva(true)} className="vm-hqa" title="Nueva gestión"><CirclePlus /><span>Nueva gestión</span></button>}
+            {crear && <button type="button" onClick={() => aviso('Nueva cotización se está migrando: sigue disponible en la app actual.')} className="vm-hqa" title="Nueva cotización"><FilePlus2 /><span>Cotización</span></button>}
+            {crear && <button type="button" onClick={() => aviso('Nueva venta se está migrando: sigue disponible en la app actual.')} className="vm-hqa" title="Nueva venta"><Receipt /><span>Venta</span></button>}
+            <button type="button" onClick={() => aviso('Clientes se está migrando: sigue disponible en la app actual.')} className="vm-hqa" title="Clientes"><Users /><span>Clientes</span></button>
+            {eliminar && <button type="button" onClick={() => aviso('La papelera del CRM se está migrando.')} className="vm-hqa" title="Papelera"><Trash2 /><span>Papelera</span></button>}
+          </div>
+
+          <div className="hidden sm:flex items-center gap-2 ml-auto">
+            {perfil.es_superadmin && <button onClick={() => aviso('La administración de etapas se está migrando.')} className="bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg transition-colors" title="Administrar etapas del pipeline"><Settings className="w-4 h-4" /></button>}
+            <button type="button" onClick={(e) => { e.stopPropagation(); setPanelAlertas((v) => !v) }} className="bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg transition-colors relative" title="Seguimientos pendientes">
+              <AlarmClock className="w-4 h-4" />
+              {pendientes.length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center">{pendientes.length}</span>}
+            </button>
+            <button onClick={() => cargar()} className="bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg transition-colors" title="Sincronizar"><RefreshCw className={'w-4 h-4 ' + (cargando ? 'animate-spin' : '')} /></button>
+          </div>
+        </div>
+
+        {menuMovil && (
+          <div className="sm:hidden bg-white border-t border-slate-200 shadow-xl">
+            <div className="px-3 py-2 border-b border-slate-100">
+              <div className="relative">
+                <input type="text" value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Buscar nombre, cédula, Nº cotización o equipo..."
+                  className="pl-8 pr-3 py-2.5 rounded-lg bg-slate-100 text-slate-800 placeholder:text-slate-400 text-xs w-full focus:outline-none focus:ring-2" style={{ ['--tw-ring-color' as string]: 'var(--primary)' }} />
+                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              </div>
+            </div>
+            <div className="py-1.5 vm-mgrid">
+              {crear && <button onClick={() => { setMenuMovil(false); setNueva(true) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><CirclePlus className="w-4 h-4" style={{ color: 'var(--primary)' }} /> Nueva Gestión</button>}
+              <button onClick={() => { setMenuMovil(false); cargar() }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><RefreshCw className="w-4 h-4 text-slate-500" /> Actualizar</button>
+            </div>
+          </div>
+        )}
+      </header>
+
+      {/* PANEL DE ALERTAS */}
+      {panelAlertas && (
+        <div id="vmAlertPanel" role="dialog" aria-label="Seguimientos pendientes">
+          <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
+            <span className="w-8 h-8 rounded-lg grid place-items-center" style={{ background: '#c0392b1A', color: 'var(--red)' }}><AlarmClock className="w-4 h-4" /></span>
+            <div className="min-w-0"><h4 className="font-display font-bold text-sm text-slate-800">Requieren seguimiento</h4><p className="text-[10px] text-slate-400">3 días o más sin actividad</p></div>
+            <span className="pill text-white ml-auto" style={{ background: 'var(--red)' }}>{pendientes.length}</span>
+            <button type="button" onClick={() => setPanelAlertas(false)} className="text-slate-400 hover:text-slate-700" aria-label="Cerrar"><X className="w-4 h-4" /></button>
+          </div>
+          <div className="p-3 space-y-2 overflow-y-auto">
+            {pendientes.length === 0 && <p className="text-xs text-slate-400 text-center py-6">Todo al día 🎉</p>}
+            {pendientes.slice(0, 50).map((g) => (
+              <button key={g.key} type="button" className="w-full text-left bg-white rounded-lg border border-slate-200 px-2.5 py-1.5 shadow-sm" onClick={() => { setPanelAlertas(false); setAbierta(g.key) }}>
+                <p className="font-display font-bold text-xs text-slate-800 truncate">{g.nombre || 'Sin nombre'}</p>
+                <p className="text-[10px] text-slate-500 truncate">{g.estado} · {nombres.get(g.asesorId ?? '') ?? 'Sin asignar'} · {hace(g.ultimaTS)}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <main className="w-full px-3 sm:pr-5 py-4">
+        {/* Accesos rápidos (móvil) */}
+        {crear && (
+          <div className="vm-mobile-quick sm:hidden grid grid-cols-2 gap-2.5 mb-4">
+            <button type="button" onClick={() => setNueva(true)} className="bg-white rounded-2xl border border-slate-200 p-3.5 flex flex-col items-center gap-2 shadow-sm active:scale-95 transition-transform">
+              <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0" style={{ background: '#055c9d1A', color: '#055c9d' }}><CirclePlus className="w-5 h-5" /></div>
+              <span className="text-[11px] font-bold text-slate-700 text-center leading-tight">Nueva Gestión</span>
+            </button>
+          </div>
+        )}
+
+        {/* KPIs */}
+        <div className="vm-kpis mb-3">
+          {kpis.map((c) => {
+            const I = c.icon
+            return (
+              <div key={c.label} className={'stat-card vm-kpi ' + (c.alerta ? 'alerta ' : '') + (c.destacado ? 'vm-kpi-top' : '')} style={{ ['--c' as string]: c.color }} title={c.label + (c.extra ? ' · ' + c.extra : '')}>
+                <I /><span>{c.label}</span><b>{c.value}</b>{c.extra && <em>{c.extra}</em>}
+              </div>
+            )
+          })}
+        </div>
+
+        {/* KANBAN */}
+        <div>
+          <div className="vm-pipe-title flex items-center justify-between mb-3 flex-wrap gap-2">
+            <h2 className="font-display font-bold text-sm text-slate-800 flex items-center gap-2"><KanbanSquare className="w-4 h-4" style={{ color: 'var(--primary)' }} /> Pipeline de Leads</h2>
+            <div className="hidden sm:flex gap-2 flex-wrap items-center">
+              {crear && <button type="button" onClick={() => setNueva(true)} className="vm-qa" style={{ ['--c' as string]: 'var(--primary)' }}><CirclePlus />Nueva gestión</button>}
+              {crear && <button type="button" onClick={() => aviso('Nueva cotización se está migrando: sigue disponible en la app actual.')} className="vm-qa" style={{ ['--c' as string]: '#0e7490' }}><FilePlus2 />Cotización</button>}
+              {crear && <button type="button" onClick={() => aviso('Nueva venta se está migrando: sigue disponible en la app actual.')} className="vm-qa" style={{ ['--c' as string]: '#04896f' }}><Receipt />Venta</button>}
+              <button type="button" onClick={() => aviso('Clientes se está migrando: sigue disponible en la app actual.')} className="vm-qa" style={{ ['--c' as string]: 'var(--navy)' }}><Users />Clientes</button>
+            </div>
+          </div>
+
+          {/* Pestañas de etapa (móvil) */}
+          <div id="mobileStageTabs" className="sm:hidden">
+            <div className="vm-mtgrid" style={{ gridTemplateColumns: `repeat(${estados.length <= 8 ? estados.length : Math.ceil(estados.length / 2)},minmax(0,1fr))` }}>
+              {estados.map((e, i) => {
+                const n = (grupos.get(e) || []).length
+                const I = iconoEstado(e)
+                return <button key={e} type="button" title={e} aria-label={`${e} (${n})`} onClick={() => setEtapaMovil(i)} className={'vm-mtic ' + (i === etapaMovil ? 'on ' : '') + (n ? '' : 'vacia')} style={{ ['--c' as string]: colorEstado(e) }}><I />{n ? <b>{n > 99 ? '99+' : n}</b> : null}</button>
+              })}
+            </div>
+            <div className="vm-mtlabel" style={{ ['--c' as string]: colorEstado(estados[etapaMovil] ?? '') }}>
+              {estados[etapaMovil]}<span>· {(grupos.get(estados[etapaMovil]) || []).length} gestiones</span><em>{etapaMovil + 1}/{estados.length} · toca para cambiar</em>
+            </div>
+          </div>
+
+          <div id="kanbanBoard" className="flex gap-2.5 overflow-x-auto pb-3">
+            {error && <div className="w-full text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{error}</div>}
+            {!error && cargando && gestiones.length === 0 && (
+              <div className="w-full flex flex-col items-center justify-center py-16 gap-2 text-slate-400">
+                <span className="inline-block w-5 h-5 rounded-full border-2 border-slate-300 border-t-[color:var(--primary)] animate-spin" />
+                <p className="text-xs font-semibold">Cargando gestiones...</p>
+              </div>
+            )}
+            {(!cargando || gestiones.length > 0) && !error && estados.map((estado, i) => {
+              const items = grupos.get(estado) || []
+              const limite = limites[estado] || PAGINA_COLUMNA
+              const n = conteoAlertas(estado)
+              const on = soloAlertas.has(estado)
+              return (
+                <section key={estado} id={'kanbanCol' + i} className={'kanban-col vm-pipeline-column' + (columnaActiva && i === etapaMovil ? ' vm-activa' : '')} style={{ ['--stage-color' as string]: colorEstado(estado) }}
+                  onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; e.currentTarget.classList.add('drag-over') }}
+                  onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) e.currentTarget.classList.remove('drag-over') }}
+                  onDrop={(e) => { e.preventDefault(); e.stopPropagation(); const k = e.dataTransfer.getData('text/plain'); setArrastrando(null); e.currentTarget.classList.remove('drag-over'); if (k) cambiarEstado(k, estado) }}>
+                  <header className="vm-column-heading">
+                    <span className="vm-stage-dot" /><h3>{estado}</h3>
+                    <button type="button" className={'vm-alert-btn' + (on ? ' on' : '') + (n ? ' has' : '')} aria-pressed={on}
+                      title={on ? 'Mostrando solo alertas (más antiguas primero) · toca para ver todas' : n ? `${n} alerta(s) · toca para ver solo alertas` : 'Sin alertas en este estado'}
+                      onClick={(e) => { e.stopPropagation(); setSoloAlertas((s) => { const x = new Set(s); if (x.has(estado)) x.delete(estado); else x.add(estado); return x }) }}>
+                      {on ? <BellRing /> : <Bell />}{n ? <b>{n > 99 ? '99+' : n}</b> : null}
+                    </button>
+                    <span data-kanban-count>{items.length}</span>
+                  </header>
+                  <div data-kanban-items className="vm-column-list">
+                    {on && <div className="vm-alert-note"><BellRing />Solo alertas · de la más antigua a la más reciente</div>}
+                    {items.slice(0, limite).map((g) => (
+                      <Tarjeta key={g.key} g={g} asesor={nombres.get(g.asesorId ?? '') ?? 'Sin asignar'} color={colorEstado(g.estado)} arrastrando={arrastrando === g.key}
+                        abrir={() => setAbierta(g.key)}
+                        iniciarArrastre={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', g.key); setArrastrando(g.key) }}
+                        finArrastre={() => setArrastrando(null)}
+                        mover={(x, y) => setMover({ key: g.key, x, y })} />
+                    ))}
+                    {items.length === 0 && <p className="vm-empty-column">{on ? 'Sin alertas en este estado 🎉' : 'Arrastra una gestión aquí'}</p>}
+                  </div>
+                  <div className="vm-column-footer">
+                    {items.length > limite && <button type="button" className="vm-more-cards" onClick={() => setLimites((l) => ({ ...l, [estado]: limite + PAGINA_COLUMNA }))}>Ver más · {items.length - limite} restantes</button>}
+                  </div>
+                </section>
+              )
+            })}
+          </div>
+        </div>
+      </main>
+
+      {/* Panel "Mover a" */}
+      {mover && (() => {
+        const g = gestiones.find((x) => x.key === mover.key)
+        if (!g) return null
+        return (
+          <section id="vmMovePanel" aria-label="Mover gestión" role="region" style={{ left: Math.min(mover.x, window.innerWidth - 260), top: Math.min(mover.y, window.innerHeight - 320) }}>
+            <div className="vm-move-heading"><div className="min-w-0"><h2>Mover a</h2><p>{g.nombre || 'Gestión'}</p></div><button type="button" className="vm-move-close" onClick={() => setMover(null)} aria-label="Cancelar">✕</button></div>
+            <div id="vmMoveCells">
+              {estados.map((e, i) => (
+                <button key={e} type="button" data-stage-index={i} className={'vm-drop-cell ' + (e === g.estado ? 'vm-current-stage' : '')} style={{ ['--stage-color' as string]: colorEstado(e) }}
+                  onClick={() => { setMover(null); cambiarEstado(g.key, e) }}>{e}</button>
+              ))}
+            </div>
+            <p className="vm-move-hint">Selecciona el destino. Ganado abre el formulario de venta.</p>
+          </section>
+        )
+      })()}
+
+      {abierta && gestiones.find((x) => x.key === abierta) && (
+        <Ficha g={gestiones.find((x) => x.key === abierta)!} perfil={perfil} asesores={asesores} etapas={estados} colorEstado={colorEstado}
+          cerrar={() => setAbierta(null)} cambiarEstado={cambiarEstado} recargar={cargar} aviso={aviso} />
+      )}
+      {nueva && <NuevaGestion perfil={perfil} asesores={asesores} cerrar={() => setNueva(false)} guardado={() => { setNueva(false); aviso('Gestión creada.'); cargar() }} />}
+    </div>
+  )
+}
+
+/* ============================ Tarjeta del tablero ============================ */
+function Tarjeta({ g, asesor, color, arrastrando, abrir, iniciarArrastre, finArrastre, mover }: {
+  g: Gestion; asesor: string; color: string; arrastrando: boolean; abrir: () => void
+  iniciarArrastre: (e: React.DragEvent) => void; finArrastre: () => void; mover: (x: number, y: number) => void
+}) {
+  const esGanado = g.estado === 'Ganado'
+  const venc = vencido(g), aband = abandonado(g)
+  const Tipo = iconoTipo(g.tipo)
+  const intento = conIntento(g.estado) && !esGanado
+  const esperaIntento = intento && (g.proximoTS ? g.proximoTS > Date.now() : Date.now() - (g.ultimaTS || g.fechaTS) < 86400000)
+  return (
+    <div className={'lead-card bg-white rounded-lg border border-slate-200 px-2.5 py-1.5 shadow-sm ' + (venc ? 'vm-vencida ' : '') + (aband ? 'vm-abandonada ' : '') + (arrastrando ? 'dragging' : '')}
+      draggable={!esGanado} onDragStart={(e) => { if ((e.target as HTMLElement).closest('button,select,input')) { e.preventDefault(); return } iniciarArrastre(e) }} onDragEnd={finArrastre} onClick={abrir}>
+      <div className="flex items-center justify-between gap-1 mb-1">
+        <span className="pill text-[9px] truncate" style={{ background: color + '1A', color }}><Tipo className="w-2.5 h-2.5 inline -mt-0.5" /> {g.tipo}</span>
+        <div className="flex items-center gap-1 shrink-0">
+          <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">{esGanado && <Lock className="w-2.5 h-2.5 inline -mt-0.5" />}{esGanado ? ' ' : ''}{hace(g.fechaTS)}</span>
+          {!esGanado && <button type="button" className="vm-card-move" aria-label="Mover gestión" onClick={(e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); mover(r.left, r.bottom + 6) }}>Mover</button>}
+        </div>
+      </div>
+      <p className="font-display font-bold text-xs text-slate-800 truncate">{g.nombre || 'Sin nombre'}</p>
+      {aband ? <p className="vm-venc-chip vm-aband-chip" title="Más de 24 h en Nuevo sin gestionar"><TriangleAlert />Lead abandonado · {hace(g.fechaTS)}</p>
+        : venc ? <p className="vm-venc-chip" title={'Próximo seguimiento: ' + new Date(g.proximoTS).toLocaleString('es-EC')}><AlarmClock />Seguimiento vencido · {hace(g.proximoTS)}</p> : null}
+      <div className="flex items-center justify-between gap-1">
+        <p className="text-[10px] text-slate-500 truncate">{asesor}</p>
+        {g.total > 0 && <span className="text-[10px] font-bold shrink-0" style={{ color: 'var(--primary)' }} title="Total con IVA">${g.total.toFixed(2)}</span>}
+      </div>
+      {g.telefono && (
+        <div className="vm-mcard-acts sm:hidden">
+          <a href={waLink(g.telefono)} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()} style={{ ['--c' as string]: '#16a34a' }}><MessageCircle />WhatsApp</a>
+          <a href={telLink(g.telefono)} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()} style={{ ['--c' as string]: 'var(--primary)' }}><Phone />Llamar</a>
+        </div>
+      )}
+      {intento && !esperaIntento && <button type="button" className="vm-int-pc" onClick={(e) => { e.stopPropagation(); abrir() }}><Plus />Nuevo intento</button>}
+    </div>
+  )
+}
+
+/* ============================ Ficha lateral de la gestión ============================ */
+function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado, recargar, aviso }: {
+  g: Gestion; perfil: Perfil; asesores: Asesor[]; etapas: string[]; colorEstado: (e: string) => string
+  cerrar: () => void; cambiarEstado: (key: string, nuevo: string) => Promise<void>; recargar: () => void; aviso: (t: string) => void
+}) {
+  const [historial, setHistorial] = useState<Interaccion[] | null>(null)
+  const [nota, setNota] = useState('')
+  const [guardando, setGuardando] = useState(false)
+  const [abierto, setAbierto] = useState(false)
+  useEffect(() => { const t = setTimeout(() => setAbierto(true), 10); return () => clearTimeout(t) }, [])
+  const campo = g.tabla === 'leads' ? 'lead_id' : 'cotizacion_id'
+
+  const cargarHistorial = useCallback(() => {
+    supabase.from('interacciones').select('id,fecha,tipo,nota,usuario_texto').eq(campo, g.id).is('deleted_at', null).order('fecha', { ascending: false }).limit(200)
+      .then(({ data }) => setHistorial((data as Interaccion[]) ?? []))
+  }, [campo, g.id])
+  useEffect(() => { setHistorial(null); cargarHistorial() }, [cargarHistorial])
+  useEffect(() => { const f = (e: KeyboardEvent) => { if (e.key === 'Escape') cerrar() }; document.addEventListener('keydown', f); return () => document.removeEventListener('keydown', f) }, [cerrar])
+
+  const color = colorEstado(g.estado)
+  const iniciales = String(g.nombre || '?').trim().split(/\s+/).slice(0, 2).map((x) => x[0] || '').join('').toUpperCase() || '?'
+  const asesor = asesores.find((a) => a.id === g.asesorId)?.nombre ?? 'Sin asignar'
+  const dias = g.ultimaTS ? Math.floor((Date.now() - g.ultimaTS) / 86400000) : 0
+  const prox = g.proximoTS
+  const proxVenc = prox && prox < Date.now() && g.estado !== 'Ganado' && g.estado !== 'Perdido'
+  const wa = waLink(g.telefono), tel = telLink(g.telefono), mail = /@/.test(g.email) ? 'mailto:' + encodeURIComponent(g.email) : ''
+
+  const tarjetas = [
+    { cls: 'hl', icon: Magnet, l: 'Medio de captación', v: g.medio || 'Sin registrar', s: 'de la gestión' },
+    { cls: '', icon: Wallet, l: 'Valor', v: g.total ? '$' + g.total.toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—', s: g.total ? 'total con IVA' : 'sin proforma' },
+    { cls: '', icon: UserRound, l: 'Asesor', v: asesor, s: g.tipo },
+    { cls: dias >= 3 && g.estado !== 'Ganado' && g.estado !== 'Perdido' ? 'warn' : '', icon: Activity, l: 'Última actividad', v: haceTexto(g.ultimaTS) || '—', s: g.ultimaTS ? new Date(g.ultimaTS).toLocaleDateString('es-EC', { day: 'numeric', month: 'short' }) : '' },
+    { cls: proxVenc ? 'warn' : '', icon: CalendarClock, l: 'Próximo seguimiento', v: prox ? new Date(prox).toLocaleDateString('es-EC', { weekday: 'short', day: 'numeric', month: 'short' }) : '—', s: proxVenc ? 'vencido' : prox ? 'programado' : '' },
+    { cls: '', icon: CalendarPlus, l: 'Creada', v: g.fechaTS ? haceTexto(g.fechaTS) : '—', s: g.fechaTS ? new Date(g.fechaTS).toLocaleDateString('es-EC', { day: 'numeric', month: 'short', year: 'numeric' }) : '' },
+  ]
+
+  async function guardarNota() {
+    if (!nota.trim()) return
+    setGuardando(true)
+    const { error } = await supabase.from('interacciones').insert({
+      id: crypto.randomUUID(), codigo: 'INT-' + crypto.randomUUID().slice(0, 8), ref_tipo: g.tipo, ref_codigo: g.codigo || null,
+      [campo]: g.id, tipo: 'Nota', nota: nota.trim(), empleado_id: perfil.id, usuario_texto: perfil.nombre,
+    })
+    if (error) { aviso('No se pudo guardar la nota: ' + error.message); setGuardando(false); return }
+    await supabase.from(g.tabla).update({ ultima_actividad: new Date().toISOString() }).eq('id', g.id)
+    setNota(''); setGuardando(false); cargarHistorial(); recargar()
+  }
+
+  async function cambiarAsesor(id: string) {
+    const { error } = await supabase.from(g.tabla).update({ asesor_id: id || null, ultima_actividad: new Date().toISOString() }).eq('id', g.id)
+    if (error) { aviso('No se pudo cambiar el asesor: ' + error.message); return }
+    await supabase.from('interacciones').insert({
+      id: crypto.randomUUID(), codigo: 'INT-' + crypto.randomUUID().slice(0, 8), ref_tipo: g.tipo, ref_codigo: g.codigo || null,
+      [campo]: g.id, tipo: 'Cambio de Asesor', nota: `Asesor cambiado a ${asesores.find((a) => a.id === id)?.nombre ?? 'Sin asignar'}.`, empleado_id: perfil.id, usuario_texto: perfil.nombre,
+    })
+    cargarHistorial(); recargar()
+  }
+
+  function copiarSolicitud() {
+    const t = `Hola${g.nombre ? ' ' + g.nombre : ''}, para continuar con su gestión necesitamos sus datos: nombre completo, cédula o RUC, correo electrónico, ciudad y dirección. ¡Gracias!`
+    navigator.clipboard?.writeText(t).then(() => aviso('Mensaje copiado: pégalo en el chat del cliente.'))
+  }
+
+  return (
+    <>
+      <div id="detailOverlay" className="fixed inset-0 bg-slate-900/50 backdrop-blur-[2px] z-40" onClick={cerrar} />
+      <div id="detailDrawer" className={'fixed right-0 top-0 h-full w-full sm:max-w-md bg-white shadow-2xl z-50 flex flex-col' + (abierto ? ' open' : '')}>
+        <div className="px-4 pt-4 pb-3 text-white shrink-0" style={{ background: 'linear-gradient(135deg,var(--navy),var(--primary))' }}>
+          <div className="flex items-start gap-3">
+            <div className="w-11 h-11 rounded-2xl grid place-items-center font-display font-bold text-sm shrink-0" style={{ background: 'rgba(255,255,255,.14)' }}>{iniciales}</div>
+            <div className="min-w-0 flex-1">
+              <p className="font-display font-bold text-base leading-tight truncate">{g.nombre || 'Sin nombre'}</p>
+              <p className="font-mono-spec text-[10px] text-white/65 mt-0.5 truncate">{g.codigo || g.id.slice(0, 8)} · creada {g.fechaTS ? new Date(g.fechaTS).toLocaleDateString('es-EC', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}</p>
+            </div>
+            <button onClick={cerrar} className="bg-white/10 hover:bg-white/20 p-1.5 rounded-full transition-colors shrink-0" aria-label="Cerrar"><X className="w-5 h-5" /></button>
+          </div>
+          <div className="flex flex-wrap gap-1.5 mt-3">
+            <span className="vm-dchip"><i style={{ background: color }} />{g.estado}</span>
+            <span className="vm-dchip">{g.tipo}</span>
+            {g.medio && <span className="vm-dchip" title="Medio de captación">{g.medio}</span>}
+          </div>
+        </div>
+
+        <div className="flex-grow overflow-y-auto p-4 space-y-4">
+          <div className="grid grid-cols-2 gap-2">
+            {tarjetas.map((c) => {
+              const I = c.icon
+              return (
+                <div key={c.l} className={'vm-dcard ' + c.cls}>
+                  <p className="l"><I />{c.l}</p>
+                  <p className="v" title={c.v}>{c.v}</p>
+                  {c.s && <p className="s" title={c.s}>{c.s}</p>}
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="flex gap-2">
+            <a className={'vm-qbtn ' + (wa ? '' : 'off')} style={{ ['--c' as string]: '#16a34a' }} {...(wa ? { href: wa, target: '_blank', rel: 'noopener' } : {})}><MessageCircle />WhatsApp</a>
+            <a className={'vm-qbtn ' + (tel ? '' : 'off')} style={{ ['--c' as string]: 'var(--primary)' }} {...(tel ? { href: tel } : {})}><Phone />Llamar</a>
+            <a className={'vm-qbtn ' + (mail ? '' : 'off')} style={{ ['--c' as string]: '#7c3aed' }} {...(mail ? { href: mail } : {})}><Mail />Correo</a>
+            {g.pdfUrl && <a className="vm-qbtn" style={{ ['--c' as string]: '#c0392b' }} href={g.pdfUrl} target="_blank" rel="noopener"><FileText />Proforma</a>}
+          </div>
+
+          <div className="grid grid-cols-2 gap-2.5">
+            <div>
+              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Estado</label>
+              <select value={g.estado} disabled={g.estado === 'Ganado'} onChange={(e) => cambiarEstado(g.key, e.target.value)}
+                className="w-full border border-slate-200 rounded-lg p-2 text-xs font-semibold focus:outline-none focus:ring-2" style={{ ['--tw-ring-color' as string]: 'var(--cyan)' }}>
+                {etapas.map((e) => <option key={e} value={e}>{e}</option>)}
+              </select>
+              {g.estado === 'Ganado' && <p className="text-[10px] text-slate-500 mt-1 flex items-center gap-1"><Lock className="w-3 h-3" /> En facturación — ya no se puede cambiar de estado</p>}
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Asesor</label>
+              <select value={g.asesorId ?? ''} onChange={(e) => cambiarAsesor(e.target.value)}
+                className="w-full border border-slate-200 rounded-lg p-2 text-xs font-semibold focus:outline-none focus:ring-2" style={{ ['--tw-ring-color' as string]: 'var(--cyan)' }}>
+                <option value="">Sin asignar</option>
+                {asesores.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <button disabled className="w-full text-white text-sm font-bold py-3 rounded-xl disabled:opacity-50" style={{ background: '#04896f' }} title="La facturación se está migrando">
+            {g.estado === 'Ganado' ? 'Ganado · En facturación' : 'Facturar / Marcar ganado'}
+          </button>
+
+          {g.interes && (
+            <div className="vm-dsec" style={{ padding: 12 }}>
+              <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Interés / equipos</p>
+              <p className="text-xs text-slate-700" style={{ whiteSpace: 'pre-line' }}>{g.interes}</p>
+            </div>
+          )}
+
+          <details className="vm-dsec" open>
+            <summary><Contact className="w-3.5 h-3.5" />Contacto y cliente</summary>
+            <div className="space-y-1.5 pt-2 text-xs text-slate-700">
+              <p><b>Nombre:</b> {g.nombre || '—'}</p>
+              <p><b>Teléfono:</b> {g.telefono || '—'}</p>
+              <p><b>Correo:</b> {g.email || '—'}</p>
+              <p><b>Cédula / RUC:</b> {g.identificacion || '—'}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-1.5 mt-3">
+              <button onClick={() => aviso('La ficha de cliente se está migrando.')} className="text-xs font-bold py-2 rounded-lg border flex items-center justify-center gap-1.5 transition-colors" style={{ borderColor: '#04896f', color: '#04896f' }}><IdCard className="w-3.5 h-3.5" /> Ficha Cliente</button>
+              <button onClick={copiarSolicitud} className="text-xs font-bold py-2 rounded-lg border flex items-center justify-center gap-1.5 transition-colors" style={{ borderColor: '#25D366', color: '#25D366' }}><Copy className="w-3.5 h-3.5" /> Pedir datos</button>
+            </div>
+          </details>
+
+          <div>
+            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Agregar nota</label>
+            <div className="flex gap-2">
+              <textarea rows={2} value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Ej. Cliente pidió cotización de mesa quirúrgica adicional..."
+                className="flex-grow border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2" style={{ ['--tw-ring-color' as string]: 'var(--cyan)' }} />
+            </div>
+            <button onClick={guardarNota} disabled={guardando} className="mt-1.5 w-full text-white text-xs font-bold py-2 rounded-lg transition-transform hover:-translate-y-0.5" style={{ background: 'var(--teal)' }}>{guardando ? 'Guardando…' : 'Guardar Nota'}</button>
+          </div>
+
+          <div>
+            <h4 className="text-[11px] font-bold text-slate-500 uppercase mb-2">Historial</h4>
+            <div className="space-y-3">
+              {historial === null && <p className="text-xs text-slate-400">Cargando el historial…</p>}
+              {historial?.map((i) => (
+                <div key={i.id} className="flex gap-2.5">
+                  <div className="w-1.5 rounded-full shrink-0" style={{ background: 'var(--cyan)' }} />
+                  <div className="pb-2 border-b border-slate-100 flex-grow">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase font-mono-spec" style={{ color: 'var(--primary)' }}>{i.tipo}</span>
+                      <span className="text-[10px] text-slate-400">{new Date(i.fecha).toLocaleString('es-EC')}</span>
+                    </div>
+                    <p className="text-xs text-slate-700 mt-0.5" style={{ overflowWrap: 'anywhere' }}>{i.nota}</p>
+                    {i.usuario_texto && <p className="text-[10px] text-slate-400 mt-0.5">{i.usuario_texto}</p>}
+                  </div>
+                </div>
+              ))}
+              {historial?.length === 0 && <p className="text-xs text-slate-400">Sin actividad registrada.</p>}
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
+/* ============================ Nueva gestión ============================ */
+const MEDIOS: [string, string[]][] = [
+  ['Web y catálogo VIMEDIC', ['🤖 Chat bot web', '📝 Cotización web', '📅 Visita web', '🔓 Desbloqueo precios y stock web', '🛒 Catálogo web', '🌐 Página web']],
+  ['Publicidad pagada', ['📣 Anuncio en Facebook o Instagram', '🎵 Anuncio en TikTok', '🔎 Anuncio en Google', '▶️ Anuncio en YouTube']],
+  ['Redes sociales (sin pago)', ['📱 Publicación en redes sociales', '📖 Historia o estado', '💬 Mensaje directo en redes sociales']],
+  ['El cliente nos contactó directo', ['🔗 Enlace directo de WhatsApp', '📲 Escribió al WhatsApp del asesor', '☎️ Llamada entrante', '✉️ Correo electrónico entrante']],
+  ['Búsqueda en internet', ['📍 Google Maps', '🔍 Búsqueda en Google (sin anuncio)']],
+  ['Recomendación', ['🤝 Referido por un cliente', '🩺 Referido por un médico o profesional de salud', '🏷️ Distribuidor o aliado comercial']],
+  ['Gestión comercial', ['🚶 Visita comercial', '🏢 Visita del cliente a nuestras instalaciones', '📞 Prospección telefónica', '🎪 Feria o evento', '🏛️ Compra pública (SERCOP)', '🔄 Reactivación o seguimiento']],
+]
+const CANALES = ['WhatsApp', 'Instagram', 'Facebook', 'Llamada', 'Referido', 'Feria/Evento', 'Otro']
+const SEGUIMIENTOS: [string, string, number][] = [['2h', '2 horas', 2 * 3600000], ['12h', '12 horas', 12 * 3600000], ['1d', '1 día', 86400000], ['2d', '2 días', 2 * 86400000], ['3d', '3 días', 3 * 86400000], ['1s', '1 semana', 7 * 86400000], ['custom', 'Otra fecha', 0]]
+
+type ClienteRes = { id: string; nombre: string; identificacion: string | null; email: string | null; telefono: string | null }
+
+function NuevaGestion({ perfil, asesores, cerrar, guardado }: { perfil: Perfil; asesores: Asesor[]; cerrar: () => void; guardado: () => void }) {
+  const [busca, setBusca] = useState('')
+  const [resultados, setResultados] = useState<ClienteRes[]>([])
+  const [cliente, setCliente] = useState<ClienteRes | null>(null)
+  const [manual, setManual] = useState({ nombre: '', telefono: '', email: '' })
+  const [medio, setMedio] = useState('')
+  const [interes, setInteres] = useState('')
+  const [canal, setCanal] = useState('')
+  const [contesto, setContesto] = useState<boolean | null>(null)
+  const [seg, setSeg] = useState('')
+  const [fechaCustom, setFechaCustom] = useState('')
+  const [estadoInicial, setEstadoInicial] = useState('Nuevo')
+  const [asesorId, setAsesorId] = useState(perfil.id)
+  const [guardando, setGuardando] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    const q = busca.trim().replace(/[,()%*\\]/g, ' ')
+    if (q.length < 2) { setResultados([]); return }
+    const t = setTimeout(() => {
+      supabase.from('clientes').select('id,nombre,identificacion,email,telefono').is('deleted_at', null)
+        .or(`nombre.ilike.%${q}%,identificacion.ilike.%${q}%,email.ilike.%${q}%`).limit(8)
+        .then(({ data }) => setResultados((data as ClienteRes[]) ?? []))
+    }, 250)
+    return () => clearTimeout(t)
+  }, [busca])
+
+  const nombre = cliente?.nombre ?? manual.nombre.trim()
+  const faltan: string[] = []
+  if (!nombre) faltan.push('cliente')
+  if (!medio) faltan.push('medio de captación')
+  if (!seg) faltan.push('próximo intento')
+  if (seg === 'custom' && !fechaCustom) faltan.push('fecha del intento')
+  const pasos = { cliente: !!nombre, captacion: !!medio, detalle: !!(interes.trim() || canal) }
+  const progreso = Math.round(([!!nombre, !!medio, !!(interes.trim() || canal), !!seg].filter(Boolean).length / 4) * 100)
+
+  async function guardar() {
+    if (faltan.length) { setError('Falta: ' + faltan.join(', ') + '.'); return }
+    setGuardando(true); setError('')
+    const ahora = Date.now()
+    const proximo = seg === 'custom' ? new Date(fechaCustom + 'T09:00:00').getTime() : ahora + (SEGUIMIENTOS.find((s) => s[0] === seg)?.[2] ?? 0)
+    const id = crypto.randomUUID()
+    const codigo = 'CON-' + id.slice(0, 6).toUpperCase()
+    const { error } = await supabase.from('leads').insert({
+      id, codigo, origen_tipo: 'contacto', nombre, telefono: cliente?.telefono ?? (manual.telefono.trim() || null), email: cliente?.email ?? (manual.email.trim() || null),
+      identificacion: cliente?.identificacion ?? null, cliente_id: cliente?.id ?? null, medio_captacion: medio, interes: interes.trim() || null, canal: canal || null,
+      contesto, estado_crm: estadoInicial, asesor_id: asesorId || null, ultima_actividad: new Date(ahora).toISOString(), proximo_seguimiento: new Date(proximo).toISOString(),
+    })
+    if (error) { setError(error.message); setGuardando(false); return }
+    await supabase.from('interacciones').insert({
+      id: crypto.randomUUID(), codigo: 'INT-' + crypto.randomUUID().slice(0, 8), ref_tipo: 'Contacto', ref_codigo: codigo, lead_id: id, tipo: 'Contacto Registrado',
+      nota: `Gestión creada — Medio: ${medio}${canal ? ' — Canal: ' + canal : ''}${interes.trim() ? ' — Interés: ' + interes.trim() : ''}${contesto === null ? '' : ' — ' + (contesto ? 'Sí contestó' : 'No contestó')}`,
+      empleado_id: perfil.id, usuario_texto: perfil.nombre,
+    })
+    guardado()
+  }
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-[2px] z-[60] flex items-center justify-center p-0 sm:p-4" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
+      <div className="ns-shell nq-theme bg-slate-50 sm:rounded-3xl shadow-2xl w-full h-[100dvh] sm:h-auto sm:max-h-[92vh] sm:max-w-3xl flex flex-col overflow-hidden">
+        <div className="ns-head shrink-0 px-5 pt-4 pb-3 text-white">
+          <div className="flex items-center gap-3">
+            <span className="w-10 h-10 rounded-2xl grid place-items-center bg-white/15"><CirclePlus className="w-5 h-5" /></span>
+            <div className="min-w-0">
+              <h3 className="font-display font-bold text-base leading-tight">Nueva Gestión</h3>
+              <p className="text-[11px] text-white/70">Registra un contacto con un cliente o prospecto.</p>
+            </div>
+            <div className="ml-auto hidden md:flex items-center gap-1.5">
+              <span className={'ns-step' + (pasos.cliente ? ' done' : '')}><User />Cliente</span>
+              <span className={'ns-step' + (pasos.captacion ? ' done' : '')}><Magnet />Captación</span>
+              <span className={'ns-step' + (pasos.detalle ? ' done' : '')}><MessageSquareText />Detalle</span>
+            </div>
+            <button onClick={cerrar} className="ml-2 w-9 h-9 rounded-full grid place-items-center bg-white/10 hover:bg-white/20" aria-label="Cerrar"><X className="w-4 h-4" /></button>
+          </div>
+          <div className="mt-3 h-1.5 rounded-full bg-white/15 overflow-hidden"><i className="block h-full rounded-full bg-white transition-all duration-300" style={{ width: progreso + '%' }} /></div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 grid md:grid-cols-2 gap-3 items-start">
+          <div className="space-y-3">
+            <section className="ns-sec">
+              <header><span className="ns-num">1</span><h4>Cliente</h4></header>
+              <div className="relative mb-2">
+                <input type="text" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar cliente por nombre, cédula o correo..." className="ns-input pl-9" />
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              </div>
+              {resultados.length > 0 && !cliente && (
+                <div className="border border-slate-200 rounded-xl max-h-40 overflow-y-auto mb-2 divide-y divide-slate-100 bg-white shadow-sm">
+                  {resultados.map((c) => (
+                    <button key={c.id} type="button" className="w-full text-left px-3 py-2 hover:bg-slate-50" onClick={() => { setCliente(c); setBusca(''); setResultados([]) }}>
+                      <p className="text-xs font-bold text-slate-800 truncate">{c.nombre}</p>
+                      <p className="text-[10px] text-slate-500 truncate">{[c.identificacion, c.telefono, c.email].filter(Boolean).join(' · ')}</p>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {cliente ? (
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-bold text-slate-800 truncate">{cliente.nombre}</p>
+                    <p className="text-[10px] text-slate-500 truncate">{[cliente.identificacion, cliente.telefono, cliente.email].filter(Boolean).join(' · ') || 'Sin más datos'}</p>
+                  </div>
+                  <button type="button" className="text-[10px] font-bold" style={{ color: 'var(--acc)' }} onClick={() => setCliente(null)}>Cambiar</button>
+                </div>
+              ) : (
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+                  <p className="text-[10px] text-slate-500">¿No está en la lista? Registra un prospecto nuevo:</p>
+                  <input className="ns-input" placeholder="Nombre *" value={manual.nombre} onChange={(e) => setManual({ ...manual, nombre: e.target.value })} />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input className="ns-input" placeholder="Teléfono" value={manual.telefono} onChange={(e) => setManual({ ...manual, telefono: e.target.value })} />
+                    <input className="ns-input" placeholder="Correo" value={manual.email} onChange={(e) => setManual({ ...manual, email: e.target.value })} />
+                  </div>
+                </div>
+              )}
+            </section>
+
+            <section className="ns-sec">
+              <header><span className="ns-num">2</span><h4>Medio de captación <span className="text-red-500">*</span></h4></header>
+              <select value={medio} onChange={(e) => setMedio(e.target.value)} className="ns-input">
+                <option value="">Selecciona cómo llegó</option>
+                {MEDIOS.map(([g, ops]) => <optgroup key={g} label={g}>{ops.map((o) => <option key={o} value={o}>{o}</option>)}</optgroup>)}
+              </select>
+              <p className="text-[10px] text-slate-400 mt-1">Elige por dónde llegó <b>esta vez</b>, aunque ya sea cliente.</p>
+            </section>
+          </div>
+
+          <div className="space-y-3">
+            <section className="ns-sec">
+              <header><span className="ns-num">3</span><h4>Detalles de la gestión</h4></header>
+              <p className="ns-label">Interés / producto</p>
+              <input type="text" value={interes} onChange={(e) => setInteres(e.target.value)} placeholder="Ej.: autoclave clase B para consultorio" className="ns-input mb-3" />
+              <p className="ns-label">Medio de contacto</p>
+              <div className="flex flex-wrap gap-1.5 mb-1">
+                {CANALES.map((c) => <button key={c} type="button" onClick={() => setCanal(canal === c ? '' : c)} className={'ns-chip nc-canal-chip' + (canal === c ? ' on' : '')}>{c}</button>)}
+              </div>
+              <p className="ns-label !mt-3">¿Contestó?</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setContesto(true)} className={'ns-opt !flex-row !justify-center !py-2.5' + (contesto === true ? ' on' : '')}><PhoneCall />Sí contestó</button>
+                <button type="button" onClick={() => setContesto(false)} className={'ns-opt !flex-row !justify-center !py-2.5' + (contesto === false ? ' on' : '')}><PhoneMissed />No contestó</button>
+              </div>
+            </section>
+
+            <section className="ns-sec">
+              <header><span className="ns-num">4</span><h4>Próximo intento <span className="text-red-500">*</span></h4></header>
+              <p className="ns-label">¿Cuándo es el próximo intento? *</p>
+              <div className="flex flex-wrap gap-1.5">
+                {SEGUIMIENTOS.map(([v, t]) => <button key={v} type="button" onClick={() => setSeg(v)} className={'nc-seg ns-chip' + (seg === v ? ' on' : '')}>{t}</button>)}
+              </div>
+              {seg === 'custom' && <input type="date" value={fechaCustom} onChange={(e) => setFechaCustom(e.target.value)} className="ns-input mt-2" />}
+              <p className="ns-label !mt-3">Evidencia (captura o PDF)</p>
+              <label className="vm-cap-drop" style={{ opacity: 0.6, cursor: 'not-allowed' }}><ImagePlus className="w-5 h-5" /><span>Disponible cuando se conecte el almacenamiento de archivos</span></label>
+            </section>
+
+            <section className="ns-sec">
+              <header><span className="ns-num"><Settings2 className="w-3 h-3" /></span><h4>Asignación</h4></header>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="block"><span className="ns-label">Estado inicial</span>
+                  <select value={estadoInicial} onChange={(e) => setEstadoInicial(e.target.value)} className="ns-input">
+                    <option value="Nuevo">Nuevo (sin contactar todavía)</option>
+                    <option value="Contactado">Contactado</option>
+                    <option value="Sin Respuesta">Sin Respuesta</option>
+                  </select></label>
+                <label className="block"><span className="ns-label">Asesor</span>
+                  <select value={asesorId} onChange={(e) => setAsesorId(e.target.value)} className="ns-input">
+                    {asesores.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+                  </select></label>
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <div className="shrink-0 px-4 py-3 border-t border-slate-200 bg-white flex items-center gap-3">
+          <p className="text-[11px] flex-1" style={{ color: error || faltan.length ? '#c0392b' : '#04896f' }}>{error || (faltan.length ? 'Falta: ' + faltan.join(', ') : 'Todo listo para guardar')}</p>
+          <button onClick={guardar} disabled={guardando} className="ns-submit !w-auto px-6">{guardando ? 'Guardando…' : 'Guardar gestión'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}

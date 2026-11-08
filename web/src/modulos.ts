@@ -10,7 +10,7 @@ import {
 export type Modulo = { id: string; label: string; desc: string; icono: LucideIcon; permiso: string; c: string; listo: boolean }
 
 export const MODULOS: Record<string, Modulo> = {
-  crm: { id: 'crm', label: 'CRM Vimedic', desc: 'Pipeline, cotizaciones, ventas, seguimiento y mensajes.', icono: Kanban, permiso: 'crm', c: '#055c9d', listo: false },
+  crm: { id: 'crm', label: 'CRM Vimedic', desc: 'Pipeline, cotizaciones, ventas, seguimiento y mensajes.', icono: Kanban, permiso: 'crm', c: '#055c9d', listo: true },
   marketing: { id: 'marketing', label: 'Marketing', desc: 'Resultados, planificador, audiovisual y biblioteca.', icono: Megaphone, permiso: 'marketing', c: '#e1306c', listo: false },
   inventario: { id: 'inventario', label: 'Inventario', desc: 'Productos, stock, precios y fichas técnicas.', icono: Package, permiso: 'inventario', c: '#04896f', listo: true },
   agenda: { id: 'agenda', label: 'Mi Agenda', desc: 'Actividades, tareas y organización diaria.', icono: CalendarCheck, permiso: 'agenda', c: '#17a9ba', listo: false },
