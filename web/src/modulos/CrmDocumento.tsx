@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  BadgeCheck, Bike, CalendarClock, FilePlus2, HandCoins, Handshake, Magnet, MapPin, Package, PackageSearch, Receipt, Search,
+  BadgeCheck, Bike, CalendarClock, CreditCard, ImagePlus, FilePlus2, HandCoins, Handshake, Magnet, MapPin, Package, PackageSearch, Receipt, Search,
   ShoppingCart, StickyNote, Truck, User, Warehouse, X,
 } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
@@ -10,7 +10,7 @@ type Asesor = { id: string; nombre: string }
 export type Origen = { tabla: 'leads' | 'cotizaciones'; id: string; codigo: string; nombre: string; telefono: string; email: string; identificacion: string; medio: string } | null
 type Prod = { id: string; codigo: string | null; nombre: string; pvp: number | null; precio_dis: number | null; aplica_iva: boolean; stock: number | null; imagen_url: string | null; reservaciones: string | null }
 type Linea = { id: string; codigo: string; nombre: string; imagen: string; precio: number; cantidad: number; descuento: number; iva: boolean; observacion: string }
-type Cli = { id: string; nombre: string; identificacion: string | null; email: string | null; telefono: string | null; direccion: string | null; tipo_cliente: string | null; descuento_fijo: string | null }
+type Cli = { datos_venta?: Record<string, string> | null; id: string; nombre: string; identificacion: string | null; email: string | null; telefono: string | null; direccion: string | null; tipo_cliente: string | null; descuento_fijo: string | null }
 
 const MEDIOS: [string, string[]][] = [
   ['Web y catálogo VIMEDIC', ['🤖 Chat bot web', '📝 Cotización web', '📅 Visita web', '🔓 Desbloqueo precios y stock web', '🛒 Catálogo web', '🌐 Página web']],
@@ -66,6 +66,15 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   const [flete, setFlete] = useState('')
   const [fletePaga, setFletePaga] = useState('')
   const [fechaEntrega, setFechaEntrega] = useState('')
+  const [rem, setRem] = useState({ nombre: 'Importaciones Médicas Richard', cedula: '1721050035001', telefono: '095 887 9773' })
+  const [dest, setDest] = useState({ nombre: '', telefono: '', cedula: '', email: '' })
+  const [dirEnvio, setDirEnvio] = useState('')
+  const [caja, setCaja] = useState('')
+  const [armado, setArmado] = useState('')
+  const [stretch, setStretch] = useState('')
+  const [garantia, setGarantia] = useState('')
+  const [guardarDv, setGuardarDv] = useState(false)
+  const [dvAplicado, setDvAplicado] = useState(false)
 
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState('')
@@ -74,7 +83,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     const q = limpiar(busca)
     if (q.length < 2) { setRes([]); return }
     const t = setTimeout(() => {
-      supabase.from('clientes').select('id,nombre,identificacion,email,telefono,direccion,tipo_cliente,descuento_fijo').is('deleted_at', null)
+      supabase.from('clientes').select('id,nombre,identificacion,email,telefono,direccion,tipo_cliente,descuento_fijo,datos_venta').is('deleted_at', null)
         .or(`nombre.ilike.%${q}%,identificacion.ilike.%${q}%,email.ilike.%${q}%`).limit(8).then(({ data }) => setRes((data as Cli[]) ?? []))
     }, 250)
     return () => clearTimeout(t)
@@ -95,6 +104,15 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   /* descuento del cliente: DIS+VIP usa precio distribuidor, DIS+% descuenta ese % del PVP */
   function descCliente(c: Cli | null) { return c?.tipo_cliente === 'DIS' && /^\d+$/.test(c.descuento_fijo ?? '') ? Number(c.descuento_fijo) : 0 }
   function precioBase(p: Prod, c: Cli | null) { return c?.tipo_cliente === 'DIS' && c.descuento_fijo === 'VIP' && Number(p.precio_dis) > 0 ? Number(p.precio_dis) : Number(p.pvp) || 0 }
+
+  function aplicarDv(c: Cli) {
+    const d = c.datos_venta as Record<string, any> | null | undefined // eslint-disable-line @typescript-eslint/no-explicit-any
+    if (!esVenta || !d || !Object.keys(d).length) return
+    setPago(d.pago ?? ''); setTipoPago(d.tipoPago ?? ''); setPlazo(d.plazo ?? ''); setEntrega(d.entrega ?? ''); setDirEntrega(d.dirEntrega ?? '')
+    setQuienRecibe(d.quienRecibe ?? ''); setTelEntrega(d.telEntrega ?? ''); setMapsEntrega(d.mapsEntrega ?? ''); setCiudadDestino(d.ciudadDestino ?? ''); setTransporte(d.transporte ?? '')
+    if (d.dest) setDest(d.dest); setDirEnvio(d.dirEnvio ?? ''); setCaja(d.caja ?? ''); setArmado(d.armado ?? ''); setStretch(d.stretch ?? ''); setGarantia(d.garantia ?? '')
+    setDvAplicado(true)
+  }
 
   function agregar(p: Prod) {
     setCarrito((a) => {
@@ -122,10 +140,12 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     if (pago === 'Pagado' && !tipoPago) faltan.push('tipo de pago')
     if (pago === 'Crédito' && !plazo) faltan.push('plazo de crédito')
     if (!entrega) faltan.push('entrega')
-    if (entrega === 'Local' && !dirEntrega.trim()) faltan.push('dirección de entrega')
+    if (entrega === 'Local' && (!dirEntrega.trim() || !quienRecibe.trim() || !telEntrega.trim() || !mapsEntrega.trim())) faltan.push('datos de entrega local')
     if (entrega === 'Envío' && (!ciudadDestino.trim() || !transporte)) faltan.push('ciudad y transporte')
+    if (entrega === 'Envío' && (!dest.nombre.trim() || !dest.telefono.trim() || !dest.cedula.trim() || !dest.email.trim() || !dirEnvio.trim())) faltan.push('destinatario y dirección de envío')
+    if (entrega === 'Delivery' && !mapsEntrega.trim()) faltan.push('URL de Google Maps')
   }
-  const pasos = { cliente: !!nombre, captacion: !!medio, productos: carrito.length > 0 }
+  const pasos = { cliente: !!nombre, captacion: !!medio, pago: !!pago, entrega: !!entrega, productos: carrito.length > 0 }
   const progreso = Math.round(([!!nombre, !!medio, carrito.length > 0, !esVenta || (!!pago && !!entrega)].filter(Boolean).length / 4) * 100)
 
   async function guardar() {
@@ -146,6 +166,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
         anticipo: Number(anticipo) || null, tipo_entrega: entrega, fecha_entrega: fechaEntrega || null, fecha_venta: ahora,
         direccion_entrega: entrega === 'Local' ? `${dirEntrega.trim()}${quienRecibe ? ' · Recibe: ' + quienRecibe : ''}${telEntrega ? ' · Tel: ' + telEntrega : ''}${mapsEntrega ? ' · ' + mapsEntrega : ''}` : entrega === 'Envío' ? `${ciudadDestino.trim()} · ${transporte}` : entrega === 'Delivery' ? mapsEntrega || null : null,
         flete: Number(flete) || null, flete_lo_paga: fletePaga || null,
+        detalle_venta: { observacionPago: obsPago || null, remitente: entrega === 'Envío' ? rem : null, destinatario: entrega === 'Envío' ? dest : null, direccionEnvio: dirEnvio || null, transporte: transporte || null, ciudadDestino: ciudadDestino || null, empaque: { caja, armado, stretch }, cartaGarantia: garantia || null },
       })
     }
     let id = origen?.tabla === 'cotizaciones' ? origen.id : crypto.randomUUID()
@@ -159,6 +180,9 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
       id: crypto.randomUUID(), codigo: 'INT-' + crypto.randomUUID().slice(0, 8), ref_tipo: modo, ref_codigo: codigo, cotizacion_id: id,
       tipo: esVenta ? 'Venta Registrada' : 'Cotización Creada', nota: `${modo} por ${dinero(total)} (${unidades} u).`, empleado_id: perfil.id, usuario_texto: perfil.nombre,
     })
+    if (esVenta && guardarDv && cliente) {
+      await supabase.from('clientes').update({ datos_venta: { pago, tipoPago, plazo, entrega, dirEntrega, quienRecibe, telEntrega, mapsEntrega, ciudadDestino, transporte, dest, dirEnvio, caja, armado, stretch, garantia } }).eq('id', cliente.id)
+    }
     id = ''; codigo = ''
     guardado(`${modo} creada por ${dinero(total)}.`)
   }
@@ -178,7 +202,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
         {res.length > 0 && !cliente && (
           <div className="border border-slate-200 rounded-xl max-h-40 overflow-y-auto mb-2 divide-y divide-slate-100 bg-white shadow-sm">
             {res.map((c) => (
-              <button key={c.id} type="button" className="w-full text-left px-3 py-2 hover:bg-slate-50" onClick={() => { setCliente(c); setBusca(''); setRes([]); setCarrito((a) => a.map((l) => ({ ...l, descuento: descCliente(c) }))) }}>
+              <button key={c.id} type="button" className="w-full text-left px-3 py-2 hover:bg-slate-50" onClick={() => { setCliente(c); setBusca(''); setRes([]); setCarrito((a) => a.map((l) => ({ ...l, descuento: descCliente(c) }))); aplicarDv(c) }}>
                 <p className="text-xs font-bold text-slate-800 truncate">{c.nombre}</p>
                 <p className="text-[10px] text-slate-500 truncate">{[c.identificacion, c.telefono, c.email].filter(Boolean).join(' · ')}</p>
               </button>
@@ -227,6 +251,9 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
               <div className="mb-2 ns-reveal"><label className="ns-label">Plazo de crédito <span className="text-red-500">*</span></label>
                 <div className="flex flex-wrap gap-1.5">{PLAZOS.map((p) => botonOpc(p, plazo, setPlazo, 'ns-plazo-btn', p.toLowerCase().replace('dias', 'días')))}</div></div>
             )}
+            {pago === 'Pagado' && tipoPago === 'Transferencia' && (
+              <label className="ns-drop ns-reveal" style={{ opacity: 0.6, cursor: 'not-allowed' }}><ImagePlus className="w-4 h-4" /><span>Comprobante de transferencia (foto) <span className="text-[10px] text-slate-400 font-normal">· disponible al conectar el almacenamiento de archivos</span></span></label>
+            )}
             {pago && <input type="text" value={obsPago} onChange={(e) => setObsPago(e.target.value)} placeholder="Observación de pago (condiciones, abonos…)" className="ns-input mb-2 ns-reveal" />}
             {(pago === 'Contraentrega' || pago === 'Acuerdo de Pago' || pago === 'Crédito') && <input type="number" min="0" step="0.01" value={anticipo} onChange={(e) => setAnticipo(e.target.value)} placeholder="Anticipo recibido ($)" className="ns-input" />}
           </section>
@@ -240,9 +267,9 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
             {entrega === 'Local' && (
               <div className="grid sm:grid-cols-2 gap-2 ns-reveal">
                 <input className="ns-input sm:col-span-2" placeholder="Dirección entrega local *" value={dirEntrega} onChange={(e) => setDirEntrega(e.target.value)} />
-                <input className="ns-input" placeholder="Quién recibe" value={quienRecibe} onChange={(e) => setQuienRecibe(e.target.value)} />
-                <input className="ns-input" placeholder="Teléfono entrega" value={telEntrega} onChange={(e) => setTelEntrega(e.target.value.replace(/\D/g, ''))} />
-                <input className="ns-input sm:col-span-2" placeholder="URL Google Maps" value={mapsEntrega} onChange={(e) => setMapsEntrega(e.target.value)} />
+                <input className="ns-input" placeholder="Quién recibe *" value={quienRecibe} onChange={(e) => setQuienRecibe(e.target.value)} />
+                <input className="ns-input" placeholder="Teléfono entrega *" value={telEntrega} onChange={(e) => setTelEntrega(e.target.value.replace(/\D/g, ''))} />
+                <input className="ns-input sm:col-span-2" placeholder="URL Google Maps *" value={mapsEntrega} onChange={(e) => setMapsEntrega(e.target.value)} />
               </div>
             )}
             {entrega === 'Envío' && (
@@ -250,21 +277,58 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
                 <input className="ns-input" placeholder="Ciudad de destino *" value={ciudadDestino} onChange={(e) => setCiudadDestino(e.target.value)} />
                 <label className="ns-label">Transporte <span className="text-red-500">*</span></label>
                 <div className="flex flex-wrap gap-1.5">{TRANSPORTES.map((t) => botonOpc(t, transporte, setTransporte, 'ns-transporte-btn', t))}</div>
+                <div className="grid sm:grid-cols-2 gap-3 pt-1">
+                  <div className="space-y-2 rounded-xl border border-slate-200 p-2.5 bg-slate-50/70">
+                    <p className="ns-label !mb-0">Remitente</p>
+                    <input className="ns-input" placeholder="Nombre remitente" value={rem.nombre} onChange={(e) => setRem({ ...rem, nombre: e.target.value })} />
+                    <input className="ns-input" placeholder="Cédula remitente" value={rem.cedula} onChange={(e) => setRem({ ...rem, cedula: e.target.value })} />
+                    <input className="ns-input" placeholder="Teléfono remitente" value={rem.telefono} onChange={(e) => setRem({ ...rem, telefono: e.target.value })} />
+                  </div>
+                  <div className="space-y-2 rounded-xl border border-slate-200 p-2.5 bg-slate-50/70">
+                    <p className="ns-label !mb-0">Destinatario</p>
+                    <input className="ns-input" placeholder="Nombre *" value={dest.nombre} onChange={(e) => setDest({ ...dest, nombre: e.target.value })} />
+                    <input className="ns-input" placeholder="Teléfono *" value={dest.telefono} onChange={(e) => setDest({ ...dest, telefono: e.target.value.replace(/\D/g, '') })} />
+                    <input className="ns-input" placeholder="Cédula *" value={dest.cedula} onChange={(e) => setDest({ ...dest, cedula: e.target.value.replace(/\D/g, '') })} />
+                    <input type="email" className="ns-input" placeholder="Email *" value={dest.email} onChange={(e) => setDest({ ...dest, email: e.target.value })} />
+                  </div>
+                </div>
+                <input className="ns-input" placeholder="Dirección de envío *" value={dirEnvio} onChange={(e) => setDirEnvio(e.target.value)} />
                 <div className="grid grid-cols-2 gap-2">
                   <input type="number" min="0" step="0.01" className="ns-input" placeholder="Flete ($)" value={flete} onChange={(e) => setFlete(e.target.value)} />
                   <select className="ns-input" value={fletePaga} onChange={(e) => setFletePaga(e.target.value)}><option value="">¿Quién paga el flete?</option><option>Cliente</option><option>Vimedic</option></select>
                 </div>
               </div>
             )}
-            {entrega === 'Delivery' && <input className="ns-input ns-reveal" placeholder="URL Google Maps" value={mapsEntrega} onChange={(e) => setMapsEntrega(e.target.value)} />}
-            {entrega && <label className="block mt-2"><span className="ns-label">Fecha de entrega</span><input type="date" className="ns-input" value={fechaEntrega} onChange={(e) => setFechaEntrega(e.target.value)} /></label>}
+            {entrega === 'Delivery' && <input className="ns-input ns-reveal" placeholder="URL Google Maps *" value={mapsEntrega} onChange={(e) => setMapsEntrega(e.target.value)} />}
           </section>
+
+          <section className="ns-sec">
+            <header><span className="ns-num">5</span><h4>Preparación y garantía</h4><span className="ml-auto text-[10px] text-slate-400">opcional</span></header>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+              {([['Empaque', caja, setCaja, [['En Caja', '📦 En caja'], ['Sin Caja', 'Sin caja']], 'ns-empaque-caja-btn'], ['Armado', armado, setArmado, [['Armado', '🔧 Armado'], ['Desarmado', 'Desarmado']], 'ns-empaque-armado-btn'],
+                ['Stretch', stretch, setStretch, [['Con Stretch', 'Con stretch'], ['Sin Stretch', 'Sin stretch']], 'ns-empaque-stretch-btn'], ['Carta de garantía', garantia, setGarantia, [['Virtual', '📧 Virtual'], ['Física', '📄 Física']], 'ns-garantia-btn']] as const).map(([t, val, set, ops, cl]) => (
+                <div key={t}><p className="ns-label">{t}</p><div className="flex gap-1.5">{ops.map(([v, tx]) => <button key={v} type="button" onClick={() => set(val === v ? '' : v)} className={cl + ' ns-chip flex-1' + (val === v ? ' active' : '')}>{tx}</button>)}</div></div>
+              ))}
+              <div className="col-span-2"><p className="ns-label">Fecha de entrega</p><input type="date" className="ns-input" value={fechaEntrega} onChange={(e) => setFechaEntrega(e.target.value)} /></div>
+            </div>
+          </section>
+
+          {cliente && (
+            <section className="ns-sec">
+              <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                <input type="checkbox" checked={guardarDv} onChange={(e) => setGuardarDv(e.target.checked)} className="mt-0.5 w-4 h-4 shrink-0" style={{ accentColor: '#04896f' }} />
+                <span className="min-w-0"><b className="block text-xs text-slate-800">Guardar como datos predeterminados de este cliente</b>
+                  <span className="block text-[10px] text-slate-500 leading-snug">Pago, entrega, destinatario y preparación se llenarán solos en su próxima venta (clientes frecuentes).</span></span>
+              </label>
+              {dvAplicado && <div className="mt-2 text-[11px] rounded-lg px-2.5 py-1.5" style={{ background: '#e7f6f2', color: '#04896f' }}>Se cargaron los datos predeterminados de este cliente.</div>}
+            </section>
+          )}
         </>
       )}
 
       <section className="ns-sec">
-        <header><span className="ns-num"><StickyNote className="w-3 h-3" /></span><h4>{esVenta ? 'Nota de la venta' : 'Nota importante para esta proforma'}</h4><span className="ml-auto text-[10px] text-slate-400">{esVenta ? 'interna' : 'aparece en el PDF'}</span></header>
-        <textarea rows={4} value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Condiciones, tiempos de entrega, garantía..." className="ns-input" />
+        <header><span className="ns-num"><StickyNote className="w-3 h-3" /></span><h4>{esVenta ? 'Nota importante para esta venta' : 'Nota importante para esta proforma'}</h4><span className="ml-auto text-[10px] text-slate-400">{esVenta ? 'interna' : 'aparece en el PDF'}</span></header>
+        <textarea rows={4} value={nota} onChange={(e) => setNota(e.target.value)} placeholder={esVenta ? 'Independiente de la cotización; no aparece en el PDF de proforma...' : 'Condiciones, tiempos de entrega, garantía...'} className="ns-input" />
         <label className="block mt-2"><span className="ns-label">Asesor</span>
           <select className="ns-input" value={asesorId} onChange={(e) => setAsesorId(e.target.value)}>{asesores.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}</select></label>
       </section>
@@ -274,7 +338,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   const panelInventario = (
     <div className={'flex-col overflow-hidden p-4 lg:pl-0 lg:flex' + (pestana === 'inventario' ? ' flex' : ' hidden')}>
       <section className="ns-sec flex-1 flex flex-col min-h-0">
-        <header><span className="ns-num">{esVenta ? 5 : 3}</span><h4>Agregar productos</h4><span className="ml-auto text-[10px] text-slate-400">inventario con precio</span></header>
+        <header><span className="ns-num">{esVenta ? <PackageSearch className="w-3 h-3" /> : 3}</span><h4>Agregar productos</h4><span className="ml-auto text-[10px] text-slate-400">inventario con precio</span></header>
         <div className="relative mb-2">
           <input type="text" value={qp} onChange={(e) => setQp(e.target.value)} placeholder="Buscar por nombre, código o marca..." className="ns-input pl-9" />
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -382,6 +446,8 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
             <div className="ml-auto hidden md:flex items-center gap-1.5">
               <span className={'ns-step' + (pasos.cliente ? ' done' : '')}><User />Cliente</span>
               <span className={'ns-step' + (pasos.captacion ? ' done' : '')}><Magnet />Captación</span>
+              {esVenta && <span className={'ns-step' + (pasos.pago ? ' done' : '')}><CreditCard />Pago</span>}
+              {esVenta && <span className={'ns-step' + (pasos.entrega ? ' done' : '')}><Truck />Entrega</span>}
               <span className={'ns-step' + (pasos.productos ? ' done' : '')}><Package />Productos</span>
             </div>
             <button onClick={cerrar} className="ml-2 w-9 h-9 rounded-full grid place-items-center bg-white/10 hover:bg-white/20" aria-label="Cerrar"><X className="w-4 h-4" /></button>

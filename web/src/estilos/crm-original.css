@@ -602,3 +602,7 @@
 @media (min-width:768px){.md\:block{display:block}.md\:flex{display:flex}.md\:grid{display:grid}.md\:hidden{display:none}}
 @media (min-width:1024px){.lg\:block{display:block}.lg\:flex{display:flex}.lg\:grid{display:grid}.lg\:hidden{display:none}}
 @media (min-width:1280px){.xl\:block{display:block}.xl\:flex{display:flex}.xl\:hidden{display:none}}
+
+/* Las ventanas del módulo van por encima de la barra lateral (z-index 140) */
+.vm-modulo .z-40,.vm-modulo .z-50,.vm-modulo .z-\[60\],.vm-modulo .z-\[70\]{z-index:160}
+.vm-modulo header.z-30 .z-50{z-index:50}
