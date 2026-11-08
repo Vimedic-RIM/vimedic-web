@@ -31,7 +31,7 @@ export const MODULOS: Record<string, Modulo> = {
   catalogos: { id: 'catalogos', label: 'Catálogos personalizados', desc: 'Catálogos PDF por segmento con tu WhatsApp de asesor.', icono: BookOpen, permiso: 'catalogos', c: '#1d2344', listo: true },
   ofertas: { id: 'ofertas', label: 'Ofertas y Liquidación', desc: 'Stock dormido y con observaciones: estrategias, ofertas y resultados.', icono: Tag, permiso: 'ofertas', c: '#c2410c', listo: true },
   clientes: { id: 'clientes', label: 'Clientes', desc: 'Ficha completa de cada cliente: datos, cotizaciones, facturas y productos.', icono: Users, permiso: 'clientes', c: '#0e7490', listo: true },
-  seguridad: { id: 'seguridad', label: 'Seguridad y Auditoría', desc: 'Usuarios, roles, sesiones activas y bitácora de actividad.', icono: ShieldCheck, permiso: 'seguridad', c: '#334155', listo: false },
+  seguridad: { id: 'seguridad', label: 'Seguridad y Auditoría', desc: 'Usuarios, roles, sesiones activas y bitácora de actividad.', icono: ShieldCheck, permiso: 'seguridad', c: '#334155', listo: true },
   // En la base nueva "bases de datos" cuelga del módulo seguridad.
   basedatos: { id: 'basedatos', label: 'Bases de Datos', desc: 'Tablas, registros, exportaciones, respaldos y restauración.', icono: Database, permiso: 'seguridad', c: '#0f172a', listo: false },
 }
