@@ -173,14 +173,14 @@ function Panel({ id, perfil, editar, equipo, aviso, cerrar }: { id: string; perf
   }
   async function descargarConstancia() {
     if (!o) return
-    const p = o.prueba, e = o.entrega, marca = o.empresa === 'FEMEDICS' ? 'FEMEDICS' : 'VIMEDIC', esc = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    const p = o.prueba, e = o.entrega, marca = o.empresa === 'FEMEDICS' ? 'FEMEDICS' : 'VIMEDIC', esc = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
     const filas = o.productos.map((x) => `<tr><td style="padding:6px;border-bottom:1px solid #e2e8f0">${esc(x.cantidad)}</td><td style="padding:6px;border-bottom:1px solid #e2e8f0">${esc(x.nombre)}<br><span style="color:#64748b;font-size:10px">${esc(x.id)}</span></td><td style="padding:6px;border-bottom:1px solid #e2e8f0;font-family:monospace;font-size:10px">${(x.series || []).map(esc).join('<br>')}</td></tr>`).join('')
     const html = `<div style="font-family:Arial,sans-serif;color:#0b2545;font-size:12px;padding:8px"><div style="border-bottom:3px solid #055c9d;padding-bottom:8px;margin-bottom:14px"><b style="font-size:20px;color:#055c9d">${marca}</b><span style="float:right;font-size:11px;color:#64748b">Constancia de entrega · ${esc(o.codigo)}</span></div>` +
       `<p><b>Cliente:</b> ${esc(o.cliente)} &nbsp; <b>Factura:</b> ${esc(o.factura || '—')}</p><p><b>Dirección:</b> ${esc(e.direccionEnvio || e.direccionEntregaLocal || (o.modalidad === 'Retiro' ? 'Retiro en oficina' : '—'))}${e.ciudad ? ', ' + esc(e.ciudad) : ''}</p>` +
       `<p><b>Modalidad:</b> ${esc(o.modalidad)}${o.transportista ? ' · ' + esc(o.transportista) + ' guía ' + esc(o.guiaNumero) : ''}</p>` +
       `<table style="width:100%;border-collapse:collapse;margin:12px 0"><thead><tr style="background:#0b2545;color:#fff"><th style="padding:6px 6px 10px;text-align:left">Cant.</th><th style="padding:6px 6px 10px;text-align:left">Producto</th><th style="padding:6px 6px 10px;text-align:left">N° de serie</th></tr></thead><tbody>${filas}</tbody></table>` +
       `<p><b>Recibió:</b> ${esc(p.nombre || p.confirmacion || '—')}${p.cedula ? ' · C.I. ' + esc(p.cedula) : ''}</p><p><b>Fecha y hora:</b> ${esc(dhora(p.fecha || o.fechaEntrega))}${p.lat ? ` · Ubicación: ${Number(p.lat).toFixed(5)}, ${Number(p.lng).toFixed(5)}` : ''}</p>` +
-      `${p.firma ? `<p><b>Firma:</b><br><img src="${p.firma}" style="height:90px;border-bottom:1px solid #94a3b8"></p>` : ''}${p.nota ? `<p><b>Observación:</b> ${esc(p.nota)}</p>` : ''}` +
+      `${p.firma ? `<p><b>Firma:</b><br><img src="${esc(p.firma)}" style="height:90px;border-bottom:1px solid #94a3b8"></p>` : ''}${p.nota ? `<p><b>Observación:</b> ${esc(p.nota)}</p>` : ''}` +
       `<p style="margin-top:18px;font-size:10px;color:#64748b">Entregado por ${esc(p.por || '')}. El cliente declara recibir los productos detallados en buen estado.</p></div>`
     try {
       const html2pdf = (await import('html2pdf.js')).default
