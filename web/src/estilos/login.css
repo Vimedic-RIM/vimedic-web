@@ -1,0 +1,78 @@
+/* Copiado de LoginEmpleados.html (Apps Script); todo dentro de .vm-login. */
+.vm-login{
+    --navy:#0b2545; --primary:#055c9d; --text-muted:#365679;
+    --bg-panel:#f3f6fa; --border:#e2e8f0;
+  }
+.vm-login *{box-sizing:border-box;}
+.vm-login{
+    margin:0; font-family:'Inter',Arial,sans-serif; color:var(--navy);
+    min-height:100vh; display:flex; align-items:center; justify-content:center;
+    background:var(--bg-panel); padding:20px;
+  }
+.vm-login .card{
+    width:100%; max-width:920px; min-height:560px; background:#fff;
+    border-radius:20px; overflow:hidden; display:flex;
+    box-shadow:0 20px 60px rgba(11,37,69,0.18);
+  }
+.vm-login .panel-left{
+    flex:1; min-width:0; padding:48px 40px; color:#fff; position:relative;
+    background:linear-gradient(135deg, var(--navy), var(--primary));
+    display:flex; flex-direction:column; justify-content:space-between;
+    overflow:hidden;
+  }
+.vm-login .panel-left::before{
+    content:''; position:absolute; inset:-40% -20% auto auto; width:320px; height:320px;
+    border-radius:50%; border:1px solid rgba(255,255,255,0.18);
+  }
+.vm-login .panel-left::after{
+    content:''; position:absolute; inset:auto -20% -40% auto; width:260px; height:260px;
+    border-radius:50%; border:1px solid rgba(255,255,255,0.14);
+  }
+.vm-login .logo-mark{
+    width:44px; height:44px; border-radius:12px; background:rgba(255,255,255,0.15);
+    display:flex; align-items:center; justify-content:center; font-size:22px; z-index:1;
+  }
+.vm-login .panel-left h1{ font-size:30px; line-height:1.25; font-weight:800; margin:28px 0 12px; z-index:1; position:relative;}
+.vm-login .panel-left p{ font-size:14.5px; line-height:1.6; color:rgba(255,255,255,0.85); max-width:320px; z-index:1; position:relative;}
+.vm-login .panel-left .brand{ font-size:13px; letter-spacing:0.08em; text-transform:uppercase; opacity:0.75; z-index:1; position:relative;}
+.vm-login .panel-right{
+    flex:1; min-width:0; padding:48px 44px; display:flex; flex-direction:column; justify-content:center;
+  }
+.vm-login .brand-name{ font-weight:800; font-size:15px; letter-spacing:0.02em; color:var(--navy); margin-bottom:26px;}
+.vm-login .panel-right h2{ font-size:24px; font-weight:800; margin:0 0 6px; color:var(--navy);}
+.vm-login .subtitle{ font-size:13.5px; color:var(--text-muted); margin:0 0 26px;}
+.vm-login label{ font-size:12.5px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:6px;}
+.vm-login .field{ margin-bottom:16px; }
+.vm-login input[type=email], .vm-login input[type=password]{
+    width:100%; padding:12px 14px; border-radius:10px; border:1px solid var(--border);
+    font-size:14px; font-family:inherit; color:var(--navy); background:#fbfcfe;
+    outline:none; transition:border-color .15s;
+  }
+.vm-login input[type=email]:focus, .vm-login input[type=password]:focus{ border-color:var(--primary); background:#fff;}
+.vm-login .btn-primary{
+    width:100%; padding:13px 14px; border:none; border-radius:10px; cursor:pointer;
+    background:var(--navy); color:#fff; font-weight:700; font-size:14.5px; margin-top:6px;
+    transition:opacity .15s;
+  }
+.vm-login .btn-primary:hover{ opacity:0.92; }
+.vm-login .btn-primary:disabled{ opacity:0.6; cursor:not-allowed; }
+.vm-login .divider{ display:flex; align-items:center; gap:10px; margin:18px 0; color:#9aa9bd; font-size:12px;}
+.vm-login .divider::before, .vm-login .divider::after{ content:''; flex:1; height:1px; background:var(--border);}
+.vm-login .btn-google{
+    width:100%; padding:11px 14px; border-radius:10px; border:1px solid var(--border);
+    background:#fff; color:var(--navy); font-weight:600; font-size:14px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; gap:10px; text-decoration:none;
+  }
+.vm-login .btn-google:hover{ background:#f7f9fc; }
+.vm-login .foot-row{ margin-top:18px; font-size:12.5px; color:var(--text-muted); text-align:center; }
+.vm-login .foot-row a{ color:var(--primary); font-weight:600; text-decoration:none; }
+.vm-login .foot-row a:hover{ text-decoration:underline; }
+.vm-login #msgError{
+    display:none; background:#fdecec; border:1px solid #f5b8b8; color:#a12525;
+    font-size:13px; padding:10px 12px; border-radius:8px; margin-bottom:14px;
+  }
+@media (max-width: 720px){.vm-login .card{ flex-direction:column; min-height:0; }
+.vm-login .panel-left{ padding:32px 28px; }
+.vm-login .panel-left h1{ font-size:24px; margin-top:16px; }
+
+  }
