@@ -7,7 +7,7 @@ export const MODULOS: Modulo[] = [
   { clave: 'crm', titulo: 'CRM', desc: 'Leads, cotizaciones y embudo comercial.', color: '#04896f', listo: false },
   { clave: 'clientes', titulo: 'Clientes', desc: 'Base de clientes y su historial.', color: '#17a9ba', listo: false },
   { clave: 'femedics', titulo: 'Femedics', desc: 'CRM del distribuidor autorizado.', color: '#e1306c', listo: false },
-  { clave: 'inventario', titulo: 'Inventario', desc: 'Productos, stock y catálogo.', color: '#c98a1f', listo: false },
+  { clave: 'inventario', titulo: 'Inventario', desc: 'Productos, stock y catálogo.', color: '#c98a1f', listo: true },
   { clave: 'movimientos', titulo: 'Movimientos', desc: 'Kardex de entradas y salidas.', color: '#055c9d', listo: false },
   { clave: 'facturacion', titulo: 'Facturación', desc: 'Facturas y notas de crédito.', color: '#04896f', listo: false },
   { clave: 'agenda', titulo: 'Agenda', desc: 'Citas, visitas y tareas.', color: '#17a9ba', listo: false },

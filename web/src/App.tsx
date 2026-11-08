@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase, type Perfil } from './supabase'
 import { MODULOS } from './modulos'
+import { puede } from './permisos'
+import Inventario from './modulos/Inventario'
 
 function iniciales(nombre: string) {
   return nombre.split(' ').filter(Boolean).slice(0, 2).map((p) => p[0]).join('').toUpperCase()
@@ -43,8 +45,8 @@ function Login() {
   )
 }
 
-function MiEspacio({ perfil }: { perfil: Perfil }) {
-  const visibles = MODULOS.filter((m) => perfil.es_superadmin || perfil.permisos?.[m.clave]?.includes('ver'))
+function MiEspacio({ perfil, abrir }: { perfil: Perfil; abrir: (clave: string) => void }) {
+  const visibles = MODULOS.filter((m) => puede(perfil, m.clave, 'ver'))
   const hoy = new Date().toLocaleDateString('es-EC', { weekday: 'long', day: 'numeric', month: 'long' })
 
   return (
@@ -87,7 +89,15 @@ function MiEspacio({ perfil }: { perfil: Perfil }) {
         ) : (
           <div className="grid">
             {visibles.map((m) => (
-              <div key={m.clave} className={'modulo' + (m.listo ? '' : ' pronto')} style={{ ['--c' as string]: m.color }}>
+              <div
+                key={m.clave}
+                className={'modulo' + (m.listo ? ' activo' : ' pronto')}
+                style={{ ['--c' as string]: m.color }}
+                onClick={m.listo ? () => abrir(m.clave) : undefined}
+                role={m.listo ? 'button' : undefined}
+                tabIndex={m.listo ? 0 : undefined}
+                onKeyDown={m.listo ? (e) => { if (e.key === 'Enter') abrir(m.clave) } : undefined}
+              >
                 <div className="modulo-barra" />
                 <div className="module-title">{m.titulo}</div>
                 <p>{m.desc}</p>
@@ -104,6 +114,13 @@ function MiEspacio({ perfil }: { perfil: Perfil }) {
 export default function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined)
   const [perfil, setPerfil] = useState<Perfil | null | undefined>(undefined)
+  const [vista, setVista] = useState(window.location.hash.slice(1))
+
+  useEffect(() => {
+    const f = () => setVista(window.location.hash.slice(1))
+    window.addEventListener('hashchange', f)
+    return () => window.removeEventListener('hashchange', f)
+  }, [])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session))
@@ -129,5 +146,8 @@ export default function App() {
         </div>
       </div>
     )
-  return <MiEspacio perfil={perfil} />
+  const abrir = (clave: string) => { window.location.hash = clave }
+  const volver = () => { window.location.hash = '' }
+  if (vista === 'inventario' && puede(perfil, 'inventario', 'ver')) return <Inventario perfil={perfil} volver={volver} />
+  return <MiEspacio perfil={perfil} abrir={abrir} />
 }
