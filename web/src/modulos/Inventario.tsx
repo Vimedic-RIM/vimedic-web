@@ -53,6 +53,21 @@ const dinero = (v: number | null | undefined) =>
   '$' + (Number(v) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const num2 = (v: number | null | undefined) => (Number(v) || 0).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
+// Igual que la app original: los enlaces de Drive se piden como miniatura del ancho necesario.
+// Cuando las imágenes pasen a R2 (media.vimedic.com.ec) esta función devuelve la URL tal cual.
+function imagen(url: string | null | undefined, ancho: number): string {
+  const v = String(url || '').trim()
+  if (!v) return ''
+  try {
+    const u = new URL(v)
+    if (u.hostname !== 'drive.google.com' && !/^lh[0-9]+\.googleusercontent\.com$/.test(u.hostname)) return v
+    const m = u.pathname.match(/\/d\/([a-zA-Z0-9_-]+)/)
+    const id = m ? m[1] : u.searchParams.get('id')
+    if (!id || !/^[a-zA-Z0-9_-]+$/.test(id)) return v
+    return `https://lh3.googleusercontent.com/d/${id}=w${ancho}`
+  } catch { return v }
+}
+
 const limpiar = (t: string) => t.replace(/[,()%*\\"']/g, ' ').trim()
 const inactivo = (p: Fila) => String(p.estado || '').trim().toLowerCase() === 'inactivo'
 const esNuevo = (p: Fila) => {
@@ -100,7 +115,7 @@ function Tarjeta({ p, abrir }: { p: Fila; abrir: (id: string) => void }) {
     <div className="row-card inv-card relative bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col" onClick={() => abrir(p.id)} title="Ver detalles" style={act ? undefined : { opacity: 0.55 }}>
       <div className="relative shrink-0">
         {p.imagen_url
-          ? <img loading="lazy" decoding="async" src={p.imagen_url} onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} className="w-full aspect-square object-cover bg-slate-50 border-b border-slate-100" alt="" />
+          ? <img loading="lazy" decoding="async" src={imagen(p.imagen_url, 320)}onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} className="w-full aspect-square object-cover bg-slate-50 border-b border-slate-100" alt="" />
           : <div className="w-full aspect-square bg-slate-50 border-b border-slate-100" />}
         <Nuevo p={p} extra="absolute bottom-1.5 left-1.5 shadow" />
         <div className="absolute top-1.5 right-1.5 flex flex-col gap-1">
@@ -144,7 +159,7 @@ function FilaTabla({ p, sel, click }: { p: Fila; sel: boolean; click: (id: strin
   const ivaTxt = p.aplica_iva === false ? 'IVA 0%' : '+ IVA'
   return (
     <div onClick={() => click(p.id)} className={'inv-tr ' + (sel ? 'is-sel' : '')} style={act ? undefined : { opacity: 0.55 }}>
-      <div className="inv-td-img">{p.imagen_url ? <img loading="lazy" decoding="async" src={p.imagen_url} onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} alt="" /> : <img alt="" style={{ visibility: 'hidden' }} />}</div>
+      <div className="inv-td-img">{p.imagen_url ? <img loading="lazy" decoding="async" src={imagen(p.imagen_url, 120)}onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} alt="" /> : <img alt="" style={{ visibility: 'hidden' }} />}</div>
       <div className="inv-lg inv-arch items-center gap-1">
         {p.ficha_tecnica_url && <a className="inv-tico" href={p.ficha_tecnica_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} title="Ficha técnica" style={{ color: 'var(--primary)' }}><FileText /></a>}
         {p.drive_carpeta_url && <a className="inv-tico" href={p.drive_carpeta_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} title="Multimedia" style={{ color: 'var(--teal)' }}><Images /></a>}
@@ -190,7 +205,7 @@ function Panel({ p, editar, abrirEditar }: { p: Fila; editar: boolean; abrirEdit
   return (
     <>
       <div className="inv-hero">
-        {p.imagen_url && <img src={p.imagen_url} onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} alt={p.nombre} onClick={() => window.open(p.imagen_url!, '_blank')} title="Ver imagen en grande" />}
+        {p.imagen_url && <img src={imagen(p.imagen_url, 800)} onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} alt={p.nombre} onClick={() => window.open(imagen(p.imagen_url, 1600), '_blank')} title="Ver imagen en grande" />}
         {p.imagen_url && (
           <div className="inv-hero-tools">
             <a href={p.imagen_url} download target="_blank" rel="noopener noreferrer" title="Descargar imagen"><Download /></a>
