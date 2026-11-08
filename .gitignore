@@ -13,3 +13,5 @@ origen_appscript/
 dist/
 
 datos_origen/
+web/harness/
+web/vite.harness.config.ts
