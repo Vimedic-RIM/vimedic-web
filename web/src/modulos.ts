@@ -16,7 +16,7 @@ export const MODULOS: Record<string, Modulo> = {
   agenda: { id: 'agenda', label: 'Mi Agenda', desc: 'Actividades, tareas y organización diaria.', icono: CalendarCheck, permiso: 'agenda', c: '#17a9ba', listo: false },
   facturacion: { id: 'facturacion', label: 'Facturación', desc: 'Facturas, actas, guías y notas de crédito.', icono: ReceiptText, permiso: 'facturacion', c: '#0e7490', listo: true },
   dashboard: { id: 'dashboard', label: 'Dashboard Ejecutivo', desc: 'Indicadores estratégicos y control de gestión.', icono: ChartNoAxesCombined, permiso: 'dashboard', c: '#0b2545', listo: true },
-  movimientos: { id: 'movimientos', label: 'Movimientos', desc: 'Historial de ingresos y salidas de todos los productos.', icono: PackagePlus, permiso: 'movimientos', c: '#0e7490', listo: false },
+  movimientos: { id: 'movimientos', label: 'Movimientos', desc: 'Historial de ingresos y salidas de todos los productos.', icono: PackagePlus, permiso: 'movimientos', c: '#0e7490', listo: true },
   femedics: { id: 'femedics', label: 'Femedics CRM', desc: 'Leads, cotizaciones y ventas de Femedics (distribuidor VIMEDIC).', icono: Kanban, permiso: 'femedics', c: '#2570da', listo: true },
   empleados: { id: 'empleados', label: 'Empleados', desc: 'Directorio, permisos y organigrama.', icono: UsersRound, permiso: 'empleados', c: '#7c3aed', listo: true },
   bodega: { id: 'bodega', label: 'Bodega', desc: 'Despacho de ventas: series, evidencias y novedades.', icono: Warehouse, permiso: 'bodega', c: '#9a6a12', listo: false },
