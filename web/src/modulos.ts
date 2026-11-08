@@ -28,7 +28,7 @@ export const MODULOS: Record<string, Modulo> = {
   financiero: { id: 'financiero', label: 'Financiero', desc: 'Cobros, pagos, flujo de caja y reportes.', icono: Landmark, permiso: 'financiero', c: '#15803d', listo: false },
   // En la base nueva "adquisiciones" no es un módulo aparte: se controla con importaciones.
   adquisiciones: { id: 'adquisiciones', label: 'Adquisiciones', desc: 'Ingresos de mercadería: compras a proveedor que suben el stock.', icono: PackagePlus, permiso: 'importaciones', c: '#0e7490', listo: false },
-  catalogos: { id: 'catalogos', label: 'Catálogos personalizados', desc: 'Catálogos PDF por segmento con tu WhatsApp de asesor.', icono: BookOpen, permiso: 'catalogos', c: '#1d2344', listo: false },
+  catalogos: { id: 'catalogos', label: 'Catálogos personalizados', desc: 'Catálogos PDF por segmento con tu WhatsApp de asesor.', icono: BookOpen, permiso: 'catalogos', c: '#1d2344', listo: true },
   ofertas: { id: 'ofertas', label: 'Ofertas y Liquidación', desc: 'Stock dormido y con observaciones: estrategias, ofertas y resultados.', icono: Tag, permiso: 'ofertas', c: '#c2410c', listo: false },
   clientes: { id: 'clientes', label: 'Clientes', desc: 'Ficha completa de cada cliente: datos, cotizaciones, facturas y productos.', icono: Users, permiso: 'clientes', c: '#0e7490', listo: false },
   seguridad: { id: 'seguridad', label: 'Seguridad y Auditoría', desc: 'Usuarios, roles, sesiones activas y bitácora de actividad.', icono: ShieldCheck, permiso: 'seguridad', c: '#334155', listo: false },

@@ -82,6 +82,8 @@ export default function Marketing({ perfil, aviso }: { perfil: Perfil; aviso: (t
   const [hasta, setHasta] = useState(hoy)
   const [datos, setDatos] = useState<Datos | null>(null)
   const [av, setAv] = useState<Av[] | null>(null)
+  const [catalogos, setCatalogos] = useState<{ f: string; asesor: string; cliente: string; formato: string; precios: string; segmentos: string; n: number; paginas: number }[]>([])
+  const [qCat, setQCat] = useState('')
   const [cargando, setCargando] = useState(false)
   const [error, setError] = useState('')
   const [actualizado, setActualizado] = useState('')
@@ -96,11 +98,12 @@ export default function Marketing({ perfil, aviso }: { perfil: Perfil; aviso: (t
   const cargarDatos = useCallback(async () => {
     setCargando(true)
     const desde12 = keyAdd(monthKeys(hasta, 12)[0] + '-01', 0) + 'T00:00:00-05:00'
-    const [f, c, l, a] = await Promise.all([
+    const [f, c, l, a, cg] = await Promise.all([
       supabase.from('facturas').select('codigo,estado,created_at,fecha_ganado,numero_contifico,medio_captacion_venta,subtotal,total,items,cliente:clientes(nombre),cotizacion:cotizaciones(nombre),asesor:empleados!asesor_id(nombre)').is('deleted_at', null).gte('created_at', desde12).limit(5000),
       supabase.from('cotizaciones').select('fecha,total').is('deleted_at', null).gte('fecha', desde12).limit(5000),
       supabase.from('leads').select('fecha,medio_captacion,anuncio').is('deleted_at', null).gte('fecha', desde12).limit(5000),
       supabase.from('audiovisual').select('id,codigo,fecha,titulo,tipo,estado,campana,notas,responsable_id,tamano_mb,archivo_url,mime,responsable:empleados!responsable_id(nombre),producto:productos(codigo,nombre)').is('deleted_at', null).order('fecha', { ascending: false }).limit(1000),
+      supabase.from('catalogos_generados').select('fecha,cliente_texto,formato,precios,segmentos,n_productos,paginas,asesor:empleados!asesor_id(nombre)').is('deleted_at', null).gte('fecha', desde12).order('fecha', { ascending: false }).limit(1000),
     ])
     const err = f.error || c.error || l.error || a.error
     if (err) { setError('No se pudieron cargar los datos: ' + err.message); setCargando(false); return }
@@ -122,6 +125,7 @@ export default function Marketing({ perfil, aviso }: { perfil: Perfil; aviso: (t
       id: x.id, codigo: x.codigo ?? '', fecha: x.fecha, titulo: x.titulo, tipo: x.tipo ?? '', estado: x.estado, campana: x.campana ?? '', notas: x.notas ?? '', responsable: x.responsable?.nombre ?? '', responsableId: x.responsable_id,
       producto: x.producto ? `${x.producto.codigo ?? ''} · ${x.producto.nombre}` : '', tamano: x.tamano_mb, url: x.archivo_url ?? '', mime: x.mime ?? '',
     })))
+    setCatalogos(((cg.data ?? []) as R[]).map((x) => ({ f: x.fecha, asesor: x.asesor?.nombre ?? '—', cliente: x.cliente_texto ?? '', formato: x.formato ?? '', precios: x.precios ?? '', segmentos: x.segmentos ?? '', n: Number(x.n_productos) || 0, paginas: Number(x.paginas) || 0 })))
     setActualizado('Actualizado ' + new Date().toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' }))
     setCargando(false)
   }, [hasta])
@@ -221,6 +225,8 @@ export default function Marketing({ perfil, aviso }: { perfil: Perfil; aviso: (t
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + rows.map((r) => r.map(q).join(';')).join('\r\n')], { type: 'text/csv;charset=utf-8' }))
     a.download = `ventas_marketing_${desde}_${hasta}.csv`; a.click()
   }
+  const catPeriodo = useMemo(() => catalogos.filter((c) => enPeriodo(ecKey(c.f))), [catalogos, desde, hasta]) // eslint-disable-line react-hooks/exhaustive-deps
+  const catFiltrados = useMemo(() => { const q = qCat.trim().toLowerCase(); return q ? catPeriodo.filter((c) => (c.asesor + ' ' + c.cliente + ' ' + c.segmentos + ' ' + c.formato).toLowerCase().includes(q)) : catPeriodo }, [catPeriodo, qCat])
   const anuncios = useMemo(() => {
     const m: Record<string, number> = {}; L.forEach((l) => { if (l.anuncio) m[l.anuncio] = (m[l.anuncio] || 0) + 1 })
     return Object.entries(m).sort((a, b) => b[1] - a[1])
@@ -289,9 +295,23 @@ export default function Marketing({ perfil, aviso }: { perfil: Perfil; aviso: (t
 
             <article className="card mt-4 overflow-hidden">
               <div className="p-4 flex items-center gap-2 flex-wrap border-b border-slate-100">
-                <div className="mr-auto"><h3 className="font-display font-bold text-sm text-slate-800 flex items-center gap-2"><BookOpen className="w-4 h-4 text-[var(--primary)]" />Catálogos personalizados del período</h3><p className="text-[11px] text-slate-400">Quién armó cada catálogo, para qué cliente y qué incluyó</p></div>
+                <div className="mr-auto"><h3 className="font-display font-bold text-sm text-slate-800 flex items-center gap-2"><BookOpen className="w-4 h-4 text-[var(--primary)]" />Catálogos personalizados del período</h3>
+                  <p className="text-[11px] text-slate-400">{catPeriodo.length ? `${catPeriodo.length} catálogo${catPeriodo.length === 1 ? '' : 's'} en el período` : 'Quién armó cada catálogo, para qué cliente y qué incluyó'}</p></div>
+                <div className="relative"><Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" /><input type="search" value={qCat} onChange={(e) => setQCat(e.target.value)} placeholder="Asesor, cliente, segmento…" className="inp pl-8 w-52" /></div>
               </div>
-              <p className="p-6 text-center text-xs text-slate-400">Todavía no se generaron catálogos personalizados en este período. Se mostrarán aquí cuando el módulo Catálogos esté migrado.</p>
+              <div className="overflow-auto max-h-[420px]">
+                {catFiltrados.length ? (
+                  <table className="w-full text-xs"><thead className="bg-slate-50 text-[10px] uppercase text-slate-500 sticky top-0"><tr>{['Fecha', 'Asesor', 'Cliente', 'Tipo', 'Segmentos', 'Productos', 'Páginas'].map((h, i) => <th key={h} className={'px-3 py-2 font-bold whitespace-nowrap ' + (i > 4 ? 'text-right' : 'text-left')}>{h}</th>)}</tr></thead>
+                    <tbody>{catFiltrados.slice(0, 200).map((c, i) => (
+                      <tr key={i} className="border-t border-slate-100 hover:bg-slate-50">
+                        <td className="px-3 py-2 whitespace-nowrap text-slate-500">{new Date(c.f).toLocaleDateString('es-EC', { day: '2-digit', month: 'short', year: '2-digit' })} · {new Date(c.f).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', hour12: false })}</td>
+                        <td className="px-3 py-2 font-semibold text-slate-700 whitespace-nowrap">{c.asesor}</td>
+                        <td className="px-3 py-2">{c.cliente ? <b className="text-slate-800">{c.cliente}</b> : <span className="text-slate-400">Sin cliente</span>}</td>
+                        <td className="px-3 py-2 whitespace-nowrap"><span className={'inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold ' + (c.formato === 'Impreso' ? 'bg-amber-50 text-amber-700' : 'bg-sky-50 text-sky-700')}>{c.formato || 'Digital'}</span>{c.precios === 'Con precios' && <span className="text-[10px] text-slate-400"> con precios</span>}</td>
+                        <td className="px-3 py-2 text-slate-500 max-w-[320px] truncate" title={c.segmentos}>{c.segmentos || '—'}</td>
+                        <td className="px-3 py-2 text-right font-bold text-slate-700">{c.n}</td><td className="px-3 py-2 text-right text-slate-500">{c.paginas || '—'}</td></tr>))}</tbody></table>
+                ) : <p className="p-6 text-center text-xs text-slate-400">{catPeriodo.length ? 'Ningún catálogo coincide con la búsqueda.' : 'Todavía no se generaron catálogos personalizados en este período.'}</p>}
+              </div>
             </article>
 
             <article className="card mt-4 overflow-hidden">
