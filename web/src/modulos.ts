@@ -13,7 +13,7 @@ export const MODULOS: Record<string, Modulo> = {
   crm: { id: 'crm', label: 'CRM Vimedic', desc: 'Pipeline, cotizaciones, ventas, seguimiento y mensajes.', icono: Kanban, permiso: 'crm', c: '#055c9d', listo: true },
   marketing: { id: 'marketing', label: 'Marketing', desc: 'Resultados, planificador, audiovisual y biblioteca.', icono: Megaphone, permiso: 'marketing', c: '#e1306c', listo: true },
   inventario: { id: 'inventario', label: 'Inventario', desc: 'Productos, stock, precios y fichas técnicas.', icono: Package, permiso: 'inventario', c: '#04896f', listo: true },
-  agenda: { id: 'agenda', label: 'Mi Agenda', desc: 'Actividades, tareas y organización diaria.', icono: CalendarCheck, permiso: 'agenda', c: '#17a9ba', listo: false },
+  agenda: { id: 'agenda', label: 'Mi Agenda', desc: 'Actividades, tareas y organización diaria.', icono: CalendarCheck, permiso: 'agenda', c: '#17a9ba', listo: true },
   facturacion: { id: 'facturacion', label: 'Facturación', desc: 'Facturas, actas, guías y notas de crédito.', icono: ReceiptText, permiso: 'facturacion', c: '#0e7490', listo: true },
   dashboard: { id: 'dashboard', label: 'Dashboard Ejecutivo', desc: 'Indicadores estratégicos y control de gestión.', icono: ChartNoAxesCombined, permiso: 'dashboard', c: '#0b2545', listo: true },
   movimientos: { id: 'movimientos', label: 'Movimientos', desc: 'Historial de ingresos y salidas de todos los productos.', icono: PackagePlus, permiso: 'movimientos', c: '#0e7490', listo: true },
