@@ -17,6 +17,7 @@ type Venta = { f: string; id: string; cliente: string; ident: string; ciudad: st
 type Prof = { f: string; monto: number; asesor: string }
 type Lead = { f: string; medio: string; anuncio: string }
 type Av = { f: string; tipo: string; estado: string; responsable: string; producto: string; codigo: string; titulo: string }
+type Nc = { f: string; base: number; total: number }
 type Pipe = { embudo: Record<string, number>; abierto: number; cuenta: number; tasa: number }
 type R = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 type Filtro = { asesor: string; cliente: string; ciudad: string; medio: string; tipo: string }
@@ -41,10 +42,21 @@ function useDataset<T>(clave: string, hasta: string, version: number, cargador: 
   return { d, err }
 }
 const ts = (d: string) => d + 'T00:00:00-05:00'
+/* La API devuelve como máximo 1.000 filas por petición: se pide por páginas (ordenadas por id, que es único) hasta traerlo todo. */
+async function paginar(q: (desde: number, hasta: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>, max = 30000): Promise<R[]> {
+  const out: R[] = []
+  for (let i = 0; i < max; i += 1000) {
+    const { data, error } = await q(i, i + 999)
+    if (error) throw new Error(error.message)
+    out.push(...((data ?? []) as R[]))
+    if (!data || data.length < 1000) break
+  }
+  return out
+}
+/* El Dashboard Ejecutivo es de VIMEDIC: Femedics tiene su propio módulo y sus datos no se mezclan aquí. */
 const cargarVentas = async (desde: string): Promise<Venta[]> => {
-  const { data, error } = await supabase.from('facturas').select('codigo,estado,created_at,fecha_ganado,numero_contifico,medio_captacion_venta,subtotal,total,items,cliente:clientes(nombre,ciudad,provincia,tipo_cliente,identificacion),cotizacion:cotizaciones(nombre),asesor:empleados!asesor_id(nombre)').is('deleted_at', null).gte('created_at', ts(desde)).limit(5000)
-  if (error) throw error
-  return ((data ?? []) as R[]).map((x) => {
+  const data = await paginar((a, z) => supabase.from('facturas').select('codigo,estado,created_at,fecha_ganado,numero_contifico,medio_captacion_venta,subtotal,total,items,cliente:clientes(nombre,ciudad,provincia,tipo_cliente,identificacion),cotizacion:cotizaciones(nombre),asesor:empleados!asesor_id(nombre)').eq('empresa', 'VIMEDIC').is('deleted_at', null).gte('created_at', ts(desde)).order('id').range(a, z))
+  return data.map((x) => {
     const total = Number(x.total) || 0
     return {
       f: x.fecha_ganado || ecKey(x.created_at), id: x.codigo, cliente: x.cliente?.nombre ?? x.cotizacion?.nombre ?? '', ident: x.cliente?.identificacion ?? '', ciudad: x.cliente?.ciudad ?? '', provincia: x.cliente?.provincia ?? '',
@@ -54,38 +66,40 @@ const cargarVentas = async (desde: string): Promise<Venta[]> => {
   })
 }
 const cargarProformas = async (desde: string): Promise<Prof[]> => {
-  const { data, error } = await supabase.from('cotizaciones').select('fecha,total,asesor:empleados!asesor_id(nombre)').is('deleted_at', null).gte('fecha', ts(desde)).limit(5000)
-  if (error) throw error
-  return ((data ?? []) as R[]).map((x) => ({ f: ecKey(x.fecha), monto: Number(x.total) || 0, asesor: x.asesor?.nombre ?? '' }))
+  const data = await paginar((a, z) => supabase.from('cotizaciones').select('fecha,total,asesor:empleados!asesor_id(nombre)').eq('empresa', 'VIMEDIC').is('deleted_at', null).gte('fecha', ts(desde)).order('id').range(a, z))
+  return data.map((x) => ({ f: ecKey(x.fecha), monto: Number(x.total) || 0, asesor: x.asesor?.nombre ?? '' }))
 }
 const cargarLeads = async (desde: string): Promise<Lead[]> => {
-  const { data, error } = await supabase.from('leads').select('fecha,medio_captacion,anuncio').is('deleted_at', null).gte('fecha', ts(desde)).limit(5000)
-  if (error) throw error
-  return ((data ?? []) as R[]).map((x) => ({ f: ecKey(x.fecha), medio: x.medio_captacion ?? '', anuncio: x.anuncio ?? '' }))
+  const data = await paginar((a, z) => supabase.from('leads').select('fecha,medio_captacion,anuncio').eq('empresa', 'VIMEDIC').is('deleted_at', null).gte('fecha', ts(desde)).order('id').range(a, z))
+  return data.map((x) => ({ f: ecKey(x.fecha), medio: x.medio_captacion ?? '', anuncio: x.anuncio ?? '' }))
 }
 const cargarClientesNuevos = async (desde: string): Promise<string[]> => {
-  const { data, error } = await supabase.from('clientes').select('fecha_registro,created_at').is('deleted_at', null).gte('created_at', ts(desde)).limit(5000)
-  if (error) throw error
-  return ((data ?? []) as R[]).map((x) => ecKey(x.fecha_registro || x.created_at))
+  const data = await paginar((a, z) => supabase.from('clientes').select('fecha_registro,created_at').eq('empresa', 'VIMEDIC').is('deleted_at', null).or('fecha_registro.gte.' + ts(desde) + ',and(fecha_registro.is.null,created_at.gte.' + ts(desde) + ')').order('id').range(a, z))
+  return data.map((x) => ecKey(x.fecha_registro || x.created_at))
 }
 const cargarAv = async (desde: string): Promise<Av[]> => {
-  const { data, error } = await supabase.from('audiovisual').select('fecha,tipo,estado,titulo,responsable:empleados!responsable_id(nombre),producto:productos(codigo,nombre)').is('deleted_at', null).gte('fecha', ts(keyAdd(desde, -40))).limit(3000)
-  if (error) throw error
-  return ((data ?? []) as R[]).map((x) => ({ f: ecKey(x.fecha), tipo: x.tipo ?? '', estado: x.estado ?? '', responsable: x.responsable?.nombre ?? '', producto: x.producto?.nombre ?? '', codigo: x.producto?.codigo ?? '', titulo: x.titulo ?? '' }))
+  const data = await paginar((a, z) => supabase.from('audiovisual').select('fecha,tipo,estado,titulo,responsable:empleados!responsable_id(nombre),producto:productos(codigo,nombre)').is('deleted_at', null).gte('fecha', ts(keyAdd(desde, -40))).order('id').range(a, z))
+  return data.map((x) => ({ f: ecKey(x.fecha), tipo: x.tipo ?? '', estado: x.estado ?? '', responsable: x.responsable?.nombre ?? '', producto: x.producto?.nombre ?? '', codigo: x.producto?.codigo ?? '', titulo: x.titulo ?? '' }))
 }
+/* Notas de crédito aplicadas: se cuentan en la fecha de la nota, por su base sin IVA (igual que el Dashboard original). Los importes de la nota vienen en centavos. */
+const cargarNC = async (desde: string): Promise<Nc[]> => {
+  const data = await paginar((a, z) => supabase.from('notas_credito').select('fecha,datos,factura:facturas(codigo,empresa)').eq('tipo', 'nota_credito').is('deleted_at', null).gte('fecha', ts(desde)).order('id').range(a, z))
+  return data.filter((x) => !x.factura || x.factura.empresa === 'VIMEDIC').map((x) => {
+    const ls = ((x.datos?.lineas ?? []) as R[])
+    return { f: ecKey(x.fecha), base: Math.round(ls.reduce((s, l) => s + (Number(l.base) || 0), 0)) / 100, total: Math.round(Number(x.datos?.total) || 0) / 100 }
+  })
+}
+/* Pipeline actual del CRM: sin los registros históricos (ya cerrados) ni los de Femedics. */
 const cargarPipe = async (): Promise<Pipe> => {
   const [l, c] = await Promise.all([
-    supabase.from('leads').select('estado_crm').is('deleted_at', null).limit(20000),
-    supabase.from('cotizaciones').select('estado_crm,total,lead_id').is('deleted_at', null).limit(20000),
+    paginar((a, z) => supabase.from('leads').select('estado_crm').eq('empresa', 'VIMEDIC').is('deleted_at', null).order('id').range(a, z)),
+    paginar((a, z) => supabase.from('cotizaciones').select('estado_crm,total').eq('empresa', 'VIMEDIC').neq('tipo_registro', 'Histórico').is('deleted_at', null).order('id').range(a, z)),
   ])
-  if (l.error || c.error) throw (l.error || c.error)
   const emb: Record<string, number> = {}
-  const conCot = new Set(((c.data ?? []) as R[]).filter((x) => x.lead_id).map((x) => x.lead_id))
-  void conCot
-  ;[...((l.data ?? []) as R[]), ...((c.data ?? []) as R[])].forEach((x) => { const e = x.estado_crm || 'Nuevo'; emb[e] = (emb[e] || 0) + 1 })
+  ;[...l, ...c].forEach((x) => { const e = x.estado_crm || 'Nuevo'; emb[e] = (emb[e] || 0) + 1 })
   const cerrado = (e: string) => /ganad|perdid/i.test(e)
   const total = Object.values(emb).reduce((s, n) => s + n, 0)
-  const abiertas = ((c.data ?? []) as R[]).filter((x) => !cerrado(x.estado_crm || ''))
+  const abiertas = c.filter((x) => !cerrado(x.estado_crm || ''))
   return { embudo: emb, abierto: abiertas.reduce((s, x) => s + (Number(x.total) || 0), 0), cuenta: Object.entries(emb).filter(([k]) => !cerrado(k)).reduce((s, [, n]) => s + n, 0), tasa: total ? Math.round(((emb.Ganado || 0) / total) * 100) : 0 }
 }
 
@@ -132,16 +146,18 @@ function SecResumen({ c }: { c: Ctx }) {
   const { d: profs } = useDataset('profs', c.hasta, c.version, cargarProformas)
   const { d: leads } = useDataset('leads', c.hasta, c.version, cargarLeads)
   const { d: nuevos } = useDataset('nuevos', c.hasta, c.version, cargarClientesNuevos)
+  const { d: ncs } = useDataset('nc', c.hasta, c.version, cargarNC)
   const { en, prev: pp } = usePeriodo(c)
   if (err) return <Error_ t={err} />
   if (!ventas || !profs || !leads) return <div className="grid grid-cols-2 md:grid-cols-5 gap-3"><Cargando n={10} alto={104} /></div>
   const V = ventas.filter((v) => en(v.f)), P = profs.filter((p) => en(p.f)), L = leads.filter((l) => en(l.f)), NU = (nuevos ?? []).filter(en)
-  const total = V.reduce((s, v) => s + v.base, 0), fact = V.filter((v) => v.estado === 'Facturado'), pend = V.filter((v) => v.estado !== 'Facturado')
+  const NCP = (ncs ?? []).filter((n) => en(n.f)), ncBase = NCP.reduce((s, n) => s + n.base, 0)
+  const total = V.reduce((s, v) => s + v.base, 0) - ncBase, fact = V.filter((v) => v.estado === 'Facturado'), pend = V.filter((v) => v.estado !== 'Facturado')
   const totFact = fact.reduce((s, v) => s + v.base, 0), totPend = pend.reduce((s, v) => s + v.base, 0), valorP = P.reduce((s, p) => s + p.monto, 0)
-  const prev = pp ? { total: ventas.filter((v) => v.f >= pp.from && v.f <= pp.to).reduce((s, v) => s + v.base, 0), n: ventas.filter((v) => v.f >= pp.from && v.f <= pp.to).length, prof: profs.filter((p) => p.f >= pp.from && p.f <= pp.to).length, leads: leads.filter((l) => l.f >= pp.from && l.f <= pp.to).length } : null
+  const prev = pp ? { total: ventas.filter((v) => v.f >= pp.from && v.f <= pp.to).reduce((s, v) => s + v.base, 0) - (ncs ?? []).filter((n) => n.f >= pp.from && n.f <= pp.to).reduce((s, n) => s + n.base, 0), n: ventas.filter((v) => v.f >= pp.from && v.f <= pp.to).length, prof: profs.filter((p) => p.f >= pp.from && p.f <= pp.to).length, leads: leads.filter((l) => l.f >= pp.from && l.f <= pp.to).length } : null
   const delta = (a: number, b: number | undefined | null) => { if (b == null) return null; if (!b) return a ? <span className="delta up">nuevo</span> : null; const p = Math.round(((a - b) / b) * 100); return <span className={'delta ' + (p > 0 ? 'up' : p < 0 ? 'down' : 'eq')}>{p > 0 ? '▲ ' : p < 0 ? '▼ ' : ''}{Math.abs(p)}%</span> }
   const cards = [
-    { l: 'Ventas del período', v: '$' + money0(total), s: 'antes de IVA', d: prev && delta(total, prev.total), i: DollarSign, c: 'var(--teal)' },
+    { l: 'Ventas del período', v: '$' + money0(total), s: ncBase ? 'antes de IVA · neto de notas de crédito' : 'antes de IVA', d: prev && delta(total, prev.total), i: DollarSign, c: 'var(--teal)' },
     { l: 'Nº de ventas', v: V.length, s: 'gestiones ganadas', d: prev && delta(V.length, prev.n), i: Receipt, c: 'var(--primary)' },
     { l: 'Facturado', v: '$' + money0(totFact), s: `${fact.length} factura${fact.length === 1 ? '' : 's'} · ${total ? Math.round((totFact / total) * 100) : 0}%`, i: BadgeCheck, c: 'var(--teal)' },
     { l: 'Por facturar', v: '$' + money0(totPend), s: `${pend.length} venta${pend.length === 1 ? '' : 's'} pendiente${pend.length === 1 ? '' : 's'}`, i: Clock, c: 'var(--amber)' },
@@ -150,7 +166,7 @@ function SecResumen({ c }: { c: Ctx }) {
     { l: 'Conversión', v: (P.length ? Math.round((V.length / P.length) * 100) : 0) + '%', s: 'ventas / proformas', i: TrendingUp, c: 'var(--teal)' },
     { l: 'Leads', v: L.length, s: 'todas las fuentes', d: prev && delta(L.length, prev.leads), i: Users, c: 'var(--amber)' },
     { l: 'Clientes nuevos', v: NU.length, s: 'registrados en el período', i: UserPlus, c: 'var(--violet)' },
-    { l: 'Notas de crédito', v: '$0', s: '0 aplicadas · antes de IVA', i: ReceiptText, c: 'var(--red)' },
+    { l: 'Notas de crédito', v: '$' + money0(ncBase), s: `${NCP.length} aplicada${NCP.length === 1 ? '' : 's'} · antes de IVA`, i: ReceiptText, c: 'var(--red)' },
   ]
   return (
     <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -519,6 +535,7 @@ function SecAgenda({ c }: { c: Ctx }) {
 function SecCrm({ c }: { c: Ctx }) {
   const { d: pipe, err } = useDataset('pipe', c.hasta, c.version, cargarPipe)
   const { d: ventas } = useDataset('ventas', c.hasta, c.version, cargarVentas)
+  const { d: ncs } = useDataset('nc', c.hasta, c.version, cargarNC)
   const { en } = usePeriodo(c)
   const cfg = useMemo<ChartConfiguration | null>(() => {
     if (!pipe) return null
@@ -529,14 +546,14 @@ function SecCrm({ c }: { c: Ctx }) {
   }, [pipe])
   if (err) return <Error_ t={err} />
   if (!pipe) return <div className="grid grid-cols-1 lg:grid-cols-3 gap-4"><Cargando n={2} alto={280} /></div>
-  const total = (ventas ?? []).filter((v) => en(v.f)).reduce((s, v) => s + v.base, 0)
+  const total = (ventas ?? []).filter((v) => en(v.f)).reduce((s, v) => s + v.base, 0), ncBase = (ncs ?? []).filter((n) => en(n.f)).reduce((s, n) => s + n.base, 0)
   const box = (l: string, v: string | number, s: string, col: string) => <div key={l} className="rounded-xl border border-slate-100 p-3" style={{ background: col + '0d' }}><p className="font-display font-bold text-lg" style={{ color: col }}>{v}</p><p className="text-[10px] font-semibold uppercase font-mono-spec text-slate-500">{l}</p><p className="text-[10px] text-slate-400">{s}</p></div>
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
       <Tarjeta icono={Kanban} color="var(--violet)" titulo="Pipeline del CRM" sub="Foto actual · gestiones por estado (no depende del período)" span="lg:col-span-2" extra={<span className="pill bg-emerald-50 text-emerald-700">Actual</span>}><Alto cfg={cfg} /></Tarjeta>
       <Tarjeta icono={Gauge} color="var(--teal)" titulo="Salud comercial" sub="CRM y notas de crédito"><div className="grid grid-cols-2 gap-2">
         {box('Pipeline abierto', '$' + money0(pipe.abierto), 'valor estimado en gestión', '#7c3aed')}{box('Oportunidades', pipe.cuenta, 'gestiones activas', '#055c9d')}
-        {box('Conversión CRM', pipe.tasa + '%', 'ganados / total de leads', '#04896f')}{box('Notas de crédito', '0%', total ? 'del total vendido en el período' : 'sin ventas en el período', '#c0392b')}</div></Tarjeta>
+        {box('Conversión CRM', pipe.tasa + '%', 'ganados / total de leads', '#04896f')}{box('Notas de crédito', (total ? Math.round((ncBase / total) * 1000) / 10 : 0) + '%', total ? '$' + money0(ncBase) + ' del total vendido' : 'sin ventas en el período', '#c0392b')}</div></Tarjeta>
     </div>
   )
 }
