@@ -7,3 +7,6 @@ node_modules/
 service-account*.json
 supabase/.temp/
 supabase/.branches/
+
+# Código fuente exportado de Apps Script (solo referencia local, no subir)
+origen_appscript/
