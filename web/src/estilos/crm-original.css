@@ -575,3 +575,24 @@
       .plan-cal-month{grid-auto-rows:minmax(92px,1fr)}.plan-day{padding:4px}.plan-event-text{display:none}.plan-event{padding:2px 3px}
     }
 @keyframes refreshBarSlide { 0%{margin-left:-40%} 100%{margin-left:100%} }
+.vmpap-fondo{position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:2147483000;display:flex;align-items:center;justify-content:center;padding:16px;font-family:inherit}
+.vmpap{background:#fff;color:#0f172a;border-radius:18px;max-width:660px;width:100%;max-height:86vh;display:flex;flex-direction:column;box-shadow:0 30px 60px -15px rgba(15,23,42,.45);overflow:hidden}
+.vmpap-h{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid #eef2f6}
+.vmpap-h b{font-size:16px;flex:1}
+.vmpap-h small{display:block;font-weight:500;font-size:12px;color:#64748b;margin-top:2px}
+.vmpap-x{border:0;background:#f1f5f9;border-radius:10px;width:34px;height:34px;font-size:18px;cursor:pointer;color:#334155}
+.vmpap-b{overflow:auto;padding:10px 14px 16px}
+.vmpap-i{display:flex;gap:12px;align-items:flex-start;padding:12px 6px;border-bottom:1px dashed #e2e8f0}
+.vmpap-i:last-child{border-bottom:0}
+.vmpap-t{flex:1;min-width:0;font-size:13px;line-height:1.4}
+.vmpap-t p{margin:0;overflow-wrap:anywhere}
+.vmpap-t .d{font-weight:700}
+.vmpap-t .m{color:#64748b;font-size:11.5px}
+.vmpap-t .tg{display:inline-block;font-size:10.5px;font-weight:700;background:#fee2e2;color:#991b1b;border-radius:99px;padding:1px 8px;margin-right:6px}
+.vmpap-r{border:0;background:#0f766e;color:#fff;font-weight:700;font-size:12px;border-radius:10px;padding:8px 12px;cursor:pointer;white-space:nowrap}
+.vmpap-r[disabled]{opacity:.5;cursor:wait}
+.vmpap-v{text-align:center;color:#64748b;font-size:13px;padding:30px 10px}
+.vmpap-in{width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:10px;padding:10px;font:inherit;font-size:13px;min-height:70px;margin:10px 0}
+.vmpap-p{display:flex;gap:8px;justify-content:flex-end;padding:0 18px 16px}
+.vmpap-c{border:1px solid #cbd5e1;background:#fff;border-radius:10px;padding:9px 14px;font-weight:700;cursor:pointer;color:#334155}
+.vmpap-e{border:0;background:#dc2626;color:#fff;border-radius:10px;padding:9px 14px;font-weight:700;cursor:pointer}

@@ -8,6 +8,8 @@ import {
 } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
+import { ClientesLista, Papelera, ConfirmarEliminar } from './CrmClientes'
+import CrmDocumento, { type Origen } from './CrmDocumento'
 import '../estilos/crm-original.css'
 
 /* ============================ Tipos y datos ============================ */
@@ -94,6 +96,9 @@ export default function Crm({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
   const [etapaMovil, setEtapaMovil] = useState(0)
   const [abierta, setAbierta] = useState<string | null>(null)
   const [nueva, setNueva] = useState(false)
+  const [clientes, setClientes] = useState(false)
+  const [papelera, setPapelera] = useState(false)
+  const [documento, setDocumento] = useState<{ modo: 'Cotización' | 'Venta'; origen: Origen } | null>(null)
   const [mover, setMover] = useState<{ key: string; x: number; y: number } | null>(null)
   const [arrastrando, setArrastrando] = useState<string | null>(null)
   const peticion = useRef(0)
@@ -222,7 +227,7 @@ export default function Crm({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
     const g = gestiones.find((x) => x.key === key)
     if (!g || g.estado === nuevo) return
     if (g.estado === 'Ganado') { aviso('Esta gestión ya está en Ganado y pasó a facturación: no se puede mover de columna.'); return }
-    if (nuevo === 'Ganado') { aviso('Marcar como Ganado abre el formulario de venta, que todavía se está migrando.'); return }
+    if (nuevo === 'Ganado') { abrirVenta(g); return }
     const antes = gestiones
     setGestiones((a) => a.map((x) => (x.key === key ? { ...x, estado: nuevo, ultimaTS: Date.now() } : x)))
     const { error } = await supabase.from(g.tabla).update({ estado_crm: nuevo, ultima_actividad: new Date().toISOString() }).eq('id', g.id)
@@ -233,6 +238,9 @@ export default function Crm({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
       nota: `Estado actualizado a "${nuevo}".`, empleado_id: perfil.id, usuario_texto: perfil.nombre,
     })
   }
+
+  function abrirVenta(g: Gestion) { setAbierta(null); setDocumento({ modo: 'Venta', origen: { tabla: g.tabla, id: g.id, codigo: g.codigo, nombre: g.nombre, telefono: g.telefono, email: g.email, identificacion: g.identificacion, medio: g.medio } }) }
+  function cotizarDesde(g: Gestion) { setAbierta(null); setDocumento({ modo: 'Cotización', origen: { tabla: g.tabla, id: g.id, codigo: g.codigo, nombre: g.nombre, telefono: g.telefono, email: g.email, identificacion: g.identificacion, medio: g.medio } }) }
 
   const columnaActiva = typeof window !== 'undefined' && window.innerWidth < 640
 
@@ -294,10 +302,10 @@ export default function Crm({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
 
           <div className="hidden sm:flex items-center gap-1.5 ml-2">
             {crear && <button type="button" onClick={() => setNueva(true)} className="vm-hqa" title="Nueva gestión"><CirclePlus /><span>Nueva gestión</span></button>}
-            {crear && <button type="button" onClick={() => aviso('Nueva cotización se está migrando: sigue disponible en la app actual.')} className="vm-hqa" title="Nueva cotización"><FilePlus2 /><span>Cotización</span></button>}
-            {crear && <button type="button" onClick={() => aviso('Nueva venta se está migrando: sigue disponible en la app actual.')} className="vm-hqa" title="Nueva venta"><Receipt /><span>Venta</span></button>}
-            <button type="button" onClick={() => aviso('Clientes se está migrando: sigue disponible en la app actual.')} className="vm-hqa" title="Clientes"><Users /><span>Clientes</span></button>
-            {eliminar && <button type="button" onClick={() => aviso('La papelera del CRM se está migrando.')} className="vm-hqa" title="Papelera"><Trash2 /><span>Papelera</span></button>}
+            {crear && <button type="button" onClick={() => setDocumento({ modo: 'Cotización', origen: null })} className="vm-hqa" title="Nueva cotización"><FilePlus2 /><span>Cotización</span></button>}
+            {crear && <button type="button" onClick={() => setDocumento({ modo: 'Venta', origen: null })} className="vm-hqa" title="Nueva venta"><Receipt /><span>Venta</span></button>}
+            <button type="button" onClick={() => setClientes(true)} className="vm-hqa" title="Clientes"><Users /><span>Clientes</span></button>
+            {eliminar && <button type="button" onClick={() => setPapelera(true)} className="vm-hqa" title="Papelera"><Trash2 /><span>Papelera</span></button>}
           </div>
 
           <div className="hidden sm:flex items-center gap-2 ml-auto">
@@ -377,9 +385,10 @@ export default function Crm({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
             <h2 className="font-display font-bold text-sm text-slate-800 flex items-center gap-2"><KanbanSquare className="w-4 h-4" style={{ color: 'var(--primary)' }} /> Pipeline de Leads</h2>
             <div className="hidden sm:flex gap-2 flex-wrap items-center">
               {crear && <button type="button" onClick={() => setNueva(true)} className="vm-qa" style={{ ['--c' as string]: 'var(--primary)' }}><CirclePlus />Nueva gestión</button>}
-              {crear && <button type="button" onClick={() => aviso('Nueva cotización se está migrando: sigue disponible en la app actual.')} className="vm-qa" style={{ ['--c' as string]: '#0e7490' }}><FilePlus2 />Cotización</button>}
-              {crear && <button type="button" onClick={() => aviso('Nueva venta se está migrando: sigue disponible en la app actual.')} className="vm-qa" style={{ ['--c' as string]: '#04896f' }}><Receipt />Venta</button>}
-              <button type="button" onClick={() => aviso('Clientes se está migrando: sigue disponible en la app actual.')} className="vm-qa" style={{ ['--c' as string]: 'var(--navy)' }}><Users />Clientes</button>
+              {crear && <button type="button" onClick={() => setDocumento({ modo: 'Cotización', origen: null })} className="vm-qa" style={{ ['--c' as string]: '#0e7490' }}><FilePlus2 />Cotización</button>}
+              {crear && <button type="button" onClick={() => setDocumento({ modo: 'Venta', origen: null })} className="vm-qa" style={{ ['--c' as string]: '#04896f' }}><Receipt />Venta</button>}
+              <button type="button" onClick={() => setClientes(true)} className="vm-qa" style={{ ['--c' as string]: 'var(--navy)' }}><Users />Clientes</button>
+              {eliminar && <button type="button" onClick={() => setPapelera(true)} className="vm-qa" style={{ ['--c' as string]: '#b91c1c' }}><Trash2 />Papelera</button>}
             </div>
           </div>
 
@@ -465,8 +474,12 @@ export default function Crm({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
 
       {abierta && gestiones.find((x) => x.key === abierta) && (
         <Ficha g={gestiones.find((x) => x.key === abierta)!} perfil={perfil} asesores={asesores} etapas={estados} colorEstado={colorEstado}
-          cerrar={() => setAbierta(null)} cambiarEstado={cambiarEstado} recargar={cargar} aviso={aviso} />
+          cerrar={() => setAbierta(null)} cambiarEstado={cambiarEstado} recargar={cargar} aviso={aviso}
+          facturar={() => abrirVenta(gestiones.find((x) => x.key === abierta)!)} cotizar={() => cotizarDesde(gestiones.find((x) => x.key === abierta)!)} clientes={() => setClientes(true)} />
       )}
+      {clientes && <ClientesLista perfil={perfil} asesores={asesores} cerrar={() => setClientes(false)} aviso={aviso} />}
+      {papelera && <Papelera cerrar={() => setPapelera(false)} alRestaurar={cargar} aviso={aviso} />}
+      {documento && <CrmDocumento modo={documento.modo} perfil={perfil} asesores={asesores} origen={documento.origen} cerrar={() => setDocumento(null)} guardado={(m) => { setDocumento(null); aviso(m); cargar() }} />}
       {nueva && <NuevaGestion perfil={perfil} asesores={asesores} cerrar={() => setNueva(false)} guardado={() => { setNueva(false); aviso('Gestión creada.'); cargar() }} />}
     </div>
   )
@@ -511,10 +524,11 @@ function Tarjeta({ g, asesor, color, arrastrando, abrir, iniciarArrastre, finArr
 }
 
 /* ============================ Ficha lateral de la gestión ============================ */
-function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado, recargar, aviso }: {
+function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado, recargar, aviso, facturar, cotizar, clientes }: {
   g: Gestion; perfil: Perfil; asesores: Asesor[]; etapas: string[]; colorEstado: (e: string) => string
-  cerrar: () => void; cambiarEstado: (key: string, nuevo: string) => Promise<void>; recargar: () => void; aviso: (t: string) => void
+  cerrar: () => void; cambiarEstado: (key: string, nuevo: string) => Promise<void>; recargar: () => void; aviso: (t: string) => void; facturar: () => void; cotizar: () => void; clientes: () => void
 }) {
+  const [elim, setElim] = useState(false)
   const [historial, setHistorial] = useState<Interaccion[] | null>(null)
   const [nota, setNota] = useState('')
   const [guardando, setGuardando] = useState(false)
@@ -566,6 +580,12 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
       [campo]: g.id, tipo: 'Cambio de Asesor', nota: `Asesor cambiado a ${asesores.find((a) => a.id === id)?.nombre ?? 'Sin asignar'}.`, empleado_id: perfil.id, usuario_texto: perfil.nombre,
     })
     cargarHistorial(); recargar()
+  }
+
+  async function eliminarGestion(motivo: string) {
+    const { error } = await supabase.from(g.tabla).update({ deleted_at: new Date().toISOString(), motivo_eliminacion: motivo || null }).eq('id', g.id)
+    if (error) { aviso('No se pudo eliminar: ' + error.message); return }
+    setElim(false); aviso('Gestión enviada a la Papelera.'); cerrar(); recargar()
   }
 
   function copiarSolicitud() {
@@ -633,9 +653,13 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
             </div>
           </div>
 
-          <button disabled className="w-full text-white text-sm font-bold py-3 rounded-xl disabled:opacity-50" style={{ background: '#04896f' }} title="La facturación se está migrando">
+          <button onClick={facturar} disabled={g.estado === 'Ganado'} className="w-full text-white text-sm font-bold py-3 rounded-xl disabled:opacity-50" style={{ background: '#04896f' }}>
             {g.estado === 'Ganado' ? 'Ganado · En facturación' : 'Facturar / Marcar ganado'}
           </button>
+
+          {g.tabla === 'leads' && g.estado !== 'Ganado' && g.estado !== 'Perdido' && (
+            <button onClick={cotizar} className="w-full text-sm font-bold py-2.5 rounded-xl border flex items-center justify-center gap-1.5" style={{ borderColor: 'var(--primary)', color: 'var(--primary)' }}><FilePlus2 className="w-4 h-4" /> Crear cotización</button>
+          )}
 
           {g.interes && (
             <div className="vm-dsec" style={{ padding: 12 }}>
@@ -653,7 +677,7 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
               <p><b>Cédula / RUC:</b> {g.identificacion || '—'}</p>
             </div>
             <div className="grid grid-cols-2 gap-1.5 mt-3">
-              <button onClick={() => aviso('La ficha de cliente se está migrando.')} className="text-xs font-bold py-2 rounded-lg border flex items-center justify-center gap-1.5 transition-colors" style={{ borderColor: '#04896f', color: '#04896f' }}><IdCard className="w-3.5 h-3.5" /> Ficha Cliente</button>
+              <button onClick={clientes} className="text-xs font-bold py-2 rounded-lg border flex items-center justify-center gap-1.5 transition-colors" style={{ borderColor: '#04896f', color: '#04896f' }}><IdCard className="w-3.5 h-3.5" /> Ficha Cliente</button>
               <button onClick={copiarSolicitud} className="text-xs font-bold py-2 rounded-lg border flex items-center justify-center gap-1.5 transition-colors" style={{ borderColor: '#25D366', color: '#25D366' }}><Copy className="w-3.5 h-3.5" /> Pedir datos</button>
             </div>
           </details>
@@ -666,6 +690,10 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
             </div>
             <button onClick={guardarNota} disabled={guardando} className="mt-1.5 w-full text-white text-xs font-bold py-2 rounded-lg transition-transform hover:-translate-y-0.5" style={{ background: 'var(--teal)' }}>{guardando ? 'Guardando…' : 'Guardar Nota'}</button>
           </div>
+
+          {puede(perfil, 'crm', 'eliminar') && g.estado !== 'Ganado' && (
+            <button onClick={() => setElim(true)} className="w-full text-xs font-bold py-2 rounded-lg border flex items-center justify-center gap-1.5" style={{ borderColor: '#fecaca', color: '#b91c1c', background: '#fff5f5' }}><Trash2 className="w-3.5 h-3.5" /> Eliminar gestión</button>
+          )}
 
           <div>
             <h4 className="text-[11px] font-bold text-slate-500 uppercase mb-2">Historial</h4>
@@ -689,6 +717,7 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
           </div>
         </div>
       </div>
+      {elim && <ConfirmarEliminar titulo={`¿Eliminar la gestión de "${g.nombre}"?`} detalle="Desaparece del pipeline pero no se borra de la base. Se puede restaurar desde la Papelera del CRM." cerrar={() => setElim(false)} ok={eliminarGestion} />}
     </>
   )
 }
@@ -840,12 +869,12 @@ function NuevaGestion({ perfil, asesores, cerrar, guardado }: { perfil: Perfil; 
               <input type="text" value={interes} onChange={(e) => setInteres(e.target.value)} placeholder="Ej.: autoclave clase B para consultorio" className="ns-input mb-3" />
               <p className="ns-label">Medio de contacto</p>
               <div className="flex flex-wrap gap-1.5 mb-1">
-                {CANALES.map((c) => <button key={c} type="button" onClick={() => setCanal(canal === c ? '' : c)} className={'ns-chip nc-canal-chip' + (canal === c ? ' on' : '')}>{c}</button>)}
+                {CANALES.map((c) => <button key={c} type="button" onClick={() => setCanal(canal === c ? '' : c)} className={'ns-chip nc-canal-chip' + (canal === c ? ' active' : '')}>{c}</button>)}
               </div>
               <p className="ns-label !mt-3">¿Contestó?</p>
               <div className="grid grid-cols-2 gap-2">
-                <button type="button" onClick={() => setContesto(true)} className={'ns-opt !flex-row !justify-center !py-2.5' + (contesto === true ? ' on' : '')}><PhoneCall />Sí contestó</button>
-                <button type="button" onClick={() => setContesto(false)} className={'ns-opt !flex-row !justify-center !py-2.5' + (contesto === false ? ' on' : '')}><PhoneMissed />No contestó</button>
+                <button type="button" onClick={() => setContesto(true)} className={'ns-opt !flex-row !justify-center !py-2.5' + (contesto === true ? ' active' : '')}><PhoneCall />Sí contestó</button>
+                <button type="button" onClick={() => setContesto(false)} className={'ns-opt !flex-row !justify-center !py-2.5' + (contesto === false ? ' active' : '')}><PhoneMissed />No contestó</button>
               </div>
             </section>
 
@@ -853,7 +882,7 @@ function NuevaGestion({ perfil, asesores, cerrar, guardado }: { perfil: Perfil; 
               <header><span className="ns-num">4</span><h4>Próximo intento <span className="text-red-500">*</span></h4></header>
               <p className="ns-label">¿Cuándo es el próximo intento? *</p>
               <div className="flex flex-wrap gap-1.5">
-                {SEGUIMIENTOS.map(([v, t]) => <button key={v} type="button" onClick={() => setSeg(v)} className={'nc-seg ns-chip' + (seg === v ? ' on' : '')}>{t}</button>)}
+                {SEGUIMIENTOS.map(([v, t]) => <button key={v} type="button" onClick={() => setSeg(v)} className={'nc-seg ns-chip' + (seg === v ? ' active' : '')}>{t}</button>)}
               </div>
               {seg === 'custom' && <input type="date" value={fechaCustom} onChange={(e) => setFechaCustom(e.target.value)} className="ns-input mt-2" />}
               <p className="ns-label !mt-3">Evidencia (captura o PDF)</p>

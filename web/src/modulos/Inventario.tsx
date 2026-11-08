@@ -56,7 +56,7 @@ const num2 = (v: number | null | undefined) => (Number(v) || 0).toLocaleString('
 
 // Igual que la app original: los enlaces de Drive se piden como miniatura del ancho necesario.
 // Cuando las imágenes pasen a R2 (media.vimedic.com.ec) esta función devuelve la URL tal cual.
-function imagen(url: string | null | undefined, ancho: number): string {
+export function imagen(url: string | null | undefined, ancho: number): string {
   const v = String(url || '').trim()
   if (!v) return ''
   try {
