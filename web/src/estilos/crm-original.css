@@ -596,3 +596,9 @@
 .vmpap-p{display:flex;gap:8px;justify-content:flex-end;padding:0 18px 16px}
 .vmpap-c{border:1px solid #cbd5e1;background:#fff;border-radius:10px;padding:9px 14px;font-weight:700;cursor:pointer;color:#334155}
 .vmpap-e{border:0;background:#dc2626;color:#fff;border-radius:10px;padding:9px 14px;font-weight:700;cursor:pointer}
+
+/* Las utilidades responsive deben ir después de .hidden (el bloque duplicado la volvía a declarar) */
+@media (min-width:640px){.sm\:block{display:block}.sm\:flex{display:flex}.sm\:grid{display:grid}.sm\:hidden{display:none}.sm\:inline-flex{display:inline-flex}}
+@media (min-width:768px){.md\:block{display:block}.md\:flex{display:flex}.md\:grid{display:grid}.md\:hidden{display:none}}
+@media (min-width:1024px){.lg\:block{display:block}.lg\:flex{display:flex}.lg\:grid{display:grid}.lg\:hidden{display:none}}
+@media (min-width:1280px){.xl\:block{display:block}.xl\:flex{display:flex}.xl\:hidden{display:none}}
