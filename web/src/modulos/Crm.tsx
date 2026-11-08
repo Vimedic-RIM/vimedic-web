@@ -10,6 +10,7 @@ import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
 import { ClientesLista, Papelera, ConfirmarEliminar } from './CrmClientes'
 import CrmDocumento, { type Origen } from './CrmDocumento'
+import { ProformaVisor, type DatosDoc } from '../proforma'
 import '../estilos/crm-original.css'
 
 /* ============================ Tipos y datos ============================ */
@@ -96,6 +97,7 @@ export default function Crm({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
   const [etapaMovil, setEtapaMovil] = useState(0)
   const [abierta, setAbierta] = useState<string | null>(null)
   const [nueva, setNueva] = useState(false)
+  const [proforma, setProforma] = useState<DatosDoc | null>(null)
   const [clientes, setClientes] = useState(false)
   const [papelera, setPapelera] = useState(false)
   const [documento, setDocumento] = useState<{ modo: 'Cotización' | 'Venta'; origen: Origen } | null>(null)
@@ -482,11 +484,12 @@ export default function Crm({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
       {abierta && gestiones.find((x) => x.key === abierta) && (
         <Ficha g={gestiones.find((x) => x.key === abierta)!} perfil={perfil} asesores={asesores} etapas={estados} colorEstado={colorEstado}
           cerrar={() => setAbierta(null)} cambiarEstado={cambiarEstado} recargar={cargar} aviso={aviso}
-          facturar={() => abrirVenta(gestiones.find((x) => x.key === abierta)!)} cotizar={() => cotizarDesde(gestiones.find((x) => x.key === abierta)!)} clientes={() => setClientes(true)} />
+          verProforma={setProforma} facturar={() => abrirVenta(gestiones.find((x) => x.key === abierta)!)} cotizar={() => cotizarDesde(gestiones.find((x) => x.key === abierta)!)} clientes={() => setClientes(true)} />
       )}
       {clientes && <ClientesLista perfil={perfil} asesores={asesores} cerrar={() => setClientes(false)} aviso={aviso} />}
       {papelera && <Papelera cerrar={() => setPapelera(false)} alRestaurar={cargar} aviso={aviso} />}
-      {documento && <CrmDocumento modo={documento.modo} perfil={perfil} asesores={asesores} origen={documento.origen} cerrar={() => setDocumento(null)} guardado={(m) => { setDocumento(null); aviso(m); cargar() }} />}
+      {documento && <CrmDocumento modo={documento.modo} perfil={perfil} asesores={asesores} origen={documento.origen} cerrar={() => setDocumento(null)} guardado={(m, doc) => { setDocumento(null); aviso(m); cargar(); setProforma(doc) }} />}
+      {proforma && <ProformaVisor datos={proforma} cerrar={() => setProforma(null)} />}
       {nueva && <NuevaGestion perfil={perfil} asesores={asesores} cerrar={() => setNueva(false)} guardado={() => { setNueva(false); aviso('Gestión creada.'); cargar() }} />}
     </div>
   )
@@ -531,9 +534,9 @@ function Tarjeta({ g, asesor, color, arrastrando, abrir, iniciarArrastre, finArr
 }
 
 /* ============================ Ficha lateral de la gestión ============================ */
-function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado, recargar, aviso, facturar, cotizar, clientes }: {
+function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado, recargar, aviso, facturar, cotizar, clientes, verProforma }: {
   g: Gestion; perfil: Perfil; asesores: Asesor[]; etapas: string[]; colorEstado: (e: string) => string
-  cerrar: () => void; cambiarEstado: (key: string, nuevo: string) => Promise<void>; recargar: () => void; aviso: (t: string) => void; facturar: () => void; cotizar: () => void; clientes: () => void
+  cerrar: () => void; cambiarEstado: (key: string, nuevo: string) => Promise<void>; recargar: () => void; aviso: (t: string) => void; facturar: () => void; cotizar: () => void; clientes: () => void; verProforma: (d: DatosDoc) => void
 }) {
   const [elim, setElim] = useState(false)
   const [historial, setHistorial] = useState<Interaccion[] | null>(null)
@@ -587,6 +590,20 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
       [campo]: g.id, tipo: 'Cambio de Asesor', nota: `Asesor cambiado a ${asesores.find((a) => a.id === id)?.nombre ?? 'Sin asignar'}.`, empleado_id: perfil.id, usuario_texto: perfil.nombre,
     })
     cargarHistorial(); recargar()
+  }
+
+  async function abrirProforma() {
+    const { data, error } = await supabase.from('cotizaciones')
+      .select('codigo,fecha,tipo_registro,nombre,identificacion,email,telefono,items,nota_cotizacion,nota_venta,asesor_id,estado_pago,metodo_pago,tipo_entrega,direccion_entrega,fecha_entrega,detalle_venta').eq('id', g.id).single()
+    if (error || !data) { aviso('No se pudo cargar la proforma: ' + (error?.message ?? '')); return }
+    const r = data as Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
+    const venta = r.tipo_registro === 'Venta'
+    verProforma({
+      codigo: r.codigo ?? g.codigo, fecha: new Date(r.fecha).toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric' }), tipo: venta ? 'Venta' : 'Cotización', empresa: perfil.empresa,
+      cliente: { nombre: r.nombre, identificacion: r.identificacion, email: r.email, telefono: r.telefono }, asesor: asesor, nota: venta ? r.nota_venta : r.nota_cotizacion,
+      items: ((r.items ?? []) as Record<string, any>[]).map((i) => ({ id: i.id, codigo: i.codigo, nombre: i.nombre, imagen: i.imagen, precio: Number(i.precio) || 0, cantidad: Number(i.cantidad) || 0, descuento: Number(i.descuento) || 0, iva: i.iva !== false, observacion: i.observacion })), // eslint-disable-line @typescript-eslint/no-explicit-any
+      pagoEntrega: venta ? { pago: [r.estado_pago, r.metodo_pago].filter(Boolean).join(' · '), entrega: r.tipo_entrega ?? '', detalle: [r.direccion_entrega, r.fecha_entrega ? 'Fecha de entrega: ' + r.fecha_entrega : ''].filter(Boolean) } : null,
+    })
   }
 
   async function eliminarGestion(motivo: string) {
@@ -663,6 +680,10 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
           <button onClick={facturar} disabled={g.estado === 'Ganado'} className="w-full text-white text-sm font-bold py-3 rounded-xl disabled:opacity-50" style={{ background: '#04896f' }}>
             {g.estado === 'Ganado' ? 'Ganado · En facturación' : 'Facturar / Marcar ganado'}
           </button>
+
+          {g.tabla === 'cotizaciones' && (
+            <button onClick={abrirProforma} className="w-full text-sm font-bold py-2.5 rounded-xl border flex items-center justify-center gap-1.5" style={{ borderColor: '#c0392b', color: '#c0392b' }}><FileText className="w-4 h-4" /> Ver proforma (PDF A4)</button>
+          )}
 
           {g.tabla === 'leads' && g.estado !== 'Ganado' && g.estado !== 'Perdido' && (
             <button onClick={cotizar} className="w-full text-sm font-bold py-2.5 rounded-xl border flex items-center justify-center gap-1.5" style={{ borderColor: 'var(--primary)', color: 'var(--primary)' }}><FilePlus2 className="w-4 h-4" /> Crear cotización</button>

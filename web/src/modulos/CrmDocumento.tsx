@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { imagen } from './Inventario'
+import type { DatosDoc } from '../proforma'
 
 type Asesor = { id: string; nombre: string }
 export type Origen = { tabla: 'leads' | 'cotizaciones'; id: string; codigo: string; nombre: string; telefono: string; email: string; identificacion: string; medio: string } | null
@@ -27,7 +28,7 @@ const dinero = (n: number) => '$' + n.toLocaleString('es-EC', { minimumFractionD
 const limpiar = (t: string) => t.replace(/[,()%*\\"']/g, ' ').trim()
 
 export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, guardado }: {
-  modo: 'Cotización' | 'Venta'; perfil: Perfil; asesores: Asesor[]; origen: Origen; cerrar: () => void; guardado: (msg: string) => void
+  modo: 'Cotización' | 'Venta'; perfil: Perfil; asesores: Asesor[]; origen: Origen; cerrar: () => void; guardado: (msg: string, doc: DatosDoc) => void
 }) {
   const esVenta = modo === 'Venta'
   const acento = esVenta ? '#04896f' : '#055c9d'
@@ -152,7 +153,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     if (faltan.length) { setError('Falta: ' + faltan.join(', ') + '.'); return }
     setGuardando(true); setError('')
     const ahora = new Date().toISOString()
-    const items = carrito.map((i) => ({ id: i.id, codigo: i.codigo, nombre: i.nombre, precio: i.precio, cantidad: i.cantidad, descuento: i.descuento, iva: i.iva, observacion: i.observacion }))
+    const items = carrito.map((i) => ({ id: i.id, codigo: i.codigo, nombre: i.nombre, imagen: i.imagen, precio: i.precio, cantidad: i.cantidad, descuento: i.descuento, iva: i.iva, observacion: i.observacion }))
     const datos: Record<string, unknown> = {
       tipo_registro: modo, cliente_id: cliente?.id ?? null, lead_sin_cliente: !cliente, nombre,
       identificacion: cliente?.identificacion ?? (lead.identificacion || null), email: cliente?.email ?? (lead.email.trim() || null), telefono: cliente?.telefono ?? (lead.telefono.trim() || null),
@@ -183,8 +184,16 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     if (esVenta && guardarDv && cliente) {
       await supabase.from('clientes').update({ datos_venta: { pago, tipoPago, plazo, entrega, dirEntrega, quienRecibe, telEntrega, mapsEntrega, ciudadDestino, transporte, dest, dirEnvio, caja, armado, stretch, garantia } }).eq('id', cliente.id)
     }
+    const codigoFinal = codigo
     id = ''; codigo = ''
-    guardado(`${modo} creada por ${dinero(total)}.`)
+    const resumenEntrega = [entrega === 'Local' ? dirEntrega : entrega === 'Envío' ? `${ciudadDestino} (${transporte})${dirEnvio ? ' · ' + dirEnvio : ''}` : '', quienRecibe ? 'Recibe: ' + quienRecibe : '', fechaEntrega ? 'Fecha de entrega: ' + fechaEntrega : '', [caja, armado, stretch].filter(Boolean).length ? 'Empaque: ' + [caja, armado, stretch].filter(Boolean).join(' · ') : '', garantia ? 'Garantía: ' + garantia : ''].filter(Boolean)
+    guardado(`${modo} creada por ${dinero(total)}.`, {
+      codigo: (datos.codigo as string | undefined) ?? codigoFinal, fecha: new Date().toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric' }), tipo: modo, empresa: perfil.empresa,
+      cliente: { nombre, identificacion: cliente?.identificacion ?? lead.identificacion, email: cliente?.email ?? lead.email, telefono: cliente?.telefono ?? lead.telefono },
+      asesor: asesores.find((a) => a.id === asesorId)?.nombre ?? perfil.nombre, nota: nota.trim() || null,
+      items: carrito.map((i) => ({ id: i.id, codigo: i.codigo, nombre: i.nombre, imagen: i.imagen, precio: i.precio, cantidad: i.cantidad, descuento: i.descuento, iva: i.iva, observacion: i.observacion })),
+      pagoEntrega: esVenta ? { pago: pago + (tipoPago ? ' · ' + tipoPago : '') + (plazo ? ' · Plazo: ' + plazo : ''), entrega, detalle: resumenEntrega } : null,
+    })
   }
 
   const botonOpc = (valor: string, actual: string, set: (v: string) => void, clase: string, texto: React.ReactNode, tipo: 'opt' | 'chip' = 'chip') => (
