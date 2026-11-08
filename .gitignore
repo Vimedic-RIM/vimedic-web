@@ -1,0 +1,9 @@
+﻿.env
+.env.*
+!.env.example
+node_modules/
+.DS_Store
+*.pem
+service-account*.json
+supabase/.temp/
+supabase/.branches/
