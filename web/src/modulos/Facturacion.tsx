@@ -1,0 +1,589 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  ArrowDown, ArrowUp, BadgeCheck, Building2, Clock, CreditCard, Download, Eye, FileCheck2, FilePenLine, FilePlus2, FileUp, Folder, Hash, History, Inbox,
+  Layers, Link2, List, Megaphone, Package, Pencil, Receipt, ReceiptText, RefreshCw, Search, SlidersHorizontal, Truck, TriangleAlert, Upload, X,
+} from 'lucide-react'
+import { supabase, type Perfil } from '../supabase'
+import { puede } from '../permisos'
+import { imagen } from './Inventario'
+import '../estilos/facturacion.css'
+
+/* ============================ Tipos y utilidades ============================ */
+type Pe = Record<string, string | undefined>
+type Linea = { id?: string; codigo?: string; nombre: string; imagen?: string; precio: number; cantidad: number; descuento?: number; iva?: boolean; observacion?: string }
+type Fila = {
+  uuid: string; id: string; empresa: 'VIMEDIC' | 'FEMEDICS'; identificacion: string; estado: string; fechaGanado: string; creado: string; numeroFactura: string; medio: string; nota: string
+  datosCompletos: boolean; facturaUrl: string; actaUrl: string; actaConformidadUrl: string; guiaEnvioUrl: string; total: number; pe: Pe; cliente: string; email: string; telefono: string
+  asesor: string; esEnvio: boolean; items?: Linea[]; historial?: { fecha: string; por: string; accion: string; detalle?: string }[]
+}
+const COLS = 'id,codigo,empresa,identificacion,estado,fecha_ganado,created_at,numero_contifico,medio_captacion_venta,observacion,datos_completos,pdf_url,acta_garantia_url,acta_conformidad_url,guia_envio_url,total,pago_entrega,cliente:clientes(nombre,email,telefono),cotizacion:cotizaciones(nombre,email,telefono),asesor:empleados!asesor_id(nombre)'
+const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+const PAGE_SIZE = 20
+
+const money = (n: number) => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const iniciales = (t: string) => { const p = String(t || '').trim().split(/\s+/).filter(Boolean); return ((p[0] || '?')[0] + (p[1] ? p[1][0] : '')).toUpperCase() }
+const tiene = (v: unknown) => { if (v == null) return false; const s = String(v).trim(); return !!s && s !== '—' && s.toLowerCase() !== 'null' && s.toLowerCase() !== 'undefined' }
+const fechaTs = (r: Fila) => (r.creado ? new Date(r.creado).getTime() : r.fechaGanado ? new Date(r.fechaGanado + 'T00:00:00').getTime() : 0)
+function fechaCorta(ts: number, fb = '') {
+  if (!ts) return fb || '—'
+  const d = new Date(ts)
+  return `${('0' + d.getDate()).slice(-2)} ${MESES[d.getMonth()]} ${String(d.getFullYear()).slice(-2)} · ${('0' + d.getHours()).slice(-2)}:${('0' + d.getMinutes()).slice(-2)}`
+}
+function calc(l: Linea) {
+  const cantidad = Math.abs(Number(l.cantidad) || 0), precio = Number(l.precio) || 0, descuentoPct = Number(l.descuento) || 0
+  const bruto = cantidad * precio, descuentoUsd = bruto * (descuentoPct / 100), base = bruto - descuentoUsd
+  const conIva = l.iva !== false, ivaUsd = conIva ? base * 0.15 : 0
+  return { cantidad, precio, descuentoPct, bruto, descuentoUsd, base, ivaUsd, total: base + ivaUsd, conIva }
+}
+const totalFila = (r: Fila) => (r.total ? r.total : r.items ? Math.round(r.items.reduce((t, l) => t + calc(l).total, 0) * 100) / 100 : 0)
+function mapear(x: Record<string, any>): Fila { // eslint-disable-line @typescript-eslint/no-explicit-any
+  const pe = (x.pago_entrega ?? {}) as Pe
+  const cli = x.cliente ?? x.cotizacion ?? {}
+  return {
+    uuid: x.id, id: x.codigo ?? x.id, empresa: x.empresa, identificacion: x.identificacion ?? '', estado: x.estado ?? '', fechaGanado: x.fecha_ganado ?? '', creado: x.created_at ?? '',
+    numeroFactura: x.numero_contifico ?? '', medio: x.medio_captacion_venta ?? '', nota: x.observacion ?? '', datosCompletos: x.datos_completos !== false, facturaUrl: x.pdf_url ?? '',
+    actaUrl: x.acta_garantia_url ?? '', actaConformidadUrl: x.acta_conformidad_url ?? '', guiaEnvioUrl: x.guia_envio_url ?? '', total: Number(x.total) || 0, pe,
+    cliente: cli.nombre ?? (x.cotizacion?.nombre ?? ''), email: cli.email ?? '', telefono: cli.telefono ?? '', asesor: x.asesor?.nombre ?? '', esEnvio: pe.entrega === 'Envío',
+  }
+}
+type Filtros = { asesor: string; medio: string; desde: string; hasta: string; chips: Record<string, boolean>; agrupar: string }
+const FILTROS0: Filtros = { asesor: '', medio: '', desde: '', hasta: '', chips: {}, agrupar: '' }
+const NOMBRES_CHIP: Record<string, string> = { sinPdf: 'Sin factura PDF', sinActa: 'Sin acta', guia: 'Guía pendiente', incompleto: 'Datos incompletos' }
+const norm = (s: string) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+
+/* ============================ Pantalla principal ============================ */
+export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: (t: string) => void }) {
+  const [filtro, setFiltro] = useState<'Pendiente' | 'ALL'>('Pendiente')
+  const [cola, setCola] = useState<Fila[] | null>(null)
+  const [error, setError] = useState('')
+  const [buscar, setBuscar] = useState('')
+  const [f, setF] = useState<Filtros>(FILTROS0)
+  const [panelFiltros, setPanelFiltros] = useState(false)
+  const [orden, setOrden] = useState<{ k: string; d: number; tocado?: boolean }>({ k: 'fecha', d: -1 })
+  const [pagina, setPagina] = useState(1)
+  const [selId, setSelId] = useState<string | null>(null)
+  const [stats, setStats] = useState({ facturados: 0, pendientes: 0, guias: 0, actas: 0, notas: 0 })
+  const [detalle, setDetalle] = useState<Fila | null>(null)
+  const [factura, setFactura] = useState<Fila | null>(null)
+  const [cargando, setCargando] = useState(false)
+  const filtrosRef = useRef<HTMLDivElement>(null)
+  const peticion = useRef(0)
+  const esPc = typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches
+  const puedeEditar = puede(perfil, 'facturacion', 'editar')
+
+  const cargar = useCallback(async (modo: 'Pendiente' | 'ALL') => {
+    const n = ++peticion.current
+    setCargando(true)
+    let q = supabase.from('facturas').select(COLS).is('deleted_at', null)
+    if (modo === 'Pendiente') q = q.eq('estado', 'Pendiente')
+    const { data, error } = await q.order('created_at', { ascending: false }).limit(1000)
+    if (n !== peticion.current) return
+    setCargando(false)
+    if (error) { setError('Error cargando Facturación: ' + error.message); return }
+    setError(''); setCola(((data ?? []) as Record<string, any>[]).map(mapear)) // eslint-disable-line @typescript-eslint/no-explicit-any
+  }, [])
+  const cargarStats = useCallback(async () => {
+    const cuenta = (q: PromiseLike<{ count: number | null }>) => q.then((r) => r.count ?? 0)
+    const base = () => supabase.from('facturas').select('id', { count: 'exact', head: true }).is('deleted_at', null)
+    const [facturados, pendientes, guias, actas, notas] = await Promise.all([
+      cuenta(base().eq('estado', 'Facturado')), cuenta(base().eq('estado', 'Pendiente')),
+      cuenta(base().eq('pago_entrega->>entrega', 'Envío').is('guia_envio_url', null)), cuenta(base().eq('estado', 'Facturado').is('acta_garantia_url', null)),
+      cuenta(supabase.from('notas_credito').select('id', { count: 'exact', head: true }).is('deleted_at', null)),
+    ])
+    setStats({ facturados, pendientes, guias, actas, notas })
+  }, [])
+  useEffect(() => { setCola(null); cargar(filtro) }, [filtro, cargar])
+  useEffect(() => { cargarStats() }, [cargarStats])
+  useEffect(() => {
+    const canal = supabase.channel('facturas-cola').on('postgres_changes', { event: '*', schema: 'public', table: 'facturas' }, () => { cargar(filtro); cargarStats() }).subscribe()
+    return () => { supabase.removeChannel(canal) }
+  }, [filtro, cargar, cargarStats])
+  useEffect(() => {
+    const cerrar = (e: MouseEvent) => { if (filtrosRef.current && !filtrosRef.current.contains(e.target as Node)) setPanelFiltros(false) }
+    document.addEventListener('click', cerrar); return () => document.removeEventListener('click', cerrar)
+  }, [])
+
+  const asesores = useMemo(() => [...new Set((cola ?? []).map((r) => r.asesor).filter(Boolean))].sort(), [cola])
+  const medios = useMemo(() => [...new Set((cola ?? []).map((r) => r.medio).filter(Boolean))].sort(), [cola])
+
+  const visibles = useMemo(() => {
+    const d = f.desde ? new Date(f.desde + 'T00:00:00').getTime() : 0, h = f.hasta ? new Date(f.hasta + 'T23:59:59').getTime() : 0
+    const palabras = norm(buscar).split(/\s+/).filter(Boolean)
+    const out = (cola ?? []).filter((r) => {
+      if (f.asesor && r.asesor !== f.asesor) return false
+      if (f.medio && r.medio !== f.medio) return false
+      const ts = fechaTs(r)
+      if (d && ts < d) return false
+      if (h && ts > h) return false
+      if (f.chips.sinPdf && r.facturaUrl) return false
+      if (f.chips.sinActa && (r.actaUrl || r.estado !== 'Facturado')) return false
+      if (f.chips.guia && !(r.esEnvio && !r.guiaEnvioUrl)) return false
+      if (f.chips.incompleto && r.datosCompletos) return false
+      if (palabras.length) { const c = norm([r.id, r.cliente, r.asesor, r.identificacion, r.numeroFactura, r.email, r.telefono, r.empresa].join(' ')); if (!palabras.every((p) => c.includes(p))) return false }
+      return true
+    })
+    const { k, d: dir } = orden
+    out.sort((a, b) => {
+      let va: string | number, vb: string | number
+      if (k === 'fecha') { va = fechaTs(a); vb = fechaTs(b) } else if (k === 'monto') { va = totalFila(a); vb = totalFila(b) }
+      else if (k === 'cliente') { va = a.cliente.toLowerCase(); vb = b.cliente.toLowerCase() } else if (k === 'asesor') { va = a.asesor.toLowerCase(); vb = b.asesor.toLowerCase() }
+      else if (k === 'factura') { va = a.numeroFactura; vb = b.numeroFactura } else { va = a.estado; vb = b.estado }
+      return va < vb ? -dir : va > vb ? dir : 0
+    })
+    return out
+  }, [cola, f, buscar, orden])
+
+  useEffect(() => { if (visibles.length && (selId == null || !visibles.some((x) => x.uuid === selId))) setSelId(visibles[0].uuid); if (!visibles.length) setSelId(null) }, [visibles, selId])
+  const sel = visibles.find((x) => x.uuid === selId) ?? null
+  const claveGrupo = (r: Fila) => {
+    if (f.agrupar === 'asesor') return r.asesor || 'Sin asesor'
+    if (f.agrupar === 'medio') return r.medio || 'Sin medio'
+    if (f.agrupar === 'estado') return r.estado || '—'
+    if (f.agrupar === 'cliente') return r.cliente || 'Sin nombre'
+    if (f.agrupar === 'mes') { const ts = fechaTs(r); if (!ts) return 'Sin fecha'; const dd = new Date(ts); return MESES[dd.getMonth()] + ' ' + dd.getFullYear() }
+    return ''
+  }
+  const totalPaginas = Math.max(1, Math.ceil(visibles.length / PAGE_SIZE))
+  const pag = Math.min(Math.max(1, pagina), totalPaginas)
+  const pagina_ = visibles.slice((pag - 1) * PAGE_SIZE, pag * PAGE_SIZE)
+
+  /* Productos de la fila seleccionada (se piden al seleccionar, como el original) */
+  const [items, setItems] = useState<Record<string, Fila>>({})
+  const cargarItems = useCallback((r: Fila) => {
+    if (items[r.uuid]) return
+    supabase.from('facturas').select('items,historial').eq('id', r.uuid).single().then(({ data }) => {
+      const d = (data ?? {}) as { items?: Linea[]; historial?: Fila['historial'] }
+      setItems((m) => ({ ...m, [r.uuid]: { ...r, items: d.items ?? [], historial: d.historial ?? [] } }))
+    })
+  }, [items])
+  useEffect(() => { if (sel) cargarItems(sel) }, [sel, cargarItems])
+  const conItems = (r: Fila | null) => (r ? items[r.uuid] ?? r : null)
+
+  function accion(qa: string, r: Fila) {
+    if (qa === 'detalle') { setDetalle(conItems(r)); return }
+    if (qa === 'factura') { if (!r.datosCompletos) return; setFactura(conItems(r)); return }
+    const abrir = (u: string) => window.open(u, '_blank', 'noopener')
+    if (qa === 'verFactura' && r.facturaUrl) return abrir(r.facturaUrl)
+    if (qa === 'verActa' && r.actaUrl) return abrir(r.actaUrl)
+    if (qa === 'verGuia' && r.guiaEnvioUrl) return abrir(r.guiaEnvioUrl)
+    if (qa === 'conformidad' && r.actaConformidadUrl) return abrir(r.actaConformidadUrl)
+    aviso('Generar actas, guías y notas de crédito se está migrando: sigue disponible en la app actual.')
+  }
+  function exportarCsv() {
+    const esc = (v: unknown) => '"' + String(v ?? '').replace(/"/g, '""') + '"'
+    const filas = [['ID', 'Fecha', 'Cliente', 'Identificación', 'Asesor', 'Factura', 'Monto', 'Estado'].map(esc).join(','),
+      ...visibles.map((r) => [r.id, fechaCorta(fechaTs(r), r.fechaGanado), r.cliente, r.identificacion, r.asesor, r.numeroFactura, totalFila(r).toFixed(2), r.estado].map(esc).join(','))]
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + filas.join('\n')], { type: 'text/csv;charset=utf-8' }))
+    a.download = 'facturacion_' + new Date().toISOString().slice(0, 10) + '.csv'; a.click()
+  }
+  const nFiltros = (f.asesor ? 1 : 0) + (f.medio ? 1 : 0) + (f.desde ? 1 : 0) + (f.hasta ? 1 : 0) + Object.values(f.chips).filter(Boolean).length + (f.agrupar ? 1 : 0)
+  const th = (k: string, t: string, cls = '') => (
+    <button key={k} type="button" data-sort={k} className={(orden.k === k ? 'on ' : '') + cls} onClick={() => setOrden((o) => (o.k === k ? { ...o, d: -o.d, tocado: true } : { k, d: k === 'fecha' || k === 'monto' ? -1 : 1, tocado: true }))}>
+      {t}{orden.k === k && (orden.d < 0 ? <ArrowDown /> : <ArrowUp />)}
+    </button>
+  )
+  const kpi = (Icon: typeof Receipt, c: string, b: string, val: number, lab: string, onClick?: () => void) => (
+    <div className="fx-kpi" style={{ ['--kc' as string]: c, ['--kb' as string]: b, cursor: onClick ? 'pointer' : undefined }} role={onClick ? 'button' : undefined} onClick={onClick}>
+      <span className="ic"><Icon /></span><div className="min-w-0"><b>{val}</b><small>{lab}</small></div>
+    </div>
+  )
+  const irChip = (k: string) => { setFiltro('ALL'); setF((x) => ({ ...x, chips: { ...x.chips, [k]: !x.chips[k] } })); setPagina(1) }
+
+  const fila = (r: Fila) => {
+    const ts = fechaTs(r), monto = totalFila(r)
+    const alerta = !r.datosCompletos || (r.esEnvio && !r.guiaEnvioUrl), esFm = r.empresa === 'FEMEDICS'
+    let acc: React.ReactNode
+    if (r.estado === 'Pendiente') acc = !r.datosCompletos
+      ? <span className="text-[10px] font-bold text-red-600" title="Faltan datos de pago/entrega"><TriangleAlert className="w-4 h-4" /></span>
+      : <button type="button" className="fx-act-btn" data-qa="factura" onClick={(e) => { e.stopPropagation(); accion('factura', r) }}><Upload /><span className="fx-act-lbl">Facturar</span></button>
+    else if (r.facturaUrl) acc = <button type="button" className="fx-act-btn ghost" data-qa="verFactura" onClick={(e) => { e.stopPropagation(); accion('verFactura', r) }}><Eye /><span className="fx-act-lbl">Ver</span></button>
+    else acc = <button type="button" className="fx-act-btn ghost" data-qa="detalle" onClick={(e) => { e.stopPropagation(); accion('detalle', r) }}><List /><span className="fx-act-lbl">Detalle</span></button>
+    return (
+      <div key={r.uuid} className={'fx-tr' + (selId === r.uuid ? ' is-sel' : '') + (esFm ? ' fx-fm' : '')} title={esFm ? 'Factura solicitada por FEMEDICS' : undefined}
+        onClick={() => { if (esPc) setSelId(r.uuid); else setDetalle(conItems(r)) }}>
+        <span className="fx-av fx-sm">{iniciales(r.cliente)}</span>
+        <div className="fx-lg flex-col leading-tight"><b className="text-[11.5px] text-slate-700">{fechaCorta(ts, r.fechaGanado)}</b><small className="text-[9.5px] font-mono-spec text-slate-400 truncate">{r.id}</small></div>
+        <div className="min-w-0">
+          <p className="text-xs font-bold text-slate-800 truncate flex items-center gap-1.5">{alerta && <span className="fx-alert-dot" title="Requiere atención" />}{esFm && <span className="fx-emp">FEMEDICS</span>}<span className="truncate">{r.cliente || 'Sin nombre'}</span></p>
+          <p className="fx-lg text-[10px] text-slate-400 truncate">{r.identificacion || '—'}{r.medio ? ' · ' + r.medio : ''}</p>
+          <p className="fx-sm text-[10px] text-slate-400 truncate">{fechaCorta(ts, r.fechaGanado)} · {r.asesor || 'Sin asesor'}{monto ? <> · <b className="text-slate-600">{money(monto)}</b></> : null}</p>
+        </div>
+        <div className="fx-lg fx-xl min-w-0"><span className="block truncate text-[11px] font-semibold text-slate-600">{r.asesor || '—'}</span></div>
+        <div className="fx-lg fx-xl min-w-0"><span className={'block truncate text-[11px] font-mono-spec ' + (r.numeroFactura ? 'text-slate-700 font-semibold' : 'text-slate-300')}>{r.numeroFactura || '—'}</span></div>
+        <div className="fx-lg"><b className="text-xs" style={{ color: 'var(--primary)' }}>{monto ? money(monto) : <span className="text-slate-300">—</span>}</b></div>
+        <div className="fx-lg fx-xl fx-docs">
+          <span className={'fx-doc ' + (r.facturaUrl ? 'ok' : '')} title="Factura PDF"><Receipt /></span>
+          <span className={'fx-doc ' + (r.actaUrl ? 'ok' : '')} title="Acta de garantía"><FileCheck2 /></span>
+          {(r.esEnvio || r.guiaEnvioUrl) && <span className={'fx-doc ' + (r.guiaEnvioUrl ? 'ok' : 'warn')} title="Guía de envío"><Truck /></span>}
+        </div>
+        <div className="flex justify-end lg:justify-start"><span className={'fx-st ' + (r.estado === 'Facturado' ? 'f' : 'p')}>{r.estado || '—'}</span></div>
+        <div className="fx-lg justify-end">{acc}</div>
+      </div>
+    )
+  }
+
+  const cuerpoLista = () => {
+    if (error) return <div className="text-center text-xs text-red-600 py-14">{error}</div>
+    if (cola === null) return <div className="flex flex-col items-center justify-center py-16 gap-2 text-slate-400"><span className="inline-block w-5 h-5 rounded-full border-2 border-slate-300 border-t-[color:var(--primary)] animate-spin" /><p className="text-xs font-semibold">Cargando Facturación...</p></div>
+    if (!visibles.length) return <div className="text-center text-slate-400 text-xs py-14"><Inbox className="w-8 h-8 mx-auto mb-2 text-slate-300" />No hay registros que coincidan.</div>
+    if (!f.agrupar) return pagina_.map(fila)
+    const grupos: Record<string, { n: number; m: number }> = {}, ord: string[] = []
+    visibles.forEach((r) => { const g = claveGrupo(r); if (!grupos[g]) { grupos[g] = { n: 0, m: 0 }; ord.push(g) } grupos[g].n++; grupos[g].m += totalFila(r) })
+    const por: Record<string, Fila[]> = {}; pagina_.forEach((r) => { (por[claveGrupo(r)] = por[claveGrupo(r)] || []).push(r) })
+    if (f.agrupar !== 'mes') ord.sort((a, b) => grupos[b].m - grupos[a].m)
+    return ord.filter((g) => por[g]).map((g) => (
+      <div key={g}><div className="fx-grp"><Folder className="w-3.5 h-3.5" />{g} <small>{grupos[g].n} registro{grupos[g].n === 1 ? '' : 's'}</small><b>{money(grupos[g].m)}</b></div>{por[g].map(fila)}</div>
+    ))
+  }
+
+  const nums: (number | '…')[] = []
+  for (let i = 1; i <= totalPaginas; i++) { if (i === 1 || i === totalPaginas || Math.abs(i - pag) <= 1) nums.push(i); else if (nums[nums.length - 1] !== '…') nums.push('…') }
+  const pg = (lbl: React.ReactNode, to: number, on: boolean, dis: boolean) => <button type="button" key={String(lbl) + to} className={'fx-pg' + (on ? ' on' : '')} disabled={dis} onClick={() => { setPagina(to); document.getElementById('fx-lista')?.scrollIntoView({ block: 'start', behavior: 'smooth' }) }}>{lbl}</button>
+
+  return (
+    <div className="vm-fact">
+      <header className="sticky top-0 z-30" style={{ background: 'linear-gradient(135deg, var(--navy), var(--primary))' }}>
+        <div className="fx-head vm-head-pad px-3 sm:px-5 py-2 min-h-14 flex items-center gap-2 flex-wrap lg:flex-nowrap">
+          <div className="min-w-0 flex-1 lg:flex-none lg:max-w-[250px] order-1 flex flex-col justify-center min-h-10">
+            <h1 className="font-display font-bold text-white text-[15px] sm:text-base leading-tight truncate">Facturación Vimedic</h1>
+            <p className="text-[11px] text-white/60 truncate leading-tight">{perfil.nombre.split(' ')[0]} · Ventas, facturas, actas y guías</p>
+          </div>
+          <div className="order-3 lg:order-2 w-full lg:w-auto flex items-center gap-2 pb-1 lg:pb-0">
+            <div className="relative flex-1 lg:flex-none">
+              <input type="text" value={buscar} onChange={(e) => { setBuscar(e.target.value); setPagina(1) }} placeholder="Buscar cliente, RUC, asesor, factura..." autoComplete="off"
+                className="w-full lg:w-64 xl:w-80 pl-8 pr-3 py-2 rounded-lg bg-white/10 text-white placeholder:text-white/55 text-xs focus:outline-none focus:ring-2 focus:ring-white/40" />
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-white/60" />
+            </div>
+            <div className="relative shrink-0" ref={filtrosRef}>
+              <button type="button" className="relative w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center" title="Filtros y agrupación" onClick={(e) => { e.stopPropagation(); setPanelFiltros((v) => !v) }}>
+                <SlidersHorizontal className="w-4 h-4" />
+                {nFiltros > 0 && <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-amber-400 text-[9px] font-bold text-slate-900 flex items-center justify-center">{nFiltros}</span>}
+              </button>
+              {panelFiltros && (
+                <div className="absolute left-0 top-full mt-2 z-[90] w-[320px] max-w-[calc(100vw-24px)] bg-white rounded-2xl shadow-2xl border border-slate-100 p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center justify-between"><p className="text-xs font-bold text-slate-800">Filtros y agrupación</p><button type="button" className="text-[11px] font-bold" style={{ color: 'var(--primary)' }} onClick={() => { setF(FILTROS0); setPagina(1) }}>Limpiar</button></div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="fx-lab">Asesor<select className="fx-in" value={f.asesor} onChange={(e) => { setF({ ...f, asesor: e.target.value }); setPagina(1) }}><option value="">Todos</option>{asesores.map((a) => <option key={a}>{a}</option>)}</select></label>
+                    <label className="fx-lab">Medio<select className="fx-in" value={f.medio} onChange={(e) => { setF({ ...f, medio: e.target.value }); setPagina(1) }}><option value="">Todos</option>{medios.map((a) => <option key={a}>{a}</option>)}</select></label>
+                    <label className="fx-lab">Desde<input type="date" className="fx-in" value={f.desde} onChange={(e) => { setF({ ...f, desde: e.target.value }); setPagina(1) }} /></label>
+                    <label className="fx-lab">Hasta<input type="date" className="fx-in" value={f.hasta} onChange={(e) => { setF({ ...f, hasta: e.target.value }); setPagina(1) }} /></label>
+                  </div>
+                  <div><p className="fx-lab mb-1.5">Mostrar solo</p>
+                    <div className="flex flex-wrap gap-1.5">{Object.entries(NOMBRES_CHIP).map(([k, t]) => <button key={k} type="button" className={'fx-chip' + (f.chips[k] ? ' active' : '')} onClick={() => { setF({ ...f, chips: { ...f.chips, [k]: !f.chips[k] } }); setPagina(1) }}>{t}</button>)}</div></div>
+                  <label className="fx-lab">Agrupar por
+                    <select className="fx-in" value={f.agrupar} onChange={(e) => { setF({ ...f, agrupar: e.target.value }); setPagina(1) }}>
+                      <option value="">Sin agrupar</option><option value="asesor">Asesor</option><option value="mes">Mes</option><option value="medio">Medio de captación</option><option value="estado">Estado</option><option value="cliente">Cliente</option>
+                    </select></label>
+                </div>
+              )}
+            </div>
+            <span className="shrink-0 whitespace-nowrap text-[11px] font-semibold text-white/75 bg-white/10 rounded-lg px-2.5 py-2" title="Registros en la vista"><b className="text-white">{visibles.length}</b> {visibles.length === 1 ? 'registro' : 'registros'}</span>
+          </div>
+          <div className="order-2 lg:order-3 flex items-center gap-1 shrink-0 lg:ml-auto">
+            <button type="button" className="w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center" title="Exportar vista a CSV" onClick={exportarCsv}><Download className="w-4 h-4" /></button>
+            <button type="button" className="w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center" title="Actualizar" onClick={() => { cargar(filtro); cargarStats() }}><RefreshCw className={'w-4 h-4 ' + (cargando ? 'animate-spin' : '')} /></button>
+          </div>
+        </div>
+      </header>
+
+      <main className="w-full px-3 sm:px-5 py-4">
+        <div className="flex items-center gap-2 flex-wrap mb-3">
+          <div className="fx-seg">
+            <button className={'tab' + (filtro === 'Pendiente' ? ' active' : '')} type="button" onClick={() => { setFiltro('Pendiente'); setPagina(1); setBuscar('') }}><Clock />Pendientes<span className="fx-n">{stats.pendientes}</span></button>
+            <button className={'tab' + (filtro === 'ALL' ? ' active' : '')} type="button" onClick={() => { setFiltro('ALL'); setPagina(1); setBuscar('') }}><Layers />Todos<span className="fx-n">{stats.pendientes + stats.facturados}</span></button>
+          </div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {f.asesor && <span className="fx-pill-f">Asesor: {f.asesor}<button type="button" aria-label="Quitar" onClick={() => setF({ ...f, asesor: '' })}>×</button></span>}
+            {f.medio && <span className="fx-pill-f">Medio: {f.medio}<button type="button" aria-label="Quitar" onClick={() => setF({ ...f, medio: '' })}>×</button></span>}
+            {f.desde && <span className="fx-pill-f">Desde {f.desde}<button type="button" aria-label="Quitar" onClick={() => setF({ ...f, desde: '' })}>×</button></span>}
+            {f.hasta && <span className="fx-pill-f">Hasta {f.hasta}<button type="button" aria-label="Quitar" onClick={() => setF({ ...f, hasta: '' })}>×</button></span>}
+            {Object.keys(f.chips).filter((k) => f.chips[k]).map((k) => <span key={k} className="fx-pill-f">{NOMBRES_CHIP[k]}<button type="button" aria-label="Quitar" onClick={() => setF({ ...f, chips: { ...f.chips, [k]: false } })}>×</button></span>)}
+            {f.agrupar && <span className="fx-pill-f">Agrupado por {f.agrupar}<button type="button" aria-label="Quitar" onClick={() => setF({ ...f, agrupar: '' })}>×</button></span>}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 mb-3">
+          {kpi(Receipt, '#055c9d', '#eaf3fb', stats.facturados, 'Facturas totales', () => { setFiltro('ALL'); setPagina(1) })}
+          {kpi(Clock, '#c98a1f', '#fff5e6', stats.pendientes, 'Pendientes por facturar', () => { setFiltro('Pendiente'); setPagina(1) })}
+          {kpi(Truck, '#c0392b', '#fdecea', stats.guias, 'Guías pendientes', () => irChip('guia'))}
+          {kpi(FileCheck2, '#04896f', '#e7f6f2', stats.actas, 'Actas pendientes', () => irChip('sinActa'))}
+          {kpi(ReceiptText, '#7c3aed', '#f3eefe', stats.notas, 'Notas de crédito')}
+        </div>
+
+        <div className="fx-split">
+          <div className="fx-tbl min-w-0" id="fx-lista">
+            <div className="fx-th">
+              {th('fecha', 'Fecha')}{th('cliente', 'Cliente')}{th('asesor', 'Asesor', 'fx-xl')}{th('factura', 'Factura', 'fx-xl')}{th('monto', 'Monto')}
+              <span className="fx-xl text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Docs</span>{th('estado', 'Estado')}
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 text-right"><span className="fx-act-lbl">Acción</span></span>
+            </div>
+            <div>{cuerpoLista()}</div>
+            {visibles.length > PAGE_SIZE && (
+              <div className="fx-pager">
+                <span className="fx-pg-info">{(pag - 1) * PAGE_SIZE + 1}–{Math.min(visibles.length, pag * PAGE_SIZE)} de {visibles.length}</span>
+                <div className="fx-pg-n">{pg('‹', pag - 1, false, pag <= 1)}{nums.map((x, i) => (x === '…' ? <span key={'g' + i} className="fx-pg-gap">…</span> : pg(x, x, x === pag, false)))}{pg('›', pag + 1, false, pag >= totalPaginas)}</div>
+              </div>
+            )}
+          </div>
+          <aside className="fx-side">{PanelLateral(conItems(sel), accion)}</aside>
+        </div>
+      </main>
+
+      {detalle && <Detalle r={conItems(detalle) ?? detalle} perfil={perfil} puedeEditar={puedeEditar} cerrar={() => setDetalle(null)} accion={accion}
+        facturar={(r) => { setDetalle(null); setFactura(conItems(r)) }} aviso={aviso} recargar={() => { cargar(filtro); cargarStats(); setItems({}) }} />}
+      {factura && <ModalFactura r={factura} perfil={perfil} cerrar={() => setFactura(null)} aviso={aviso} guardado={() => { setFactura(null); aviso('Factura registrada.'); cargar(filtro); cargarStats(); setItems({}) }} />}
+    </div>
+  )
+}
+
+/* ============================ Panel lateral ============================ */
+function PanelLateral(r: Fila | null, accion: (qa: string, r: Fila) => void) {
+  if (!r) return <div className="p-10 text-center text-xs text-slate-400">Selecciona un registro para ver su resumen.</div>
+  const monto = totalFila(r)
+  const act = (qa: string, Icono: typeof Receipt, color: string, label: string, off?: boolean) => (
+    <button key={qa + label} type="button" className={'fx-act' + (off ? ' off' : '')} onClick={() => accion(qa, r)}><span className="ic" style={{ ['--c' as string]: color }}><Icono /></span>{label}</button>
+  )
+  const acts = [act('detalle', FilePenLine, '#0b2545', 'Facturar')]
+  acts.push(r.estado === 'Pendiente' ? act('factura', Upload, '#055c9d', 'Subir factura', !r.datosCompletos) : act('verFactura', Receipt, '#055c9d', 'Ver factura', !r.facturaUrl))
+  if (r.estado === 'Facturado' || r.actaUrl) {
+    acts.push(r.actaUrl ? act('verActa', FileCheck2, '#04896f', 'Ver acta .pdf') : act('acta', FilePlus2, '#04896f', 'Generar acta'))
+    if (r.actaUrl) acts.push(act('acta', Pencil, '#0f766e', 'Editar acta'))
+  }
+  if (r.esEnvio || r.guiaEnvioUrl) {
+    acts.push(r.guiaEnvioUrl ? act('verGuia', Truck, '#c98a1f', 'Ver guía') : act('guia', Truck, '#c0392b', 'Generar guía'))
+    if (r.guiaEnvioUrl) acts.push(act('guia', Pencil, '#b7791f', 'Editar guía'))
+  }
+  if (r.actaConformidadUrl) acts.push(act('conformidad', BadgeCheck, '#17a9ba', 'Conformidad'))
+  if (r.numeroFactura) acts.push(act('nc', ReceiptText, '#7c3aed', 'Notas crédito'))
+  const lineas = r.items
+  let sSub = 0, sDesc = 0, sIva = 0, sTot = 0, uds = 0
+  lineas?.forEach((l) => { const c = calc(l); sSub += c.bruto; sDesc += c.descuentoUsd; sIva += c.ivaUsd; sTot += c.total; uds += c.cantidad })
+  return (
+    <>
+      <div className="fx-side-head">
+        <div className="flex items-center justify-between gap-2"><span className="text-[10px] font-mono-spec text-white/70 truncate">{r.id}</span><span className={'fx-st ' + (r.estado === 'Facturado' ? 'f' : 'p')}>{r.estado}</span></div>
+        <h3 className="font-display font-bold text-lg leading-snug mt-1.5">{r.cliente || 'Sin nombre'}</h3>
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {r.empresa === 'FEMEDICS' && <span className="fx-hchip" style={{ background: '#0cc4cf', color: '#fff', fontWeight: 800 }}><Building2 />Solicita: FEMEDICS</span>}
+          {tiene(r.medio) && <span className="fx-hchip"><Megaphone />{r.medio}</span>}
+          {tiene(r.numeroFactura) && <span className="fx-hchip"><Hash />Factura {r.numeroFactura}</span>}
+        </div>
+        <div className="flex items-end justify-between gap-2 mt-2.5"><p className="text-[11px] text-white/70">{r.asesor || 'Sin asesor'} · {fechaCorta(fechaTs(r), r.fechaGanado)}</p>{monto ? <p className="font-display font-bold text-xl">{money(monto)}</p> : null}</div>
+      </div>
+      <div className="fx-acts">{acts}</div>
+      <div className="px-4 pb-4 space-y-3">
+        {!r.datosCompletos && <div className="flex items-start gap-2 text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2"><TriangleAlert className="w-4 h-4 shrink-0" /><span>Faltan datos de pago/entrega. Debe regularizarse desde el CRM antes de facturar.</span></div>}
+        {r.esEnvio && !r.guiaEnvioUrl && <div className="flex items-start gap-2 text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2"><Truck className="w-4 h-4 shrink-0" /><span>Venta por envío: falta generar la guía (obligatoria).</span></div>}
+        {r.nota && <div className="text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2" style={{ whiteSpace: 'pre-line' }}><b>Nota interna:</b> {r.nota}</div>}
+        <div className="bg-white border border-slate-200 rounded-2xl px-3 py-2">
+          <div className="flex items-center justify-between mb-0.5"><p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Productos de la venta</p>{lineas?.length ? <span className="text-[10px] font-bold text-slate-400">{lineas.length} ítem{lineas.length === 1 ? '' : 's'}</span> : null}</div>
+          {!lineas && <p className="text-[11px] text-slate-400 py-3 text-center flex items-center justify-center gap-2"><span className="inline-block w-4 h-4 rounded-full border-2 border-slate-300 border-t-[color:var(--primary)] animate-spin" />Buscando productos…</p>}
+          {lineas && !lineas.length && <p className="text-[11px] text-slate-400 py-3 text-center">Esta venta no tiene productos registrados.</p>}
+          {lineas?.map((l, k) => {
+            const c = calc(l)
+            return (
+              <div key={k} className="flex items-center gap-2.5 py-2.5 border-b border-slate-100 last:border-0">
+                {l.imagen ? <img loading="lazy" src={imagen(l.imagen, 120)} onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} className="w-11 h-11 rounded-xl object-cover bg-slate-50 border border-slate-100 shrink-0" alt="" />
+                  : <span className="w-11 h-11 rounded-xl bg-slate-100 text-slate-300 flex items-center justify-center shrink-0"><Package className="w-5 h-5" /></span>}
+                <div className="min-w-0 flex-1"><p className="text-[12px] font-semibold text-slate-800 leading-snug line-clamp-2">{l.nombre}</p>
+                  {l.observacion && <p className="mt-1 text-[10.5px] rounded-lg px-2 py-0.5 inline-block" style={{ background: '#fffaf0', border: '1px solid #f2dfb9', color: '#7b5a1e' }}>{l.observacion}</p>}
+                  <p className="text-[10px] text-slate-400 mt-0.5">{l.codigo || ''} · {c.cantidad} × {money(c.precio)}{c.descuentoPct ? <> · <span style={{ color: 'var(--amber)' }}>−{c.descuentoPct}%</span></> : null} · {c.conIva ? 'IVA 15%' : 'IVA 0%'}</p></div>
+                <b className="text-[12px] text-slate-800 shrink-0">{money(c.base)}</b>
+              </div>
+            )
+          })}
+          {lineas && lineas.length > 0 && (
+            <div className="mt-2 rounded-xl p-3 space-y-1" style={{ background: 'linear-gradient(180deg,#f7fbfe,#eef6fb)', border: '1px solid #dcebf5' }}>
+              <div className="flex justify-between text-[11px] text-slate-500"><span>Subtotal ({uds} u.)</span><span>{money(sSub)}</span></div>
+              {sDesc > 0 && <div className="flex justify-between text-[11px]" style={{ color: 'var(--amber)' }}><span>Descuento</span><span>−{money(sDesc)}</span></div>}
+              {sDesc > 0 && <div className="flex justify-between text-[11px] text-slate-500"><span>Base imponible</span><span>{money(sSub - sDesc)}</span></div>}
+              <div className="flex justify-between text-[11px] text-slate-500"><span>IVA 15%</span><span>{money(sIva)}</span></div>
+              <div className="flex justify-between items-end pt-1.5 mt-1 border-t border-slate-200"><span className="text-[11px] font-bold uppercase tracking-wide text-slate-600">Total</span><span className="font-display font-bold text-xl" style={{ color: 'var(--teal)' }}>{money(sTot)}</span></div>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  )
+}
+
+/* ============================ Detalle de venta ============================ */
+function Detalle({ r, perfil, puedeEditar, cerrar, accion, facturar, aviso, recargar }: {
+  r: Fila; perfil: Perfil; puedeEditar: boolean; cerrar: () => void; accion: (qa: string, r: Fila) => void; facturar: (r: Fila) => void; aviso: (t: string) => void; recargar: () => void
+}) {
+  const [full, setFull] = useState<Fila>(r)
+  useEffect(() => {
+    if (r.items) return
+    supabase.from('facturas').select('items,historial').eq('id', r.uuid).single().then(({ data }) => { const d = (data ?? {}) as { items?: Linea[]; historial?: Fila['historial'] }; setFull({ ...r, items: d.items ?? [], historial: d.historial ?? [] }) })
+  }, [r])
+  const pe = full.pe
+  const lineas = full.items
+  let sSub = 0, sDesc = 0, sIva = 0, sTot = 0
+  lineas?.forEach((l) => { const c = calc(l); sSub += c.bruto; sDesc += c.descuentoUsd; sIva += c.ivaUsd; sTot += c.total })
+  const monto = totalFila(full) || sTot
+  const fila = (label: string, v?: string | null, url?: string, wide?: boolean) => tiene(v) ? <div key={label} className={wide ? 'w' : undefined}><small>{label}</small><p>{url ? <a href={url} target="_blank" rel="noopener">{v}</a> : v}</p></div> : null
+  const tarjeta = (icono: string, bg: string, titulo: string, filas: React.ReactNode[]) => { const v = filas.filter(Boolean); return v.length ? <section className="pm-info"><p className="t"><span className="ic" style={{ background: bg }}>{icono}</span>{titulo}</p><div className="pm-rows">{v}</div></section> : null }
+  const chips: React.ReactNode[] = []
+  if (full.empresa === 'FEMEDICS') chips.push(<span key="fm" className="pm-chip" style={{ background: '#0cc4cf', color: '#fff', borderColor: '#0cc4cf' }}>Solicita: FEMEDICS</span>)
+  chips.push(<span key="es" className={'pm-chip ' + (full.estado === 'Facturado' ? 'ok' : 'warn')}>{full.estado || '—'}</span>)
+  if (tiene(full.numeroFactura)) chips.push(<span key="nf" className="pm-chip"><Hash />Factura {full.numeroFactura}</span>)
+  if (tiene(full.medio)) chips.push(<span key="me" className="pm-chip"><Megaphone />{full.medio}</span>)
+  if (tiene(pe.entrega)) chips.push(<span key="en" className="pm-chip"><Truck />{pe.entrega}{pe.ciudad ? ' · ' + pe.ciudad : ''}</span>)
+  if (tiene(pe.pago)) chips.push(<span key="pa" className="pm-chip"><CreditCard />{pe.pago}</span>)
+  if (!full.datosCompletos) chips.push(<span key="dc" className="pm-chip" style={{ background: '#fdecea', color: '#c0392b', borderColor: '#f5c6c0' }}>Faltan datos de pago/entrega</span>)
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-[2px] z-[60] flex items-center justify-center p-0 sm:p-4 overlay" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
+      <div className="modal-panel bg-[#f6f9fc] sm:rounded-3xl shadow-2xl w-full h-full sm:h-[94vh] sm:max-w-[1300px] flex flex-col overflow-hidden">
+        <div className="pm-head shrink-0">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-white/70 flex items-center gap-1.5"><Receipt className="w-3.5 h-3.5" /><span>Detalle de venta</span></p>
+              <h3 className="font-display font-bold text-xl leading-tight mt-1 truncate">{full.cliente || 'Sin nombre'}</h3>
+              <p className="text-[11px] text-white/75 truncate mt-0.5">{[full.id, full.identificacion, full.asesor, fechaCorta(fechaTs(full), full.fechaGanado)].filter(tiene).join(' · ')}</p>
+            </div>
+            <div className="flex items-start gap-3 shrink-0">
+              <div className="text-right"><p className="text-[9px] font-bold uppercase tracking-wider text-white/60">Total</p><p className="font-display font-bold text-2xl leading-tight">{monto ? money(monto) : ''}</p></div>
+              <button type="button" onClick={cerrar} className="w-9 h-9 rounded-xl bg-white/15 hover:bg-white/25 flex items-center justify-center" aria-label="Cerrar"><X className="w-4 h-4" /></button>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-1.5 mt-2.5">{chips}</div>
+        </div>
+        <div className="flex-1 min-h-0 overflow-y-auto lg:overflow-hidden lg:grid lg:grid-cols-[minmax(0,1fr)_340px]">
+          <div className="lg:overflow-y-auto p-4 sm:p-5 space-y-4 min-w-0">
+            {tiene(full.nota) && <div className="pm-note"><b>⚠️ Nota importante · bodega y logística</b>{full.nota}</div>}
+            <section className="pm-card">
+              <div className="flex items-center justify-between gap-2 mb-2"><p className="pm-h"><Package />Productos</p><span className="text-[10px] font-bold px-2 py-1 rounded-full bg-slate-100 text-slate-500">{lineas ? lineas.length : 0} producto{lineas?.length === 1 ? '' : 's'}</span></div>
+              {!lineas && <div className="text-center text-slate-400 text-xs py-10">Cargando productos…</div>}
+              {lineas && !lineas.length && <div className="text-center text-slate-400 text-xs py-10">Sin líneas de producto.</div>}
+              {lineas?.map((l, k) => {
+                const c = calc(l)
+                return (
+                  <div key={k} className="pm-prod">
+                    {l.imagen ? <img loading="lazy" src={imagen(l.imagen, 120)} alt="" onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} /> : <span className="ph"><Package className="w-5 h-5" /></span>}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[12.5px] font-bold text-slate-800 leading-snug"><span className="font-mono-spec text-[10.5px] text-slate-400 mr-1.5">{l.codigo || 'Sin ID'}</span>{l.nombre}</p>
+                      <p className="text-[11px] text-slate-500 mt-0.5 flex flex-wrap gap-x-2"><span>{money(c.precio)} c/u</span>{c.descuentoPct ? <span style={{ color: 'var(--amber)' }}>−{String(Math.round(c.descuentoPct * 100) / 100).replace('.', ',')}%</span> : null}<span>{c.conIva ? 'IVA 15%' : 'IVA 0%'}</span></p>
+                      {l.observacion && <p className="mt-1 text-[10.5px] rounded-lg px-2 py-1 inline-block" style={{ background: '#fffaf0', border: '1px solid #f2dfb9', color: '#7b5a1e' }}>{l.observacion}</p>}
+                    </div>
+                    <span className="pm-qty" style={{ background: '#fff5e6', color: '#b7791f' }}>−{c.cantidad}</span>
+                    <b className="text-[13px] text-slate-800 w-24 text-right shrink-0">{money(c.total)}</b>
+                  </div>
+                )
+              })}
+              {lineas && lineas.length > 0 && (
+                <div className="pm-totals"><div><span>Subtotal</span><b>{money(sSub)}</b></div><div><span>Descuento</span><b style={{ color: 'var(--amber)' }}>{sDesc ? '−' : ''}{money(sDesc)}</b></div><div><span>IVA</span><b>{money(sIva)}</b></div><div className="tot"><span>Total</span><b>{money(sTot)}</b></div></div>
+              )}
+            </section>
+            <div className="min-w-0"><div className="pm-grid">
+              {tarjeta('👤', '#eaf3fb', 'Cliente', [fila('Cédula / RUC', full.identificacion), fila('Teléfono', full.telefono), fila('Correo', full.email, undefined, true), fila('Medio de captación', full.medio)])}
+              {tarjeta('💳', '#e7f6f2', 'Pago', [fila('Forma de pago', pe.pago), fila('Tipo de pago', pe.tipoPago), fila('Plazo de crédito', pe.plazoCredito), fila('Observación', pe.observacionPago, undefined, true)])}
+              {tarjeta('🚚', '#fff5e6', 'Entrega', [fila('Tipo de entrega', pe.entrega), fila('Fecha de entrega', pe.fechaEntrega), fila('Ciudad', pe.ciudad), fila('Transporte', pe.transporte), fila('Dirección de envío', pe.direccionEnvio, undefined, true), fila('Dirección local', pe.direccionEntregaLocal, undefined, true),
+                fila('Destinatario', pe.nombreDestinatario), fila('Cédula destinatario', pe.cedulaDestinatario), fila('Teléfono destinatario', pe.telefonoDestinatario), fila('Email destinatario', pe.emailDestinatario), fila('Quién recibe', pe.quienRecibe), fila('Teléfono entrega', pe.telefonoEntregaLocal),
+                tiene(pe.urlGoogleMaps) ? fila('Google Maps', 'Abrir ubicación', pe.urlGoogleMaps) : null])}
+              {tarjeta('📦', '#f3edff', 'Empaque y garantía', [fila('Empaque caja', pe.empaqueCaja), fila('Empaque armado', pe.empaqueArmado), fila('Empaque stretch', pe.empaqueStretch), fila('Carta de garantía', pe.cartaGarantia), fila('Remitente', pe.nombreRemitente), fila('Cédula remitente', pe.cedulaRemitente), fila('Teléfono remitente', pe.telefonoRemitente)])}
+            </div></div>
+          </div>
+          <aside className="bg-white border-t lg:border-t-0 lg:border-l border-slate-200 lg:overflow-y-auto">
+            <div className="p-4 space-y-3">
+              <p className="font-display font-bold text-sm text-slate-800">Documentos</p>
+              <div className="pm-doc">
+                <p className="pm-doc-h"><span className="ic" style={{ ['--c' as string]: '#055c9d' }}><Receipt /></span>Factura</p>
+                {full.estado === 'Facturado'
+                  ? <div className="space-y-2"><p className="text-[11px] text-slate-600">Nº <b className="font-mono-spec">{full.numeroFactura || '—'}</b></p>{full.facturaUrl && <button type="button" className="pm-btn ok w-full" onClick={() => accion('verFactura', full)}>Ver factura .pdf</button>}</div>
+                  : puedeEditar && full.datosCompletos
+                    ? <button type="button" className="w-full text-white text-xs font-bold py-2.5 rounded-xl" style={{ background: 'linear-gradient(135deg,var(--primary),var(--cyan))' }} onClick={() => facturar(full)}>Registrar factura</button>
+                    : <p className="text-[11px] text-slate-400">{full.datosCompletos ? 'Sin permiso para facturar.' : 'Faltan datos de pago/entrega: regularízalos desde el CRM.'}</p>}
+              </div>
+              {(full.estado === 'Facturado' || full.actaUrl) && (
+                <div className="pm-doc"><p className="pm-doc-h"><span className="ic" style={{ ['--c' as string]: '#04896f' }}><FileCheck2 /></span>Acta de entrega / garantía</p>
+                  {full.actaUrl ? <button type="button" className="pm-btn ok w-full" onClick={() => accion('verActa', full)}>Ver acta .pdf</button> : <button type="button" className="pm-btn solid w-full" style={{ background: '#04896f' }} onClick={() => accion('acta', full)}>Generar acta</button>}</div>
+              )}
+              {(full.esEnvio || full.guiaEnvioUrl) && (
+                <div className="pm-doc"><p className="pm-doc-h"><span className="ic" style={{ ['--c' as string]: '#c0392b' }}><Truck /></span>Guía de envío <span className="text-red-600">*</span></p>
+                  {full.guiaEnvioUrl ? <button type="button" className="pm-btn warn w-full" onClick={() => accion('verGuia', full)}>Ver guía</button> : <button type="button" className="pm-btn solid w-full" style={{ background: '#c0392b' }} onClick={() => accion('guia', full)}>Generar guía de envío</button>}</div>
+              )}
+              {tiene(full.numeroFactura) && (
+                <div className="pm-doc"><p className="pm-doc-h"><span className="ic" style={{ ['--c' as string]: '#7c3aed' }}><ReceiptText /></span>Notas de crédito</p>
+                  <button type="button" className="pm-btn w-full" style={{ borderColor: '#ddd0fb', background: '#f6f2ff', color: '#6d28d9' }} onClick={() => accion('nc', full)}>Notas de crédito / recepciones</button></div>
+              )}
+              <div className="pm-doc"><p className="pm-doc-h"><span className="ic" style={{ ['--c' as string]: '#475569' }}><History /></span>Historial de cambios</p>
+                <div className="fx-hist">
+                  {!full.historial && <p className="text-[11px] text-slate-400">Cargando historial…</p>}
+                  {full.historial && !full.historial.length && <p className="text-[11px] text-slate-400">Sin cambios registrados.</p>}
+                  {[...(full.historial ?? [])].reverse().slice(0, 60).map((x, k) => <div key={k} className="fx-hist-i"><small>{fechaCorta(Date.parse(x.fecha))} · {x.por || '—'}</small><b>{x.accion}</b>{x.detalle && <span>{x.detalle}</span>}</div>)}
+                </div></div>
+            </div>
+          </aside>
+        </div>
+      </div>
+      <span hidden>{perfil.id}{aviso.length}{recargar.length}</span>
+    </div>
+  )
+}
+
+/* ============================ Subir factura ============================ */
+function ModalFactura({ r, perfil, cerrar, guardado, aviso }: { r: Fila; perfil: Perfil; cerrar: () => void; guardado: () => void; aviso: (t: string) => void }) {
+  const [numero, setNumero] = useState(r.numeroFactura)
+  const [enlace, setEnlace] = useState(r.facturaUrl)
+  const [msg, setMsg] = useState('')
+  const [guardando, setGuardando] = useState(false)
+  const lineas = r.items
+  const monto = totalFila(r)
+  useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') cerrar() }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [cerrar])
+
+  async function guardar() {
+    setMsg('')
+    const n = numero.trim()
+    if (!/^\d{3}-\d{3}-\d{6,9}$/.test(n)) { setMsg('Escribe el número de factura como aparece en Contífico (001-001-000012345).'); return }
+    if (enlace.trim() && !/^https?:\/\//i.test(enlace.trim())) { setMsg('El enlace debe empezar con https://'); return }
+    setGuardando(true)
+    const { data: act } = await supabase.from('facturas').select('historial').eq('id', r.uuid).single()
+    const historial = [...(((act as { historial?: unknown[] } | null)?.historial ?? []) as unknown[]), { fecha: new Date().toISOString(), por: perfil.nombre, accion: 'Factura registrada', detalle: 'Nº ' + n }]
+    const { error } = await supabase.from('facturas').update({
+      estado: 'Facturado', numero_contifico: n, pdf_url: enlace.trim() || null, fecha_facturacion: new Date().toISOString().slice(0, 10), facturado_por: perfil.id, historial,
+    }).eq('id', r.uuid)
+    setGuardando(false)
+    if (error) { setMsg(/duplicate|unique/i.test(error.message) ? 'Ese número de factura ya está registrado.' : error.message); return }
+    guardado()
+  }
+  void aviso
+  return (
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-[2px] z-[60] flex items-center justify-center p-0 sm:p-4 overlay" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
+      <div className="modal-panel bg-[#f6f9fc] sm:rounded-3xl shadow-2xl w-full h-full sm:h-auto sm:max-w-lg sm:max-h-[92vh] flex flex-col overflow-hidden">
+        <div className="shrink-0 px-5 py-4 text-white" style={{ background: 'linear-gradient(135deg,var(--navy),var(--primary))' }}>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-white/70 flex items-center gap-1.5"><Receipt className="w-3.5 h-3.5" />Subir factura · Contífico</span>
+            <button type="button" onClick={cerrar} className="w-8 h-8 rounded-xl bg-white/15 hover:bg-white/25 flex items-center justify-center" aria-label="Cerrar"><X className="w-4 h-4" /></button>
+          </div>
+          <h3 className="font-display font-bold text-lg leading-snug mt-1.5">{r.cliente || 'Venta'}</h3>
+          <div className="flex items-end justify-between gap-2 mt-1"><p className="text-[11px] text-white/70">{[r.id, r.asesor, fechaCorta(fechaTs(r), r.fechaGanado)].filter(Boolean).join(' · ')}</p><p className="font-display font-bold text-xl">{monto ? money(monto) : ''}</p></div>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3">
+          <div className="bg-white border border-slate-200 rounded-2xl px-3 py-1">
+            {lineas?.length
+              ? <><p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider pt-2 pb-1">Productos a facturar</p>{lineas.map((l, k) => { const c = calc(l); return (
+                <div key={k}><div className="flex items-center justify-between gap-2 py-1.5 border-t border-slate-100 text-[11.5px]"><span className="min-w-0 truncate"><b className="text-slate-700">{c.cantidad}×</b> {l.nombre}</span><b className="text-slate-700 shrink-0">{money(c.total)}</b></div>
+                  {l.observacion && <p className="-mt-0.5 mb-1 text-[10.5px] rounded-lg px-2 py-0.5 inline-block" style={{ background: '#fffaf0', border: '1px solid #f2dfb9', color: '#7b5a1e' }}>{l.observacion}</p>}</div>) })}</>
+              : <p className="text-[11px] text-slate-400 py-2.5">Los productos se revisan en el detalle completo.</p>}
+          </div>
+          <div className="fi-sec">
+            <div className="fi-sec-h"><span className="fi-num" style={{ background: 'var(--primary)' }}>1</span><div className="flex-1"><b>Número de factura</b><small>Tal como aparece en Contífico</small></div></div>
+            <div className="relative"><Hash className="fi-ico" /><input type="text" autoComplete="off" value={numero} onChange={(e) => setNumero(e.target.value.replace(/[^\d-]/g, ''))} placeholder="001-001-000012345" className="fi-in pl-9 font-mono-spec" /></div>
+          </div>
+          <div className="fi-sec">
+            <div className="fi-sec-h"><span className="fi-num" style={{ background: 'var(--primary)' }}>2</span><div className="flex-1"><b>PDF de la factura</b><small>Sube el archivo o pega su enlace</small></div></div>
+            <label className="fi-drop" style={{ opacity: 0.6, cursor: 'not-allowed' }}><span className="fi-drop-ic"><FileUp /></span><span className="text-center"><b className="block text-[12.5px] text-slate-700">Elegir PDF</b><small className="text-[10.5px] text-slate-400">Disponible al conectar el almacenamiento de archivos</small></span></label>
+            <div className="fi-or">o pega el enlace</div>
+            <div className="relative"><Link2 className="fi-ico" /><input type="url" inputMode="url" autoComplete="off" value={enlace} onChange={(e) => setEnlace(e.target.value)} placeholder="https://drive.google.com/file/d/…" className="fi-in pl-9" /></div>
+          </div>
+          {msg && <p className="fi-err">{msg}</p>}
+        </div>
+        <div className="shrink-0 border-t border-slate-200 bg-white p-4 flex items-center gap-2">
+          <button type="button" onClick={cerrar} className="h-11 px-4 rounded-2xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50">Cancelar</button>
+          <button type="button" onClick={guardar} disabled={guardando} className="flex-1 h-11 rounded-2xl text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: 'linear-gradient(135deg,var(--primary),var(--cyan))', boxShadow: '0 10px 20px -14px rgba(5,92,157,.9)' }}>{guardando ? 'Guardando…' : 'Guardar factura'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}

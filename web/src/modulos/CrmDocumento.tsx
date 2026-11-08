@@ -226,6 +226,22 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     if (esVenta && guardarDv && cliente) {
       await supabase.from('clientes').update({ datos_venta: { pago, tipoPago, plazo, entrega, dirEntrega, quienRecibe, telEntrega, mapsEntrega, ciudadDestino, transporte, dest, dirEnvio, caja, armado, stretch, garantia } }).eq('id', cliente.id)
     }
+    if (esVenta) {
+      /* Cada venta entra a Facturación como "Pendiente" con sus datos de pago y entrega. */
+      const pe = {
+        pago, tipoPago, plazoCredito: plazo, observacionPago: obsPago, entrega, fechaEntrega, ciudad: ciudadDestino, transporte, direccionEnvio: dirEnvio,
+        direccionEntregaLocal: dirEntrega, quienRecibe, telefonoEntregaLocal: telEntrega, urlGoogleMaps: mapsEntrega, nombreDestinatario: dest.nombre, cedulaDestinatario: dest.cedula,
+        telefonoDestinatario: dest.telefono, emailDestinatario: dest.email, nombreRemitente: rem.nombre, cedulaRemitente: rem.cedula, telefonoRemitente: rem.telefono,
+        empaqueCaja: caja, empaqueArmado: armado, empaqueStretch: stretch, cartaGarantia: garantia, flete, fletePaga,
+      }
+      const redondo = (n: number) => Math.round(n * 100) / 100
+      const { error: errFact } = await supabase.from('facturas').insert({
+        id: crypto.randomUUID(), codigo, empresa: perfil.empresa, cliente_id: cliente?.id ?? null, identificacion: cliente?.identificacion ?? (lead.identificacion || null), cotizacion_id: id,
+        asesor_id: asesorId || null, estado: 'Pendiente', fecha_ganado: new Date().toISOString().slice(0, 10), medio_captacion_venta: medio, observacion: nota.trim() || null,
+        datos_completos: true, items, pago_entrega: pe, subtotal: redondo(subtotal), iva: redondo(ivaTotal), total: redondo(total), total_neto: redondo(total),
+      })
+      if (errFact && !/duplicate|unique/i.test(errFact.message)) console.warn('No se pudo crear el registro de Facturación:', errFact.message)
+    }
     const codigoFinal = codigo
     id = ''; codigo = ''
     const resumenEntrega = [entrega === 'Local' ? dirEntrega : entrega === 'Envío' ? `${ciudadDestino} (${transporte})${dirEnvio ? ' · ' + dirEnvio : ''}` : '', quienRecibe ? 'Recibe: ' + quienRecibe : '', fechaEntrega ? 'Fecha de entrega: ' + fechaEntrega : '', [caja, armado, stretch].filter(Boolean).length ? 'Empaque: ' + [caja, armado, stretch].filter(Boolean).join(' · ') : '', garantia ? 'Garantía: ' + garantia : ''].filter(Boolean)

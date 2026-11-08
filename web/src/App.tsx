@@ -9,6 +9,7 @@ import { MODULOS } from './modulos'
 import Inventario from './modulos/Inventario'
 import Crm from './modulos/Crm'
 import Empleados from './modulos/Empleados'
+import Facturacion from './modulos/Facturacion'
 import './estilos/miespacio.css'
 import './estilos/responsive.css'
 
@@ -68,7 +69,7 @@ export default function App() {
   const volver = () => { window.location.hash = '' }
 
   // Dentro de un módulo se muestra la barra lateral de acceso rápido (igual que la app original).
-  if ((vista === 'inventario' && puede(perfil, 'inventario', 'ver')) || (vista === 'crm' && puede(perfil, 'crm', 'ver')) || (vista === 'empleados' && puede(perfil, 'empleados', 'ver'))) {
+  if ((vista === 'inventario' && puede(perfil, 'inventario', 'ver')) || (vista === 'crm' && puede(perfil, 'crm', 'ver')) || (vista === 'empleados' && puede(perfil, 'empleados', 'ver')) || (vista === 'facturacion' && puede(perfil, 'facturacion', 'ver'))) {
     return (
       <>
         <Rail perfil={perfil} actual={vista} aviso={avisar}
@@ -78,7 +79,7 @@ export default function App() {
             else avisar(`${MODULOS[id]?.label ?? 'Este módulo'} todavía se está migrando. Sigue disponible en la app actual.`)
           }}
           accion={() => avisar('Esta acción depende del CRM, que todavía se está migrando.')} />
-        <div className="vm-modulo">{vista === 'crm' ? <Crm perfil={perfil} aviso={avisar} /> : vista === 'empleados' ? <Empleados perfil={perfil} aviso={avisar} /> : <Inventario perfil={perfil} volver={volver} />}</div>
+        <div className="vm-modulo">{vista === 'crm' ? <Crm perfil={perfil} aviso={avisar} /> : vista === 'empleados' ? <Empleados perfil={perfil} aviso={avisar} /> : vista === 'facturacion' ? <Facturacion perfil={perfil} aviso={avisar} /> : <Inventario perfil={perfil} volver={volver} />}</div>
         <div id="toast" role="status" className={aviso ? 'show' : ''}>{aviso}</div>
       </>
     )
