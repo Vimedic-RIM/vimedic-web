@@ -1,0 +1,10 @@
+.emp-card { transition: transform .15s ease, box-shadow .15s ease; cursor: pointer; }
+.emp-card:hover { transform: translateY(-2px); box-shadow: 0 10px 24px -12px rgba(11,37,69,0.25); }
+.modal-panel { animation: modalIn .22s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes modalIn { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+.emp-estado-btn { background: #fff; color: #475569; border-color: #e2e8f0; transition: all .12s ease; }
+.emp-estado-btn.active { background: var(--navy); color: #fff; border-color: var(--navy); }
+.max-w-6xl{max-width:72rem}.min-h-16{min-height:4rem}.col-span-full{grid-column:1/-1}.mt-5{margin-top:1.25rem}.pl-3{padding-left:.75rem}
+.border-l-2{border-left-width:2px}.text-\[11\.5px\]{font-size:11.5px}.border-dashed{border-style:dashed}.disabled\:opacity-60:disabled{opacity:.6}
+@media (min-width:640px){.sm\:px-6{padding-left:1.5rem;padding-right:1.5rem}.sm\:w-64{width:16rem}}
+@media (min-width:1024px){.lg\:grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}}
