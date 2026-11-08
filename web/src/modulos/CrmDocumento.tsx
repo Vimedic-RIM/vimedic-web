@@ -9,8 +9,8 @@ import type { DatosDoc } from '../proforma'
 
 type Asesor = { id: string; nombre: string }
 export type Origen = { tabla: 'leads' | 'cotizaciones'; id: string; codigo: string; nombre: string; telefono: string; email: string; identificacion: string; medio: string } | null
-type Prod = { id: string; codigo: string | null; nombre: string; pvp: number | null; precio_dis: number | null; aplica_iva: boolean; stock: number | null; imagen_url: string | null; reservaciones: string | null }
-type Linea = { id: string; codigo: string; nombre: string; imagen: string; precio: number; cantidad: number; descuento: number; iva: boolean; observacion: string }
+type Prod = { id: string; codigo: string | null; nombre: string; pvp: number | null; precio_dis: number | null; aplica_iva: boolean; stock: number | null; imagen_url: string | null; reservaciones: string | null; descripcion: string | null; ficha_tecnica_url: string | null; drive_carpeta_url: string | null; categoria: { nombre: string } | null }
+type Linea = { id: string; codigo: string; nombre: string; imagen: string; precio: number; cantidad: number; descuento: number; iva: boolean; observacion: string; categoria?: string; descripcion?: string; ficha?: string; carpeta?: string }
 type Cli = { datos_venta?: Record<string, string> | null; id: string; nombre: string; identificacion: string | null; email: string | null; telefono: string | null; direccion: string | null; tipo_cliente: string | null; descuento_fijo: string | null }
 
 const MEDIOS: [string, string[]][] = [
@@ -27,9 +27,32 @@ const TRANSPORTES = ['Empresa', 'Tramaco', 'Enetsa', 'Jhetro', 'Esmeraldeño', '
 const dinero = (n: number) => '$' + n.toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const limpiar = (t: string) => t.replace(/[,()%*\\"']/g, ' ').trim()
 
-export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, guardado }: {
+/** Lista legible de lo que cambió entre dos versiones de una cotización. */
+function diferencias(prev: Record<string, any>[], sig: Linea[], extra: { notaPrev: string; nota: string; nombrePrev: string; nombre: string; totalPrev: number; total: number; medioPrev: string; medio: string }): string[] { // eslint-disable-line @typescript-eslint/no-explicit-any
+  const c: string[] = []
+  const pm = new Map(prev.map((i) => [String(i.id), i]))
+  const sm = new Map(sig.map((i) => [String(i.id), i]))
+  sig.forEach((n) => {
+    const o = pm.get(String(n.id))
+    if (!o) { c.push(`Agregó ${n.nombre} (${n.cantidad} u a ${dinero(n.precio)})`); return }
+    if (Number(o.cantidad) !== n.cantidad) c.push(`${n.nombre}: cantidad ${o.cantidad} → ${n.cantidad}`)
+    if (Math.abs(Number(o.precio) - n.precio) > 0.004) c.push(`${n.nombre}: precio ${dinero(Number(o.precio))} → ${dinero(n.precio)}`)
+    if (Math.abs((Number(o.descuento) || 0) - (n.descuento || 0)) > 0.004) c.push(`${n.nombre}: descuento ${Number(o.descuento) || 0}% → ${n.descuento || 0}%`)
+    if ((o.observacion || '') !== (n.observacion || '')) c.push(`${n.nombre}: observación modificada`)
+  })
+  prev.forEach((o) => { if (!sm.has(String(o.id))) c.push(`Quitó ${o.nombre}`) })
+  if (extra.nombrePrev !== extra.nombre) c.push(`Cliente: ${extra.nombrePrev || '—'} → ${extra.nombre}`)
+  if (extra.medioPrev !== extra.medio) c.push('Medio de captación modificado')
+  if ((extra.notaPrev || '') !== (extra.nota || '')) c.push('Nota importante modificada')
+  if (Math.abs(extra.totalPrev - extra.total) > 0.004) c.push(`Total: ${dinero(extra.totalPrev)} → ${dinero(extra.total)}`)
+  return c
+}
+
+export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, guardado, editar }: {
   modo: 'Cotización' | 'Venta'; perfil: Perfil; asesores: Asesor[]; origen: Origen; cerrar: () => void; guardado: (msg: string, doc: DatosDoc) => void
+  editar?: Record<string, any> | null // eslint-disable-line @typescript-eslint/no-explicit-any
 }) {
+  const ed = editar ?? null
   const esVenta = modo === 'Venta'
   const acento = esVenta ? '#04896f' : '#055c9d'
   const [pestana, setPestana] = useState<'cliente' | 'inventario' | 'carrito'>('cliente')
@@ -38,16 +61,23 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   const [busca, setBusca] = useState('')
   const [res, setRes] = useState<Cli[]>([])
   const [cliente, setCliente] = useState<Cli | null>(null)
-  const [lead, setLead] = useState({ nombre: origen?.nombre ?? '', telefono: origen?.telefono ?? '', email: origen?.email ?? '', identificacion: origen?.identificacion ?? '' })
-  const [medio, setMedio] = useState(origen?.medio ?? '')
-  const [nota, setNota] = useState('')
-  const [asesorId, setAsesorId] = useState(perfil.id)
+  const [lead, setLead] = useState({ nombre: ed?.nombre ?? origen?.nombre ?? '', telefono: ed?.telefono ?? origen?.telefono ?? '', email: ed?.email ?? origen?.email ?? '', identificacion: ed?.identificacion ?? origen?.identificacion ?? '' })
+  const [medio, setMedio] = useState(ed?.medio_captacion_lead ?? origen?.medio ?? '')
+  const [nota, setNota] = useState<string>(ed?.nota_cotizacion ?? '')
+  const [asesorId, setAsesorId] = useState<string>(ed?.asesor_id ?? perfil.id)
 
   /* productos */
   const [qp, setQp] = useState('')
   const [prods, setProds] = useState<Prod[]>([])
   const [buscando, setBuscando] = useState(false)
-  const [carrito, setCarrito] = useState<Linea[]>([])
+  const [carrito, setCarrito] = useState<Linea[]>(() => ((ed?.items ?? []) as Record<string, any>[]).map((i) => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
+    id: String(i.id), codigo: i.codigo ?? '', nombre: i.nombre, imagen: i.imagen ?? '', precio: Number(i.precio) || 0, cantidad: Number(i.cantidad) || 1, descuento: Number(i.descuento) || 0,
+    iva: i.iva !== false, observacion: i.observacion ?? '', categoria: i.categoria ?? '', descripcion: i.descripcion ?? '', ficha: i.ficha ?? '', carpeta: i.carpeta ?? '' })))
+  useEffect(() => {
+    if (!ed?.cliente_id) return
+    supabase.from('clientes').select('id,nombre,identificacion,email,telefono,direccion,tipo_cliente,descuento_fijo,datos_venta').eq('id', ed.cliente_id).single().then(({ data }) => { if (data) setCliente(data as Cli) })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [pct, setPct] = useState('')
   const dragIdx = useRef<number | null>(null)
 
@@ -95,9 +125,9 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     if (!q) { setProds([]); return }
     setBuscando(true)
     const t = setTimeout(() => {
-      let c = supabase.from('productos').select('id,codigo,nombre,pvp,precio_dis,aplica_iva,stock,imagen_url,reservaciones').is('deleted_at', null)
+      let c = supabase.from('productos').select('id,codigo,nombre,pvp,precio_dis,aplica_iva,stock,imagen_url,reservaciones,descripcion,ficha_tecnica_url,drive_carpeta_url,categoria:categorias(nombre)').is('deleted_at', null)
       for (const p of q.split(/\s+/)) c = c.or(`nombre.ilike.%${p}%,codigo.ilike.%${p}%,codigo_unico.ilike.%${p}%,marca.ilike.%${p}%`)
-      c.order('nombre').range(0, 29).then(({ data }) => { setProds((data as Prod[]) ?? []); setBuscando(false) })
+      c.order('nombre').range(0, 29).then(({ data }) => { setProds((data as unknown as Prod[]) ?? []); setBuscando(false) })
     }, 250)
     return () => clearTimeout(t)
   }, [qp])
@@ -119,7 +149,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     setCarrito((a) => {
       const i = a.findIndex((x) => x.id === p.id)
       if (i >= 0) return a.map((x, k) => (k === i ? { ...x, cantidad: x.cantidad + 1 } : x))
-      return [...a, { id: p.id, codigo: p.codigo ?? '', nombre: p.nombre, imagen: p.imagen_url ?? '', precio: precioBase(p, cliente), cantidad: 1, descuento: descCliente(cliente), iva: p.aplica_iva !== false, observacion: '' }]
+      return [...a, { id: p.id, codigo: p.codigo ?? '', nombre: p.nombre, imagen: p.imagen_url ?? '', precio: precioBase(p, cliente), cantidad: 1, descuento: descCliente(cliente), iva: p.aplica_iva !== false, observacion: '', categoria: p.categoria?.nombre ?? '', descripcion: p.descripcion ?? '', ficha: p.ficha_tecnica_url ?? '', carpeta: p.drive_carpeta_url ?? '' }]
     })
   }
   const cambiar = (idx: number, c: Partial<Linea>) => setCarrito((a) => a.map((x, k) => (k === idx ? { ...x, ...c } : x)))
@@ -153,7 +183,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     if (faltan.length) { setError('Falta: ' + faltan.join(', ') + '.'); return }
     setGuardando(true); setError('')
     const ahora = new Date().toISOString()
-    const items = carrito.map((i) => ({ id: i.id, codigo: i.codigo, nombre: i.nombre, imagen: i.imagen, precio: i.precio, cantidad: i.cantidad, descuento: i.descuento, iva: i.iva, observacion: i.observacion }))
+    const items = carrito.map((i) => ({ categoria: i.categoria, descripcion: i.descripcion, ficha: i.ficha, carpeta: i.carpeta, id: i.id, codigo: i.codigo, nombre: i.nombre, imagen: i.imagen, precio: i.precio, cantidad: i.cantidad, descuento: i.descuento, iva: i.iva, observacion: i.observacion }))
     const datos: Record<string, unknown> = {
       tipo_registro: modo, cliente_id: cliente?.id ?? null, lead_sin_cliente: !cliente, nombre,
       identificacion: cliente?.identificacion ?? (lead.identificacion || null), email: cliente?.email ?? (lead.email.trim() || null), telefono: cliente?.telefono ?? (lead.telefono.trim() || null),
@@ -161,6 +191,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
       items, total: Math.round(total * 100) / 100, medio_captacion_lead: medio, nota_cotizacion: nota.trim() || null,
       estado_crm: esVenta ? 'Ganado' : 'Seguimiento', ultima_actividad: ahora,
     }
+    if (ed) { delete datos.tipo_registro; delete datos.estado_crm }
     if (esVenta) {
       Object.assign(datos, {
         medio_captacion_venta: medio, nota_venta: nota.trim() || null, estado_pago: pago, metodo_pago: tipoPago || (plazo ? 'Crédito ' + plazo : null),
@@ -170,16 +201,27 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
         detalle_venta: { observacionPago: obsPago || null, remitente: entrega === 'Envío' ? rem : null, destinatario: entrega === 'Envío' ? dest : null, direccionEnvio: dirEnvio || null, transporte: transporte || null, ciudadDestino: ciudadDestino || null, empaque: { caja, armado, stretch }, cartaGarantia: garantia || null },
       })
     }
-    let id = origen?.tabla === 'cotizaciones' ? origen.id : crypto.randomUUID()
-    let codigo = origen?.tabla === 'cotizaciones' ? origen.codigo : (esVenta ? 'VEN-' : 'COT-') + crypto.randomUUID().slice(0, 6).toUpperCase()
-    const r = origen?.tabla === 'cotizaciones'
+    const existente = ed ? { id: ed.id as string, codigo: ed.codigo as string } : origen?.tabla === 'cotizaciones' ? { id: origen.id, codigo: origen.codigo } : null
+    let id = existente ? existente.id : crypto.randomUUID()
+    let codigo = existente ? existente.codigo : (esVenta ? 'VEN-' : 'COT-') + crypto.randomUUID().slice(0, 6).toUpperCase()
+    const r = existente
       ? await supabase.from('cotizaciones').update(datos).eq('id', id)
       : await supabase.from('cotizaciones').insert({ id, codigo, empresa: perfil.empresa, fecha: ahora, lead_id: origen?.tabla === 'leads' ? origen.id : null, ...datos })
     if (r.error) { setError(r.error.message); setGuardando(false); return }
     if (origen?.tabla === 'leads') await supabase.from('leads').update({ estado_crm: esVenta ? 'Ganado' : 'Seguimiento', ultima_actividad: ahora }).eq('id', origen.id)
+    /* Historial de versiones: qué cambió, quién y cuándo (con la foto de los productos de esa versión). */
+    const cambios = ed
+      ? diferencias((ed.items ?? []) as Record<string, any>[], carrito, { notaPrev: ed.nota_cotizacion ?? '', nota: nota.trim(), nombrePrev: ed.nombre ?? '', nombre, totalPrev: Number(ed.total) || 0, total: Math.round(total * 100) / 100, medioPrev: ed.medio_captacion_lead ?? '', medio }) // eslint-disable-line @typescript-eslint/no-explicit-any
+      : origen?.tabla === 'cotizaciones' ? ['Convertida en venta'] : [`${modo} creada con ${carrito.length} producto(s) por ${dinero(total)}`]
+    const { data: vs } = await supabase.from('cotizaciones_historial').select('version').eq('cotizacion_id', id).order('version', { ascending: false }).limit(1)
+    await supabase.from('cotizaciones_historial').insert({
+      id: crypto.randomUUID(), cotizacion_id: id, version: ((vs?.[0] as { version: number } | undefined)?.version ?? 0) + 1, cambios: cambios.length ? cambios : ['Guardada sin cambios'], items,
+      total: Math.round(total * 100) / 100, nota: nota.trim() || null, cliente: { nombre, identificacion: cliente?.identificacion ?? lead.identificacion, email: cliente?.email ?? lead.email, telefono: cliente?.telefono ?? lead.telefono },
+      empleado_id: perfil.id, usuario_texto: perfil.nombre,
+    })
     await supabase.from('interacciones').insert({
       id: crypto.randomUUID(), codigo: 'INT-' + crypto.randomUUID().slice(0, 8), ref_tipo: modo, ref_codigo: codigo, cotizacion_id: id,
-      tipo: esVenta ? 'Venta Registrada' : 'Cotización Creada', nota: `${modo} por ${dinero(total)} (${unidades} u).`, empleado_id: perfil.id, usuario_texto: perfil.nombre,
+      tipo: esVenta ? 'Venta Registrada' : ed ? 'Cotización Editada' : 'Cotización Creada', nota: ed ? cambios.join(' · ') || 'Guardada sin cambios.' : `${modo} por ${dinero(total)} (${unidades} u).`, empleado_id: perfil.id, usuario_texto: perfil.nombre,
     })
     if (esVenta && guardarDv && cliente) {
       await supabase.from('clientes').update({ datos_venta: { pago, tipoPago, plazo, entrega, dirEntrega, quienRecibe, telEntrega, mapsEntrega, ciudadDestino, transporte, dest, dirEnvio, caja, armado, stretch, garantia } }).eq('id', cliente.id)
@@ -187,11 +229,11 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     const codigoFinal = codigo
     id = ''; codigo = ''
     const resumenEntrega = [entrega === 'Local' ? dirEntrega : entrega === 'Envío' ? `${ciudadDestino} (${transporte})${dirEnvio ? ' · ' + dirEnvio : ''}` : '', quienRecibe ? 'Recibe: ' + quienRecibe : '', fechaEntrega ? 'Fecha de entrega: ' + fechaEntrega : '', [caja, armado, stretch].filter(Boolean).length ? 'Empaque: ' + [caja, armado, stretch].filter(Boolean).join(' · ') : '', garantia ? 'Garantía: ' + garantia : ''].filter(Boolean)
-    guardado(`${modo} creada por ${dinero(total)}.`, {
+    guardado(`${modo} ${ed ? 'actualizada' : 'creada'} por ${dinero(total)}.`, {
       codigo: (datos.codigo as string | undefined) ?? codigoFinal, fecha: new Date().toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric' }), tipo: modo, empresa: perfil.empresa,
       cliente: { nombre, identificacion: cliente?.identificacion ?? lead.identificacion, email: cliente?.email ?? lead.email, telefono: cliente?.telefono ?? lead.telefono },
       asesor: asesores.find((a) => a.id === asesorId)?.nombre ?? perfil.nombre, nota: nota.trim() || null,
-      items: carrito.map((i) => ({ id: i.id, codigo: i.codigo, nombre: i.nombre, imagen: i.imagen, precio: i.precio, cantidad: i.cantidad, descuento: i.descuento, iva: i.iva, observacion: i.observacion })),
+      items: carrito.map((i) => ({ id: i.id, codigo: i.codigo, nombre: i.nombre, imagen: i.imagen, categoria: i.categoria, descripcion: i.descripcion, ficha: i.ficha, carpeta: i.carpeta, precio: i.precio, cantidad: i.cantidad, descuento: i.descuento, iva: i.iva, observacion: i.observacion })),
       pagoEntrega: esVenta ? { pago: pago + (tipoPago ? ' · ' + tipoPago : '') + (plazo ? ' · Plazo: ' + plazo : ''), entrega, detalle: resumenEntrega } : null,
     })
   }
@@ -434,8 +476,8 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
           <div className="flex justify-between items-end mt-2 pt-2 border-t border-slate-200/70"><span className="text-[11px] font-bold text-slate-600 uppercase tracking-wide">Total</span><span className="font-display font-bold text-2xl" style={{ color: 'var(--acc-d)' }}>{dinero(total)}</span></div>
         </div>
         <p className="text-[10px] mt-2 min-h-[14px]" style={{ color: error || faltan.length ? '#c0392b' : '#04896f' }}>{error || (faltan.length ? 'Falta: ' + faltan.join(', ') : 'Todo listo')}</p>
-        <button onClick={guardar} disabled={guardando} className="ns-submit mt-1">{guardando ? 'Guardando…' : esVenta ? 'Registrar venta' : 'Generar cotización'}</button>
-        {!esVenta && <p className="text-[9px] text-slate-400 mt-1 text-center">El PDF se generará cuando se conecte Google Drive.</p>}
+        <button onClick={guardar} disabled={guardando} className="ns-submit mt-1">{guardando ? 'Guardando…' : esVenta ? 'Registrar venta' : ed ? 'Guardar cambios' : 'Generar cotización'}</button>
+        {!esVenta && <p className="text-[9px] text-slate-400 mt-1 text-center">Al guardar se abre la proforma lista para imprimir o guardar como PDF.</p>}
       </div>
     </div>
   )
@@ -449,7 +491,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
           <div className="flex items-center gap-3">
             <span className="w-10 h-10 rounded-2xl grid place-items-center bg-white/15"><Icono className="w-5 h-5" /></span>
             <div className="min-w-0">
-              <h3 className="font-display font-bold text-base leading-tight">{esVenta ? 'Nueva Venta' : 'Nueva Cotización'}</h3>
+              <h3 className="font-display font-bold text-base leading-tight">{esVenta ? 'Nueva Venta' : ed ? 'Editar Cotización' : 'Nueva Cotización'}</h3>
               <p className="text-[11px] text-white/70">{esVenta ? 'Registra el pago, la entrega y los equipos vendidos.' : 'Elige el cliente, cómo llegó y los equipos.'}</p>
             </div>
             <div className="ml-auto hidden md:flex items-center gap-1.5">
@@ -482,7 +524,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
             <span className="font-display font-bold text-slate-800">Total: <span style={{ color: acento }}>{dinero(total)}</span></span>
           </div>
           {(error || faltan.length > 0) && <p className="text-[10px]" style={{ color: '#c0392b' }}>{error || 'Falta: ' + faltan.join(', ')}</p>}
-          <button onClick={guardar} disabled={guardando} className="ns-submit">{guardando ? 'Guardando…' : esVenta ? 'Registrar venta' : 'Generar cotización'}</button>
+          <button onClick={guardar} disabled={guardando} className="ns-submit">{guardando ? 'Guardando…' : esVenta ? 'Registrar venta' : ed ? 'Guardar cambios' : 'Generar cotización'}</button>
         </div>
       </div>
     </div>

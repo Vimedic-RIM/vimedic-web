@@ -4,13 +4,13 @@ import {
   ClipboardPlus, Contact, Copy, FilePlus2, FileText, Handshake, Hourglass, IdCard, ImagePlus, KanbanSquare, Lock,
   Magnet, Mail, MapPin, Menu, MessageCircle, MessageSquareText, Phone, PhoneCall, PhoneMissed, Plus, Receipt, RefreshCw,
   Repeat, Search, Settings, Settings2, SlidersHorizontal, Sparkles, Trash2, Trophy, TriangleAlert, User, UserPlus, UserRound,
-  Users, UserX, Wallet, X, CircleX,
+  Users, UserX, Wallet, X, CircleX, Pencil,
 } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
 import { ClientesLista, Papelera, ConfirmarEliminar } from './CrmClientes'
 import CrmDocumento, { type Origen } from './CrmDocumento'
-import { ProformaVisor, type DatosDoc } from '../proforma'
+import { ProformaVisor, enriquecerItems, type DatosDoc } from '../proforma'
 import '../estilos/crm-original.css'
 
 /* ============================ Tipos y datos ============================ */
@@ -55,6 +55,7 @@ const monto = (n: number) => {
   if (n >= 1e4) return '$' + (n / 1e3).toFixed(1).replace('.0', '') + 'k'
   return '$' + n.toLocaleString('es-EC', { maximumFractionDigits: 0 })
 }
+const dinero2 = (n: number) => '$' + Number(n || 0).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const waLink = (tel: string) => { const d = String(tel || '').replace(/\D/g, ''); return d ? 'https://wa.me/' + (d.startsWith('0') ? '593' + d.slice(1) : d) : '' }
 const telLink = (tel: string) => (tel ? 'tel:' + String(tel).replace(/[^\d+]/g, '') : '')
 
@@ -100,7 +101,7 @@ export default function Crm({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
   const [proforma, setProforma] = useState<DatosDoc | null>(null)
   const [clientes, setClientes] = useState(false)
   const [papelera, setPapelera] = useState(false)
-  const [documento, setDocumento] = useState<{ modo: 'Cotización' | 'Venta'; origen: Origen } | null>(null)
+  const [documento, setDocumento] = useState<{ modo: 'Cotización' | 'Venta'; origen: Origen; editar?: Record<string, any> | null } | null>(null) // eslint-disable-line @typescript-eslint/no-explicit-any
   const [mover, setMover] = useState<{ key: string; x: number; y: number } | null>(null)
   const [arrastrando, setArrastrando] = useState<string | null>(null)
   const peticion = useRef(0)
@@ -484,11 +485,11 @@ export default function Crm({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
       {abierta && gestiones.find((x) => x.key === abierta) && (
         <Ficha g={gestiones.find((x) => x.key === abierta)!} perfil={perfil} asesores={asesores} etapas={estados} colorEstado={colorEstado}
           cerrar={() => setAbierta(null)} cambiarEstado={cambiarEstado} recargar={cargar} aviso={aviso}
-          verProforma={setProforma} facturar={() => abrirVenta(gestiones.find((x) => x.key === abierta)!)} cotizar={() => cotizarDesde(gestiones.find((x) => x.key === abierta)!)} clientes={() => setClientes(true)} />
+          verProforma={setProforma} editarDoc={(row) => { setAbierta(null); setDocumento({ modo: 'Cotización', origen: null, editar: row }) }} facturar={() => abrirVenta(gestiones.find((x) => x.key === abierta)!)} cotizar={() => cotizarDesde(gestiones.find((x) => x.key === abierta)!)} clientes={() => setClientes(true)} />
       )}
       {clientes && <ClientesLista perfil={perfil} asesores={asesores} cerrar={() => setClientes(false)} aviso={aviso} />}
       {papelera && <Papelera cerrar={() => setPapelera(false)} alRestaurar={cargar} aviso={aviso} />}
-      {documento && <CrmDocumento modo={documento.modo} perfil={perfil} asesores={asesores} origen={documento.origen} cerrar={() => setDocumento(null)} guardado={(m, doc) => { setDocumento(null); aviso(m); cargar(); setProforma(doc) }} />}
+      {documento && <CrmDocumento editar={documento.editar} modo={documento.modo} perfil={perfil} asesores={asesores} origen={documento.origen} cerrar={() => setDocumento(null)} guardado={(m, doc) => { setDocumento(null); aviso(m); cargar(); setProforma(doc) }} />}
       {proforma && <ProformaVisor datos={proforma} cerrar={() => setProforma(null)} />}
       {nueva && <NuevaGestion perfil={perfil} asesores={asesores} cerrar={() => setNueva(false)} guardado={() => { setNueva(false); aviso('Gestión creada.'); cargar() }} />}
     </div>
@@ -534,10 +535,11 @@ function Tarjeta({ g, asesor, color, arrastrando, abrir, iniciarArrastre, finArr
 }
 
 /* ============================ Ficha lateral de la gestión ============================ */
-function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado, recargar, aviso, facturar, cotizar, clientes, verProforma }: {
+function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado, recargar, aviso, facturar, cotizar, clientes, verProforma, editarDoc }: {
   g: Gestion; perfil: Perfil; asesores: Asesor[]; etapas: string[]; colorEstado: (e: string) => string
-  cerrar: () => void; cambiarEstado: (key: string, nuevo: string) => Promise<void>; recargar: () => void; aviso: (t: string) => void; facturar: () => void; cotizar: () => void; clientes: () => void; verProforma: (d: DatosDoc) => void
+  cerrar: () => void; cambiarEstado: (key: string, nuevo: string) => Promise<void>; recargar: () => void; aviso: (t: string) => void; facturar: () => void; cotizar: () => void; clientes: () => void; verProforma: (d: DatosDoc) => void; editarDoc: (row: Record<string, any>) => void // eslint-disable-line @typescript-eslint/no-explicit-any
 }) {
+  const [versiones, setVersiones] = useState<{ id: string; version: number; fecha: string; usuario_texto: string | null; cambios: string[]; items: Record<string, any>[]; total: number; nota: string | null; cliente: Record<string, string> | null }[] | null>(null) // eslint-disable-line @typescript-eslint/no-explicit-any
   const [elim, setElim] = useState(false)
   const [historial, setHistorial] = useState<Interaccion[] | null>(null)
   const [nota, setNota] = useState('')
@@ -592,6 +594,27 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
     cargarHistorial(); recargar()
   }
 
+  const cargarVersiones = useCallback(() => {
+    if (g.tabla !== 'cotizaciones') return
+    supabase.from('cotizaciones_historial').select('id,version,fecha:created_at,usuario_texto,cambios,items,total,nota,cliente').eq('cotizacion_id', g.id).is('deleted_at', null).order('version', { ascending: false }).limit(50)
+      .then(({ data }) => setVersiones((data as never) ?? []))
+  }, [g.tabla, g.id])
+  useEffect(() => { cargarVersiones() }, [cargarVersiones])
+
+  async function editarProforma() {
+    const { data, error } = await supabase.from('cotizaciones').select('id,codigo,tipo_registro,nombre,identificacion,email,telefono,cliente_id,asesor_id,items,total,nota_cotizacion,medio_captacion_lead').eq('id', g.id).single()
+    if (error || !data) { aviso('No se pudo abrir la proforma para editar: ' + (error?.message ?? '')); return }
+    const row = data as Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
+    row.items = await enriquecerItems((row.items ?? []) as never)
+    editarDoc(row)
+  }
+
+  async function verVersion(v: NonNullable<typeof versiones>[number]) {
+    const items = await enriquecerItems(((v.items ?? []) as Record<string, any>[]).map((i) => ({ ...i, precio: Number(i.precio) || 0, cantidad: Number(i.cantidad) || 0, descuento: Number(i.descuento) || 0, iva: i.iva !== false })) as never) // eslint-disable-line @typescript-eslint/no-explicit-any
+    verProforma({ codigo: g.codigo + ' · v' + v.version, fecha: new Date(v.fecha).toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric' }), tipo: g.tipo === 'Venta' ? 'Venta' : 'Cotización', empresa: perfil.empresa,
+      cliente: { nombre: v.cliente?.nombre ?? g.nombre, identificacion: v.cliente?.identificacion, email: v.cliente?.email, telefono: v.cliente?.telefono }, asesor: asesor, nota: v.nota, items })
+  }
+
   async function abrirProforma() {
     const { data, error } = await supabase.from('cotizaciones')
       .select('codigo,fecha,tipo_registro,nombre,identificacion,email,telefono,items,nota_cotizacion,nota_venta,asesor_id,estado_pago,metodo_pago,tipo_entrega,direccion_entrega,fecha_entrega,detalle_venta').eq('id', g.id).single()
@@ -601,7 +624,7 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
     verProforma({
       codigo: r.codigo ?? g.codigo, fecha: new Date(r.fecha).toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric' }), tipo: venta ? 'Venta' : 'Cotización', empresa: perfil.empresa,
       cliente: { nombre: r.nombre, identificacion: r.identificacion, email: r.email, telefono: r.telefono }, asesor: asesor, nota: venta ? r.nota_venta : r.nota_cotizacion,
-      items: ((r.items ?? []) as Record<string, any>[]).map((i) => ({ id: i.id, codigo: i.codigo, nombre: i.nombre, imagen: i.imagen, precio: Number(i.precio) || 0, cantidad: Number(i.cantidad) || 0, descuento: Number(i.descuento) || 0, iva: i.iva !== false, observacion: i.observacion })), // eslint-disable-line @typescript-eslint/no-explicit-any
+      items: await enriquecerItems(((r.items ?? []) as Record<string, any>[]).map((i) => ({ ...i, precio: Number(i.precio) || 0, cantidad: Number(i.cantidad) || 0, descuento: Number(i.descuento) || 0, iva: i.iva !== false })) as never), // eslint-disable-line @typescript-eslint/no-explicit-any
       pagoEntrega: venta ? { pago: [r.estado_pago, r.metodo_pago].filter(Boolean).join(' · '), entrega: r.tipo_entrega ?? '', detalle: [r.direccion_entrega, r.fecha_entrega ? 'Fecha de entrega: ' + r.fecha_entrega : ''].filter(Boolean) } : null,
     })
   }
@@ -681,6 +704,9 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
             {g.estado === 'Ganado' ? 'Ganado · En facturación' : 'Facturar / Marcar ganado'}
           </button>
 
+          {g.tabla === 'cotizaciones' && g.tipo === 'Cotización' && g.estado !== 'Ganado' && puede(perfil, 'crm', 'editar') && (
+            <button onClick={editarProforma} className="w-full text-sm font-bold py-2.5 rounded-xl border flex items-center justify-center gap-1.5" style={{ borderColor: 'var(--primary)', color: 'var(--primary)' }}><Pencil className="w-4 h-4" /> Editar proforma</button>
+          )}
           {g.tabla === 'cotizaciones' && (
             <button onClick={abrirProforma} className="w-full text-sm font-bold py-2.5 rounded-xl border flex items-center justify-center gap-1.5" style={{ borderColor: '#c0392b', color: '#c0392b' }}><FileText className="w-4 h-4" /> Ver proforma (PDF A4)</button>
           )}
@@ -721,6 +747,27 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
 
           {puede(perfil, 'crm', 'eliminar') && g.estado !== 'Ganado' && (
             <button onClick={() => setElim(true)} className="w-full text-xs font-bold py-2 rounded-lg border flex items-center justify-center gap-1.5" style={{ borderColor: '#fecaca', color: '#b91c1c', background: '#fff5f5' }}><Trash2 className="w-3.5 h-3.5" /> Eliminar gestión</button>
+          )}
+
+          {g.tabla === 'cotizaciones' && (
+            <div>
+              <h4 className="text-[11px] font-bold text-slate-500 uppercase mb-2">Versiones de la {g.tipo === 'Venta' ? 'venta' : 'proforma'}</h4>
+              <div className="space-y-2">
+                {versiones === null && <p className="text-xs text-slate-400">Cargando versiones…</p>}
+                {versiones?.length === 0 && <p className="text-xs text-slate-400">Sin versiones registradas (se crean desde ahora al guardar).</p>}
+                {versiones?.map((v) => (
+                  <div key={v.id} className="rounded-lg border border-slate-200 bg-white p-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-bold uppercase font-mono-spec" style={{ color: 'var(--primary)' }}>v{v.version} · {dinero2(v.total)}</span>
+                      <span className="text-[10px] text-slate-400">{new Date(v.fecha).toLocaleString('es-EC')}</span>
+                    </div>
+                    <ul className="mt-1 space-y-0.5">{v.cambios.map((c, k) => <li key={k} className="text-[11px] text-slate-700" style={{ overflowWrap: 'anywhere' }}>• {c}</li>)}</ul>
+                    <div className="flex items-center justify-between mt-1.5"><span className="text-[10px] text-slate-400">{v.usuario_texto}</span>
+                      <button type="button" onClick={() => verVersion(v)} className="text-[10px] font-bold px-2 py-1 rounded border" style={{ borderColor: '#c0392b', color: '#c0392b' }}>Ver proforma de esta versión</button></div>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
 
           <div>

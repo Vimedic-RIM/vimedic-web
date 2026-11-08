@@ -1,11 +1,12 @@
-import { useEffect, useRef } from 'react'
-import { Printer, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Download, Printer, X } from 'lucide-react'
 import { imagen } from './modulos/Inventario'
+import { supabase } from './supabase'
 
 /* Proforma / comprobante de venta en HTML listo para imprimir o guardar como PDF en A4.
    Mismo diseño que la proforma de la app original (Documentos.gs → generateInternalQuotePDFBase_). */
 
-export type ItemDoc = { id?: string; codigo?: string; nombre: string; imagen?: string; categoria?: string; descripcion?: string; precio: number; cantidad: number; descuento?: number; iva?: boolean; observacion?: string }
+export type ItemDoc = { id?: string; codigo?: string; nombre: string; imagen?: string; categoria?: string; descripcion?: string; ficha?: string; carpeta?: string; precio: number; cantidad: number; descuento?: number; iva?: boolean; observacion?: string }
 export type DatosDoc = {
   codigo: string; fecha: string; tipo: 'Cotización' | 'Venta'; empresa?: 'VIMEDIC' | 'FEMEDICS'
   cliente: { nombre: string; identificacion?: string | null; email?: string | null; telefono?: string | null }
@@ -36,7 +37,8 @@ export function htmlProforma(d: DatosDoc, base: string): string {
       <td style="font-size:11px"><strong>${esc(i.nombre)}${i.codigo || i.id ? ' | ' + esc(i.codigo || i.id) : ''}</strong>${i.iva === false ? ' <span class="sin-iva">SIN IVA</span>' : ''}<br>
         ${i.categoria ? `<span style="color:#64748b;font-size:10px">${esc(i.categoria)}</span>` : ''}
         ${i.descripcion ? `<div style="color:#475569;font-size:9.5px;margin-top:5px;line-height:1.5;white-space:pre-line">${esc(i.descripcion)}</div>` : ''}
-        ${i.observacion ? `<div style="margin-top:4px;font-size:9.5px;font-weight:bold;color:#b45309">📌 ${esc(i.observacion)}</div>` : ''}</td>
+        ${i.observacion ? `<div style="margin-top:4px;font-size:9.5px;font-weight:bold;color:#b45309">📌 ${esc(i.observacion)}</div>` : ''}
+        ${i.carpeta || i.ficha ? `<div style="margin-top:7px">${i.carpeta ? `<a href="${esc(i.carpeta)}" class="btn-doc" style="background:#04896f">🖼️ Ver Imágenes</a>` : ''}${i.ficha ? `<a href="${esc(i.ficha)}" class="btn-doc" style="background:#055c9d">📄 Ver Ficha Técnica</a>` : ''}</div>` : ''}</td>
       <td style="width:155px"><table style="width:100%;font-size:9.5px;border-collapse:collapse">${tot}</table></td></tr>`
   }).join('')
   const iva = baseIva * 0.15, totalIva = total + iva
@@ -68,6 +70,7 @@ export function htmlProforma(d: DatosDoc, base: string): string {
   .items td { padding: 10px 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
   .fila { break-inside: avoid; page-break-inside: avoid; }
   .l { color: #64748b; padding: 1.5px 0; } .r { text-align: right; font-weight: bold; padding: 1.5px 0; }
+  .btn-doc { display: inline-block; color: #fff; text-decoration: none; font-size: 9px; font-weight: bold; padding: 4px 9px; border-radius: 5px; margin-right: 5px; }
   .sin-iva { background: #f1f5f9; color: #64748b; font-size: 8.5px; font-weight: bold; padding: 1px 5px; border-radius: 4px; }
   .totales { width: 260px; margin-left: auto; margin-top: 10px; font-size: 12px; border-collapse: collapse; break-inside: avoid; }
   .totales td { padding: 4px 6px; } .totales .grand td { font-weight: bold; font-size: 14px; color: #055c9d; border-top: 2px solid #055c9d; }
@@ -99,18 +102,52 @@ export function htmlProforma(d: DatosDoc, base: string): string {
 </body></html>`
 }
 
+/* Completa descripción, categoría, ficha técnica y carpeta de imágenes con los datos vigentes del producto
+   (las cotizaciones guardadas antes no los traían). */
+export async function enriquecerItems(items: ItemDoc[]): Promise<ItemDoc[]> {
+  const ids = [...new Set(items.map((i) => i.id).filter((x): x is string => !!x && /^[0-9a-f-]{36}$/i.test(x)))]
+  if (!ids.length) return items
+  const { data } = await supabase.from('productos').select('id,descripcion,imagen_url,ficha_tecnica_url,drive_carpeta_url,categoria:categorias(nombre)').in('id', ids)
+  const m = new Map(((data ?? []) as unknown as { id: string; descripcion: string | null; imagen_url: string | null; ficha_tecnica_url: string | null; drive_carpeta_url: string | null; categoria: { nombre: string } | null }[]).map((p) => [p.id, p]))
+  return items.map((i) => {
+    const p = i.id ? m.get(i.id) : undefined
+    return p ? { ...i, descripcion: i.descripcion || p.descripcion || '', imagen: i.imagen || p.imagen_url || '', ficha: i.ficha || p.ficha_tecnica_url || '', carpeta: i.carpeta || p.drive_carpeta_url || '', categoria: i.categoria || p.categoria?.nombre || '' } : i
+  })
+}
+
 /* Visor dentro de la app: vista previa A4 + botón para imprimir / guardar como PDF (sin ventanas emergentes). */
 export function ProformaVisor({ datos, cerrar }: { datos: DatosDoc; cerrar: () => void }) {
   const ref = useRef<HTMLIFrameElement>(null)
   const html = htmlProforma(datos, window.location.origin + '/')
   useEffect(() => { const f = (e: KeyboardEvent) => { if (e.key === 'Escape') cerrar() }; document.addEventListener('keydown', f); return () => document.removeEventListener('keydown', f) }, [cerrar])
+  const [descargando, setDescargando] = useState(false)
+  /* Descarga directa del PDF en A4 (sin diálogo de impresión). Se carga la librería solo al pedirlo. */
+  const descargar = async () => {
+    const doc = ref.current?.contentDocument
+    if (!doc?.body) return
+    setDescargando(true)
+    try {
+      // Espera a que carguen las fotos para que salgan en el PDF.
+      await Promise.all([...doc.images].map((im) => (im.complete ? Promise.resolve() : new Promise((r) => { im.onload = im.onerror = () => r(null) }))))
+      const html2pdf = (await import('html2pdf.js')).default
+      const nombre = (datos.tipo === 'Venta' ? 'Venta_' : 'Proforma_') + datos.codigo.replace(/[^\w.-]+/g, '_') + '.pdf'
+      await html2pdf().set({
+        margin: [12, 12, 12, 12], filename: nombre, image: { type: 'jpeg', quality: 0.96 },
+        html2canvas: { scale: 2, useCORS: true, allowTaint: false, logging: false, windowWidth: 794 },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }, pagebreak: { mode: ['css', 'legacy'], avoid: '.fila' },
+      }).from(doc.body).save()
+    } catch (e) {
+      alert('No se pudo generar el PDF directamente (' + ((e as Error).message || e) + '). Usa «Imprimir» y elige «Guardar como PDF».')
+    } finally { setDescargando(false) }
+  }
   const imprimir = () => { const w = ref.current?.contentWindow; if (w) { w.focus(); w.print() } }
   return (
     <div className="fixed inset-0 z-[70] flex flex-col" style={{ background: 'rgba(15,23,42,.72)' }}>
       <div className="shrink-0 flex items-center gap-2 px-4 py-2.5 text-white" style={{ background: 'linear-gradient(135deg,var(--navy),var(--primary))' }}>
         <div className="min-w-0 flex-1"><p className="font-display font-bold text-sm truncate">{datos.tipo === 'Venta' ? 'Comprobante de venta' : 'Proforma'} · {datos.codigo}</p>
-          <p className="text-[11px] text-white/70">Tamaño A4. En «Imprimir» elige «Guardar como PDF».</p></div>
-        <button onClick={imprimir} className="text-xs font-bold px-3.5 py-2 rounded-lg bg-white flex items-center gap-1.5" style={{ color: 'var(--primary)' }}><Printer className="w-4 h-4" /> Imprimir / Guardar PDF</button>
+          <p className="text-[11px] text-white/70">Tamaño A4 · «Descargar PDF» lo baja directo.</p></div>
+        <button onClick={descargar} disabled={descargando} className="text-xs font-bold px-3.5 py-2 rounded-lg bg-white flex items-center gap-1.5 disabled:opacity-60" style={{ color: 'var(--primary)' }}><Download className="w-4 h-4" /> {descargando ? 'Generando…' : 'Descargar PDF'}</button>
+        <button onClick={imprimir} className="text-xs font-bold px-3.5 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center gap-1.5"><Printer className="w-4 h-4" /> Imprimir</button>
         <button onClick={cerrar} className="w-9 h-9 rounded-full grid place-items-center bg-white/10 hover:bg-white/20" aria-label="Cerrar"><X className="w-4 h-4" /></button>
       </div>
       <iframe ref={ref} title="Proforma" srcDoc={html} className="flex-1 w-full bg-white" style={{ border: 0 }} />
