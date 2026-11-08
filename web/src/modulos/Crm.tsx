@@ -329,6 +329,13 @@ export default function Crm({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
             </div>
             <div className="py-1.5 vm-mgrid">
               {crear && <button onClick={() => { setMenuMovil(false); setNueva(true) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><CirclePlus className="w-4 h-4" style={{ color: 'var(--primary)' }} /> Nueva Gestión</button>}
+              {crear && <button onClick={() => { setMenuMovil(false); setDocumento({ modo: 'Cotización', origen: null }) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><FilePlus2 className="w-4 h-4" style={{ color: 'var(--teal)' }} /> Nueva Cotización</button>}
+              {crear && <button onClick={() => { setMenuMovil(false); setDocumento({ modo: 'Venta', origen: null }) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><Receipt className="w-4 h-4" style={{ color: '#04896f' }} /> Nueva Venta</button>}
+              <button onClick={() => { setMenuMovil(false); setClientes(true) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><Users className="w-4 h-4 text-slate-500"  /> Clientes</button>
+              <button onClick={() => { setMenuMovil(false); aviso('Mensajes se está migrando: sigue disponible en la app actual.') }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><MessageCircle className="w-4 h-4 text-slate-500"  /> Mensajes</button>
+              {eliminar && <button onClick={() => { setMenuMovil(false); setPapelera(true) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><Trash2 className="w-4 h-4 text-slate-500"  /> Papelera</button>}
+              <div className="border-t border-slate-100 my-1.5" />
+              {perfil.es_superadmin && <button onClick={() => { setMenuMovil(false); aviso('La administración de etapas se está migrando.') }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><Settings className="w-4 h-4 text-slate-500"  /> Administrar etapas</button>}
               <button onClick={() => { setMenuMovil(false); cargar() }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><RefreshCw className="w-4 h-4 text-slate-500" /> Actualizar</button>
             </div>
           </div>

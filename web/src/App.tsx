@@ -10,6 +10,7 @@ import Inventario from './modulos/Inventario'
 import Crm from './modulos/Crm'
 import Empleados from './modulos/Empleados'
 import './estilos/miespacio.css'
+import './estilos/responsive.css'
 
 // Pantalla "sin acceso": usa las mismas clases (.login-page / .login-card) que Mi Espacio original.
 function SinAcceso() {

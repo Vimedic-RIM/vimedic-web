@@ -1,0 +1,7 @@
+/* Utilidades responsive de los módulos. Llevan el prefijo .vm-modulo para ganarle a las copias de
+   ".hidden" que traen otros CSS (inventario, etc.) y que se cargan después. */
+.vm-modulo .hidden{display:none}
+@media (min-width:640px){.vm-modulo .sm\:block{display:block}.vm-modulo .sm\:flex{display:flex}.vm-modulo .sm\:grid{display:grid}.vm-modulo .sm\:inline{display:inline}.vm-modulo .sm\:inline-flex{display:inline-flex}.vm-modulo .sm\:hidden{display:none}}
+@media (min-width:768px){.vm-modulo .md\:block{display:block}.vm-modulo .md\:flex{display:flex}.vm-modulo .md\:grid{display:grid}.vm-modulo .md\:hidden{display:none}}
+@media (min-width:1024px){.vm-modulo .lg\:block{display:block}.vm-modulo .lg\:flex{display:flex}.vm-modulo .lg\:grid{display:grid}.vm-modulo .lg\:hidden{display:none}}
+@media (min-width:1280px){.vm-modulo .xl\:block{display:block}.vm-modulo .xl\:flex{display:flex}.vm-modulo .xl\:hidden{display:none}}
