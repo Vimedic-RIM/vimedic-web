@@ -25,7 +25,7 @@ function armar(d: DatosDoc, base: string): { titulo: string; cuerpo: string } {
     const unit = Number(i.precio) || 0, cant = Number(i.cantidad) || 0, pct = Number(i.descuento) || 0
     const bruto = unit * cant, ahorro = bruto * (pct / 100), sub = bruto - ahorro
     total += sub; if (i.iva !== false) baseIva += sub
-    const img = i.imagen ? `<img src="${esc(imagen(i.imagen, 160))}" style="width:64px;height:64px;object-fit:contain" onerror="this.style.visibility='hidden'" />` : '<div style="width:64px;height:64px"></div>'
+    const img = i.imagen ? `<img src="${esc(imagen(i.imagen, 160))}" style="display:block;margin:0 auto;max-width:64px;max-height:64px;width:auto;height:auto" onerror="this.style.visibility='hidden'" />` : '<div style="width:64px;height:64px"></div>'
     const tot =
       `<tr><td class="l">CANTIDAD:</td><td class="r">${cant}</td></tr>` +
       `<tr><td class="l">P. UNITARIO:</td><td class="r">${m2(unit)}</td></tr>` +
@@ -51,7 +51,7 @@ function armar(d: DatosDoc, base: string): { titulo: string; cuerpo: string } {
   const etiqueta = d.tipo === 'Venta' ? 'Nº VENTA' : 'Nº SOLICITUD'
 
   const cuerpo = `<style>
-  .pdoc { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #1e293b; background: #fff; width: 186mm; margin: 0 auto; padding: 0; font-size: 12px; line-height: 1.25; }
+  .pdoc { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #1e293b; background: #fff; width: 186mm; margin: 0 auto; padding: 0; font-size: 12px; }
   .pdoc * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .pdoc table { border-collapse: collapse; } .pdoc p { margin: 0; }
   .pdoc .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 3px solid #055c9d; padding-bottom: 12px; }
@@ -61,19 +61,19 @@ function armar(d: DatosDoc, base: string): { titulo: string; cuerpo: string } {
   .pdoc .grid2 { display: flex; gap: 6px; margin-bottom: 15px; }
   .pdoc .grid2 > div { flex: 1; }
   .pdoc .box { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; }
-  .pdoc .box-title { font-size: 11px; font-weight: bold; color: #055c9d; text-transform: uppercase; margin-bottom: 6px; border-bottom: 1px solid #e2e8f0; padding-bottom: 3px; }
+  .pdoc .box-title { font-size: 11px; font-weight: bold; color: #055c9d; text-transform: uppercase; margin-bottom: 6px; border-bottom: 1px solid #e2e8f0; line-height: 13px; padding-bottom: 7px; }
   .pdoc .details-table { width: 100%; border-collapse: collapse; font-size: 11px; } .pdoc .details-table td { padding: 2px 0; }
-  .pdoc .items { width: 100%; border-collapse: collapse; margin-top: 10px; }
-  .pdoc .items th { background: #055c9d; color: #fff; padding: 8px; font-size: 11px; text-align: left; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .pdoc .items { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 10px; }
+  .pdoc .items th { background: #055c9d; color: #fff; border: 0; line-height: 13px; padding: 6px 8px 12px; font-size: 11px; text-align: left; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .pdoc .items td { padding: 10px 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
   .pdoc .fila { break-inside: avoid; page-break-inside: avoid; }
   .pdoc .l { color: #64748b; padding: 1.5px 0; } .pdoc .r { text-align: right; font-weight: bold; padding: 1.5px 0; }
-  .pdoc .btn-doc { display: inline-block; color: #fff; text-decoration: none; font-size: 9px; font-weight: bold; padding: 4px 9px; border-radius: 5px; margin-right: 5px; }
+  .pdoc .btn-doc { display: inline-block; color: #fff; text-decoration: none; font-size: 9px; font-weight: bold; line-height: 12px; padding: 3px 10px 7px; border-radius: 5px; margin: 0 5px 0 0; vertical-align: top; white-space: nowrap; overflow: visible; }
   .pdoc .sin-iva { background: #f1f5f9; color: #64748b; font-size: 8.5px; font-weight: bold; padding: 1px 5px; border-radius: 4px; }
   .pdoc .totales { width: 260px; margin-left: auto; margin-top: 10px; font-size: 12px; border-collapse: collapse; break-inside: avoid; }
-  .pdoc .totales td { padding: 4px 6px; } .pdoc .totales .grand td { font-weight: bold; font-size: 14px; color: #055c9d; border-top: 2px solid #055c9d; }
+  .pdoc .totales td { padding: 4px 6px; } .pdoc .totales .grand td { padding-top: 8px; font-weight: bold; font-size: 14px; color: #055c9d; border-top: 2px solid #055c9d; }
   .pdoc .footer { margin-top: 30px; text-align: center; font-size: 10px; color: #64748b; border-top: 1px solid #e2e8f0; padding-top: 12px; }
-  .pdoc .badge { background: #2ab9c7; color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .pdoc .badge { background: #2ab9c7; color: #fff; display: inline-block; line-height: 13px; padding: 3px 8px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; }
 
 </style><div class="pdoc">
   <div class="header">
