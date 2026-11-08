@@ -10,7 +10,7 @@ import type { DatosDoc } from '../proforma'
 type Asesor = { id: string; nombre: string }
 export type Origen = { tabla: 'leads' | 'cotizaciones'; id: string; codigo: string; nombre: string; telefono: string; email: string; identificacion: string; medio: string } | null
 type Prod = { id: string; codigo: string | null; nombre: string; pvp: number | null; precio_dis: number | null; aplica_iva: boolean; stock: number | null; imagen_url: string | null; reservaciones: string | null; descripcion: string | null; ficha_tecnica_url: string | null; drive_carpeta_url: string | null; categoria: { nombre: string } | null }
-type Linea = { id: string; codigo: string; nombre: string; imagen: string; precio: number; cantidad: number; descuento: number; iva: boolean; observacion: string; categoria?: string; descripcion?: string; ficha?: string; carpeta?: string }
+type Linea = { base?: number; obj?: number; id: string; codigo: string; nombre: string; imagen: string; precio: number; cantidad: number; descuento: number; iva: boolean; observacion: string; categoria?: string; descripcion?: string; ficha?: string; carpeta?: string }
 type Cli = { datos_venta?: Record<string, string> | null; id: string; nombre: string; identificacion: string | null; email: string | null; telefono: string | null; direccion: string | null; tipo_cliente: string | null; descuento_fijo: string | null }
 
 const MEDIOS: [string, string[]][] = [
@@ -48,12 +48,15 @@ function diferencias(prev: Record<string, any>[], sig: Linea[], extra: { notaPre
   return c
 }
 
-export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, guardado, editar }: {
+export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, guardado, editar, empresa }: {
+  empresa: 'VIMEDIC' | 'FEMEDICS'
   modo: 'Cotización' | 'Venta'; perfil: Perfil; asesores: Asesor[]; origen: Origen; cerrar: () => void; guardado: (msg: string, doc: DatosDoc) => void
   editar?: Record<string, any> | null // eslint-disable-line @typescript-eslint/no-explicit-any
 }) {
   const ed = editar ?? null
   const esVenta = modo === 'Venta'
+  const esFm = empresa === 'FEMEDICS'   // Femedics: solo PVP, precio = PVP / (1 − objetivo %), descuento aparte
+  const [plan, setPlan] = useState(10)
   const acento = esVenta ? '#04896f' : '#055c9d'
   const [pestana, setPestana] = useState<'cliente' | 'inventario' | 'carrito'>('cliente')
 
@@ -72,7 +75,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   const [buscando, setBuscando] = useState(false)
   const [carrito, setCarrito] = useState<Linea[]>(() => ((ed?.items ?? []) as Record<string, any>[]).map((i) => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
     id: String(i.id), codigo: i.codigo ?? '', nombre: i.nombre, imagen: i.imagen ?? '', precio: Number(i.precio) || 0, cantidad: Number(i.cantidad) || 1, descuento: Number(i.descuento) || 0,
-    iva: i.iva !== false, observacion: i.observacion ?? '', categoria: i.categoria ?? '', descripcion: i.descripcion ?? '', ficha: i.ficha ?? '', carpeta: i.carpeta ?? '' })))
+    iva: i.iva !== false, observacion: i.observacion ?? '', base: i.base != null ? Number(i.base) : undefined, obj: i.obj != null ? Number(i.obj) : undefined, categoria: i.categoria ?? '', descripcion: i.descripcion ?? '', ficha: i.ficha ?? '', carpeta: i.carpeta ?? '' })))
   useEffect(() => {
     if (!ed?.cliente_id) return
     supabase.from('clientes').select('id,nombre,identificacion,email,telefono,direccion,tipo_cliente,descuento_fijo,datos_venta').eq('id', ed.cliente_id).single().then(({ data }) => { if (data) setCliente(data as Cli) })
@@ -114,7 +117,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     const q = limpiar(busca)
     if (q.length < 2) { setRes([]); return }
     const t = setTimeout(() => {
-      supabase.from('clientes').select('id,nombre,identificacion,email,telefono,direccion,tipo_cliente,descuento_fijo,datos_venta').is('deleted_at', null)
+      supabase.from('clientes').select('id,nombre,identificacion,email,telefono,direccion,tipo_cliente,descuento_fijo,datos_venta').is('deleted_at', null).eq('empresa', empresa)
         .or(`nombre.ilike.%${q}%,identificacion.ilike.%${q}%,email.ilike.%${q}%`).limit(8).then(({ data }) => setRes((data as Cli[]) ?? []))
     }, 250)
     return () => clearTimeout(t)
@@ -133,8 +136,10 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   }, [qp])
 
   /* descuento del cliente: DIS+VIP usa precio distribuidor, DIS+% descuenta ese % del PVP */
-  function descCliente(c: Cli | null) { return c?.tipo_cliente === 'DIS' && /^\d+$/.test(c.descuento_fijo ?? '') ? Number(c.descuento_fijo) : 0 }
-  function precioBase(p: Prod, c: Cli | null) { return c?.tipo_cliente === 'DIS' && c.descuento_fijo === 'VIP' && Number(p.precio_dis) > 0 ? Number(p.precio_dis) : Number(p.pvp) || 0 }
+  function descCliente(c: Cli | null) { if (esFm) return 0; return c?.tipo_cliente === 'DIS' && /^\d+$/.test(c.descuento_fijo ?? '') ? Number(c.descuento_fijo) : 0 }
+  const r2 = (n: number) => Math.round((Number(n) + Number.EPSILON) * 100) / 100
+  const conObjetivo = (base: number, obj: number) => r2(base / (1 - Math.min(90, Math.max(0, obj)) / 100))
+  function precioBase(p: Prod, c: Cli | null) { if (esFm) return Number(p.pvp) || 0; return c?.tipo_cliente === 'DIS' && c.descuento_fijo === 'VIP' && Number(p.precio_dis) > 0 ? Number(p.precio_dis) : Number(p.pvp) || 0 }
 
   function aplicarDv(c: Cli) {
     const d = c.datos_venta as Record<string, any> | null | undefined // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -149,7 +154,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     setCarrito((a) => {
       const i = a.findIndex((x) => x.id === p.id)
       if (i >= 0) return a.map((x, k) => (k === i ? { ...x, cantidad: x.cantidad + 1 } : x))
-      return [...a, { id: p.id, codigo: p.codigo ?? '', nombre: p.nombre, imagen: p.imagen_url ?? '', precio: precioBase(p, cliente), cantidad: 1, descuento: descCliente(cliente), iva: p.aplica_iva !== false, observacion: '', categoria: p.categoria?.nombre ?? '', descripcion: p.descripcion ?? '', ficha: p.ficha_tecnica_url ?? '', carpeta: p.drive_carpeta_url ?? '' }]
+      return [...a, { id: p.id, codigo: p.codigo ?? '', nombre: p.nombre, imagen: p.imagen_url ?? '', precio: esFm ? conObjetivo(precioBase(p, cliente), plan) : precioBase(p, cliente), base: esFm ? precioBase(p, cliente) : undefined, obj: esFm ? plan : undefined, cantidad: 1, descuento: descCliente(cliente), iva: p.aplica_iva !== false, observacion: '', categoria: p.categoria?.nombre ?? '', descripcion: p.descripcion ?? '', ficha: p.ficha_tecnica_url ?? '', carpeta: p.drive_carpeta_url ?? '' }]
     })
   }
   const cambiar = (idx: number, c: Partial<Linea>) => setCarrito((a) => a.map((x, k) => (k === idx ? { ...x, ...c } : x)))
@@ -183,7 +188,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     if (faltan.length) { setError('Falta: ' + faltan.join(', ') + '.'); return }
     setGuardando(true); setError('')
     const ahora = new Date().toISOString()
-    const items = carrito.map((i) => ({ categoria: i.categoria, descripcion: i.descripcion, ficha: i.ficha, carpeta: i.carpeta, id: i.id, codigo: i.codigo, nombre: i.nombre, imagen: i.imagen, precio: i.precio, cantidad: i.cantidad, descuento: i.descuento, iva: i.iva, observacion: i.observacion }))
+    const items = carrito.map((i) => ({ base: i.base, obj: i.obj, categoria: i.categoria, descripcion: i.descripcion, ficha: i.ficha, carpeta: i.carpeta, id: i.id, codigo: i.codigo, nombre: i.nombre, imagen: i.imagen, precio: i.precio, cantidad: i.cantidad, descuento: i.descuento, iva: i.iva, observacion: i.observacion }))
     const datos: Record<string, unknown> = {
       tipo_registro: modo, cliente_id: cliente?.id ?? null, lead_sin_cliente: !cliente, nombre,
       identificacion: cliente?.identificacion ?? (lead.identificacion || null), email: cliente?.email ?? (lead.email.trim() || null), telefono: cliente?.telefono ?? (lead.telefono.trim() || null),
@@ -206,7 +211,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     let codigo = existente ? existente.codigo : (esVenta ? 'VEN-' : 'COT-') + crypto.randomUUID().slice(0, 6).toUpperCase()
     const r = existente
       ? await supabase.from('cotizaciones').update(datos).eq('id', id)
-      : await supabase.from('cotizaciones').insert({ id, codigo, empresa: perfil.empresa, fecha: ahora, lead_id: origen?.tabla === 'leads' ? origen.id : null, ...datos })
+      : await supabase.from('cotizaciones').insert({ id, codigo, empresa, fecha: ahora, lead_id: origen?.tabla === 'leads' ? origen.id : null, ...datos })
     if (r.error) { setError(r.error.message); setGuardando(false); return }
     if (origen?.tabla === 'leads') await supabase.from('leads').update({ estado_crm: esVenta ? 'Ganado' : 'Seguimiento', ultima_actividad: ahora }).eq('id', origen.id)
     /* Historial de versiones: qué cambió, quién y cuándo (con la foto de los productos de esa versión). */
@@ -236,7 +241,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
       }
       const redondo = (n: number) => Math.round(n * 100) / 100
       const { error: errFact } = await supabase.from('facturas').insert({
-        id: crypto.randomUUID(), codigo, empresa: perfil.empresa, cliente_id: cliente?.id ?? null, identificacion: cliente?.identificacion ?? (lead.identificacion || null), cotizacion_id: id,
+        id: crypto.randomUUID(), codigo, empresa, cliente_id: cliente?.id ?? null, identificacion: cliente?.identificacion ?? (lead.identificacion || null), cotizacion_id: id,
         asesor_id: asesorId || null, estado: 'Pendiente', fecha_ganado: new Date().toISOString().slice(0, 10), medio_captacion_venta: medio, observacion: nota.trim() || null,
         datos_completos: true, items, pago_entrega: pe, subtotal: redondo(subtotal), iva: redondo(ivaTotal), total: redondo(total), total_neto: redondo(total),
       })
@@ -246,7 +251,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     id = ''; codigo = ''
     const resumenEntrega = [entrega === 'Local' ? dirEntrega : entrega === 'Envío' ? `${ciudadDestino} (${transporte})${dirEnvio ? ' · ' + dirEnvio : ''}` : '', quienRecibe ? 'Recibe: ' + quienRecibe : '', fechaEntrega ? 'Fecha de entrega: ' + fechaEntrega : '', [caja, armado, stretch].filter(Boolean).length ? 'Empaque: ' + [caja, armado, stretch].filter(Boolean).join(' · ') : '', garantia ? 'Garantía: ' + garantia : ''].filter(Boolean)
     guardado(`${modo} ${ed ? 'actualizada' : 'creada'} por ${dinero(total)}.`, {
-      codigo: (datos.codigo as string | undefined) ?? codigoFinal, fecha: new Date().toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric' }), tipo: modo, empresa: perfil.empresa,
+      codigo: (datos.codigo as string | undefined) ?? codigoFinal, fecha: new Date().toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric' }), tipo: modo, empresa,
       cliente: { nombre, identificacion: cliente?.identificacion ?? lead.identificacion, email: cliente?.email ?? lead.email, telefono: cliente?.telefono ?? lead.telefono },
       asesor: asesores.find((a) => a.id === asesorId)?.nombre ?? perfil.nombre, nota: nota.trim() || null,
       items: carrito.map((i) => ({ id: i.id, codigo: i.codigo, nombre: i.nombre, imagen: i.imagen, categoria: i.categoria, descripcion: i.descripcion, ficha: i.ficha, carpeta: i.carpeta, precio: i.precio, cantidad: i.cantidad, descuento: i.descuento, iva: i.iva, observacion: i.observacion })),
@@ -472,6 +477,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
             <div className="flex items-center gap-1.5 mt-2">
               <span className="text-[10px] text-slate-400">P. unit. $</span>
               <input type="number" min="0" step="0.01" value={i.precio} onFocus={(e) => e.target.select()} onChange={(e) => cambiar(idx, { precio: Number(e.target.value) || 0 })} className="ns-mini w-20" />
+              {esFm && <><span className="text-[10px] text-slate-400" title="Objetivo previsto: sube el precio para absorber el descuento">Obj. %</span><input type="number" min="0" max="90" step="0.1" value={i.obj ?? 0} onFocus={(e) => e.target.select()} onChange={(e) => cambiar(idx, { obj: Number(e.target.value) || 0, precio: conObjetivo(i.base ?? i.precio, Number(e.target.value) || 0), base: i.base ?? i.precio })} className="ns-mini w-14" /></>}
               <button onClick={() => aplicarPct(idx, -1)} title="Aplicar el % del cuadro de abajo como descuento" className="ns-round !w-6 !h-6 ml-auto">−</button>
               <button onClick={() => aplicarPct(idx, 1)} title="Subir el precio ese %" className="ns-round !w-6 !h-6">+</button>
             </div>
@@ -479,6 +485,13 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
           </div>
         ))}
       </div>
+      {esFm && (
+        <div className="px-4 py-2 flex items-center gap-1.5 border-t border-slate-100">
+          <label className="text-[10px] text-slate-500 mr-auto leading-tight">Plan previsto <span className="block text-slate-400">Precio = PVP ÷ (1 − %). Con 10 % de descuento vuelve al PVP VIMEDIC.</span></label>
+          <input type="number" min="0" max="90" step="0.1" value={plan} onChange={(e) => setPlan(Number(e.target.value) || 0)} className="ns-mini w-16" />
+          <button onClick={() => setCarrito((a) => a.map((x) => ({ ...x, obj: plan, base: x.base ?? x.precio, precio: conObjetivo(x.base ?? x.precio, plan) })))} className="btn btn-sm" style={{ fontSize: 11, fontWeight: 700, padding: '5px 9px', border: '1px solid #cbd5e1', borderRadius: 8 }}>Aplicar a todos</button>
+        </div>
+      )}
       <div className="px-4 py-2 flex items-center justify-end gap-1.5 border-t border-slate-100">
         <label className="text-[10px] text-slate-500 mr-auto leading-tight">Ajustar todos <span className="block text-slate-400">− descuento · + sube precio</span></label>
         <input type="number" step="0.1" value={pct} onChange={(e) => setPct(e.target.value)} placeholder="%" onFocus={(e) => e.target.select()} className="ns-mini w-16" />

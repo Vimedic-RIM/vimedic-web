@@ -41,16 +41,16 @@ export function ConfirmarEliminar({ titulo: t, detalle, ok, cerrar }: { titulo: 
 
 /* ============== Papelera del CRM ============== */
 type ItemPapelera = { id: string; tabla: 'leads' | 'cotizaciones' | 'clientes'; tipoTitulo: string; descripcion: string; fecha: string; motivo: string }
-export function Papelera({ cerrar, alRestaurar, aviso }: { cerrar: () => void; alRestaurar: () => void; aviso: (t: string) => void }) {
+export function Papelera({ cerrar, alRestaurar, aviso, empresa }: { empresa: 'VIMEDIC' | 'FEMEDICS'; cerrar: () => void; alRestaurar: () => void; aviso: (t: string) => void }) {
   const [items, setItems] = useState<ItemPapelera[] | null>(null)
   const [error, setError] = useState('')
   const [ocupado, setOcupado] = useState('')
 
   useEffect(() => {
     Promise.all([
-      supabase.from('leads').select('id,codigo,nombre,deleted_at,motivo_eliminacion').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }).limit(100),
-      supabase.from('cotizaciones').select('id,codigo,tipo_registro,nombre,deleted_at,motivo_eliminacion').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }).limit(100),
-      supabase.from('clientes').select('id,codigo,nombre,deleted_at,motivo_eliminacion').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }).limit(100),
+      supabase.from('leads').select('id,codigo,nombre,deleted_at,motivo_eliminacion').eq('empresa', empresa).not('deleted_at', 'is', null).order('deleted_at', { ascending: false }).limit(100),
+      supabase.from('cotizaciones').select('id,codigo,tipo_registro,nombre,deleted_at,motivo_eliminacion').eq('empresa', empresa).not('deleted_at', 'is', null).order('deleted_at', { ascending: false }).limit(100),
+      supabase.from('clientes').select('id,codigo,nombre,deleted_at,motivo_eliminacion').eq('empresa', empresa).not('deleted_at', 'is', null).order('deleted_at', { ascending: false }).limit(100),
     ]).then(([l, c, k]) => {
       const err = l.error || c.error || k.error
       if (err) { setError(err.message); return }
@@ -95,7 +95,7 @@ export function Papelera({ cerrar, alRestaurar, aviso }: { cerrar: () => void; a
 }
 
 /* ============== Gestión de Clientes (lista) ============== */
-export function ClientesLista({ perfil, asesores, cerrar, aviso }: { perfil: Perfil; asesores: Asesor[]; cerrar: () => void; aviso: (t: string) => void }) {
+export function ClientesLista({ perfil, asesores, cerrar, aviso, empresa }: { empresa: 'VIMEDIC' | 'FEMEDICS'; perfil: Perfil; asesores: Asesor[]; cerrar: () => void; aviso: (t: string) => void }) {
   const [q, setQ] = useState('')
   const [lista, setLista] = useState<Cliente[] | null>(null)
   const [total, setTotal] = useState(0)
@@ -103,7 +103,7 @@ export function ClientesLista({ perfil, asesores, cerrar, aviso }: { perfil: Per
 
   const buscar = useCallback(() => {
     const t = q.trim().replace(/[,()%*\\]/g, ' ')
-    let consulta = supabase.from('clientes').select(COLS, { count: 'exact' }).is('deleted_at', null)
+    let consulta = supabase.from('clientes').select(COLS, { count: 'exact' }).is('deleted_at', null).eq('empresa', empresa)
     if (t) {
       for (const p of t.split(/\s+/)) consulta = consulta.or(`nombre.ilike.%${p}%,identificacion.ilike.%${p}%,email.ilike.%${p}%,telefono.ilike.%${p}%`)
     } else consulta = consulta.eq('asesor_id', perfil.id)
@@ -124,7 +124,7 @@ export function ClientesLista({ perfil, asesores, cerrar, aviso }: { perfil: Per
               <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nombre, cédula o correo..." className="w-full border border-slate-200 rounded-lg p-2 pl-8 text-xs focus:outline-none focus:ring-2" style={{ ['--tw-ring-color' as string]: 'var(--cyan)' }} />
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
             </div>
-            {puede(perfil, 'crm', 'crear') && (
+            {puede(perfil, empresa === 'FEMEDICS' ? 'femedics' : 'crm', 'crear') && (
               <button onClick={() => setEditar('nuevo')} className="text-xs font-bold px-3.5 py-2 rounded-lg text-white flex items-center gap-1.5 shrink-0" style={{ background: 'var(--primary)' }}><UserPlus className="w-3.5 h-3.5" /> Nuevo Cliente</button>
             )}
           </div>
@@ -147,14 +147,14 @@ export function ClientesLista({ perfil, asesores, cerrar, aviso }: { perfil: Per
           </div>
         </div>
       </div>
-      {editar && <FormularioCliente perfil={perfil} asesores={asesores} cliente={editar === 'nuevo' ? null : editar} cerrar={() => setEditar(null)} aviso={aviso} guardado={() => { setEditar(null); buscar() }} />}
+      {editar && <FormularioCliente empresa={empresa} perfil={perfil} asesores={asesores} cliente={editar === 'nuevo' ? null : editar} cerrar={() => setEditar(null)} aviso={aviso} guardado={() => { setEditar(null); buscar() }} />}
     </>
   )
 }
 
 /* ============== Formulario de cliente ============== */
-function FormularioCliente({ perfil, asesores, cliente, cerrar, guardado, aviso }: {
-  perfil: Perfil; asesores: Asesor[]; cliente: Cliente | null; cerrar: () => void; guardado: () => void; aviso: (t: string) => void
+function FormularioCliente({ perfil, asesores, cliente, cerrar, guardado, aviso, empresa }: {
+  empresa: 'VIMEDIC' | 'FEMEDICS'; perfil: Perfil; asesores: Asesor[]; cliente: Cliente | null; cerrar: () => void; guardado: () => void; aviso: (t: string) => void
 }) {
   const v = (x: string | null | undefined) => x ?? ''
   const [f, setF] = useState({
@@ -198,7 +198,7 @@ function FormularioCliente({ perfil, asesores, cliente, cerrar, guardado, aviso 
     }
     const r = cliente
       ? await supabase.from('clientes').update(fila).eq('id', cliente.id)
-      : await supabase.from('clientes').insert({ id: crypto.randomUUID(), codigo: 'CLI-' + crypto.randomUUID().slice(0, 6).toUpperCase(), empresa: perfil.empresa, ...fila, fecha_registro: fila.fecha_registro ?? new Date().toISOString() })
+      : await supabase.from('clientes').insert({ id: crypto.randomUUID(), codigo: 'CLI-' + crypto.randomUUID().slice(0, 6).toUpperCase(), empresa, ...fila, fecha_registro: fila.fecha_registro ?? new Date().toISOString() })
     setGuardando(false)
     if (r.error) { setError(r.error.message); return }
     aviso(cliente ? 'Cliente actualizado.' : 'Cliente creado.'); guardado()
@@ -247,7 +247,7 @@ function FormularioCliente({ perfil, asesores, cliente, cerrar, guardado, aviso 
               {campo('Dirección *', 'direccion', { placeholder: 'Calle, número, referencia' })}
               <div className="cf-f"><span>Tipo de cliente *</span>
                 <div className="grid grid-cols-2 gap-1.5">
-                  {[['PVP', 'PVP'], ['DIS', 'DIS (Distribuidor)']].map(([val, t]) => (
+                  {(empresa === 'FEMEDICS' ? [['PVP', 'PVP']] : [['PVP', 'PVP'], ['DIS', 'DIS (Distribuidor)']]).map(([val, t]) => (
                     <button key={val} type="button" onClick={() => set('tipo', val)} className={'cf-tipo-btn ns-chip' + (f.tipo === val ? ' active' : '')} style={{ height: 40, borderRadius: 12 }}>{t}</button>
                   ))}
                 </div>
@@ -306,7 +306,7 @@ function FormularioCliente({ perfil, asesores, cliente, cerrar, guardado, aviso 
         <div className="shrink-0 border-t border-slate-200 bg-white p-3 sm:p-4 flex flex-col sm:flex-row gap-2 vm-cf-foot">
           {error && <p className="text-[11px] font-semibold flex-1" style={{ alignSelf: "center", color: '#c0392b' }}>{error}</p>}
           <button onClick={copiarSolicitud} className="text-xs font-bold px-4 py-2.5 rounded-xl border flex items-center justify-center gap-1.5" style={{ borderColor: '#25D366', color: '#16a34a' }}><Copy className="w-3.5 h-3.5" /> Solicitar datos al cliente</button>
-          {cliente && puede(perfil, 'crm', 'eliminar') && <button type="button" onClick={() => setElim(true)} className="text-xs font-bold px-4 py-2.5 rounded-xl border flex items-center justify-center gap-1.5" style={{ borderColor: '#fecaca', color: '#b91c1c', background: '#fff5f5' }}><Trash2 className="w-3.5 h-3.5" /> Eliminar cliente</button>}
+          {cliente && puede(perfil, empresa === 'FEMEDICS' ? 'femedics' : 'crm', 'eliminar') && <button type="button" onClick={() => setElim(true)} className="text-xs font-bold px-4 py-2.5 rounded-xl border flex items-center justify-center gap-1.5" style={{ borderColor: '#fecaca', color: '#b91c1c', background: '#fff5f5' }}><Trash2 className="w-3.5 h-3.5" /> Eliminar cliente</button>}
           <button onClick={guardar} disabled={guardando} className="ns-submit">{guardando ? 'Guardando…' : 'Guardar cliente'}</button>
         </div>
       </div>

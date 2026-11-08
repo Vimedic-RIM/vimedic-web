@@ -80,7 +80,9 @@ const vencido = (g: Gestion) => g.estado !== 'Nuevo' && g.proximoTS > 0 && g.pro
 const conIntento = (e: string) => /seguim|contactad|sin resp|intento/i.test(e)
 
 /* ============================ Pantalla principal ============================ */
-export default function Crm({ perfil, aviso }: { perfil: Perfil; aviso: (t: string) => void }) {
+export default function Crm({ perfil, aviso, empresa = 'VIMEDIC' }: { perfil: Perfil; aviso: (t: string) => void; empresa?: 'VIMEDIC' | 'FEMEDICS' }) {
+  const mod = empresa === 'FEMEDICS' ? 'femedics' : 'crm'
+  const nombreCrm = empresa === 'FEMEDICS' ? 'Femedics CRM' : 'CRM Vimedic'
   const [etapas, setEtapas] = useState<Etapa[]>(ETAPAS_POR_DEFECTO)
   const [asesores, setAsesores] = useState<Asesor[]>([])
   const [gestiones, setGestiones] = useState<Gestion[]>([])
@@ -106,8 +108,8 @@ export default function Crm({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
   const [arrastrando, setArrastrando] = useState<string | null>(null)
   const peticion = useRef(0)
 
-  const crear = puede(perfil, 'crm', 'crear')
-  const eliminar = puede(perfil, 'crm', 'eliminar')
+  const crear = puede(perfil, mod, 'crear')
+  const eliminar = puede(perfil, mod, 'eliminar')
   const nombres = useMemo(() => new Map(asesores.map((a) => [a.id, a.nombre])), [asesores])
   const estados = etapas.map((e) => e.nombre)
   const colorEstado = (e: string) => COLOR_ESTADO[e] ?? PALETA[Math.max(0, estados.indexOf(e)) % PALETA.length]
@@ -118,10 +120,10 @@ export default function Crm({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
     const [l, c] = await Promise.all([
       supabase.from('leads')
         .select('id,codigo,origen_tipo,fecha,nombre,telefono,email,identificacion,interes,medio_captacion,asesor_id,estado_crm,ultima_actividad,proximo_seguimiento')
-        .is('deleted_at', null).order('fecha', { ascending: false }).limit(2000),
+        .is('deleted_at', null).eq('empresa', empresa).order('fecha', { ascending: false }).limit(2000),
       supabase.from('cotizaciones')
         .select('id,codigo,fecha,tipo_registro,nombre,telefono,email,identificacion,asesor_id,estado_crm,ultima_actividad,proximo_seguimiento,total,pdf_url,lead_id,medio_captacion_lead,detalle_equipos')
-        .is('deleted_at', null).neq('tipo_registro', 'Histórico').order('fecha', { ascending: false }).limit(2000),
+        .is('deleted_at', null).eq('empresa', empresa).neq('tipo_registro', 'Histórico').order('fecha', { ascending: false }).limit(2000),
     ])
     if (n !== peticion.current) return
     if (l.error || c.error) { setError('No se pudo cargar el CRM: ' + (l.error?.message || c.error?.message)); setCargando(false); return }
@@ -154,7 +156,7 @@ export default function Crm({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
   }, [])
   useEffect(() => { cargar() }, [cargar])
   useEffect(() => {
-    const canal = supabase.channel('crm-gestiones')
+    const canal = supabase.channel('crm-gestiones-' + empresa)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => cargar())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'cotizaciones' }, () => cargar())
       .subscribe()
@@ -261,12 +263,12 @@ export default function Crm({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
               <AlarmClock className="w-5 h-5" />
               {pendientes.length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center">{pendientes.length}</span>}
             </button>
-            <span className="text-white font-display font-bold text-sm">CRM Vimedic</span>
+            <span className="text-white font-display font-bold text-sm">{nombreCrm}</span>
             <button onClick={() => setMenuMovil((v) => !v)} className="relative bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg transition-colors" title="Menú"><Menu className="w-5 h-5" /></button>
           </div>
 
           <div className="hidden sm:block min-w-0 shrink-0 max-w-[260px]">
-            <h1 className="font-display font-bold text-white text-base leading-tight">CRM Vimedic</h1>
+            <h1 className="font-display font-bold text-white text-base leading-tight">{nombreCrm}</h1>
             <p className="text-[11px] text-white/60 truncate">{perfil.nombre}</p>
           </div>
 
@@ -335,7 +337,7 @@ export default function Crm({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
               {crear && <button onClick={() => { setMenuMovil(false); setDocumento({ modo: 'Cotización', origen: null }) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><FilePlus2 className="w-4 h-4" style={{ color: 'var(--teal)' }} /> Nueva Cotización</button>}
               {crear && <button onClick={() => { setMenuMovil(false); setDocumento({ modo: 'Venta', origen: null }) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><Receipt className="w-4 h-4" style={{ color: '#04896f' }} /> Nueva Venta</button>}
               <button onClick={() => { setMenuMovil(false); setClientes(true) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><Users className="w-4 h-4 text-slate-500"  /> Clientes</button>
-              <button onClick={() => { setMenuMovil(false); aviso('Mensajes se está migrando: sigue disponible en la app actual.') }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><MessageCircle className="w-4 h-4 text-slate-500"  /> Mensajes</button>
+              {empresa !== 'FEMEDICS' && <button onClick={() => { setMenuMovil(false); aviso('Mensajes se está migrando: sigue disponible en la app actual.') }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><MessageCircle className="w-4 h-4 text-slate-500"  /> Mensajes</button>}
               {eliminar && <button onClick={() => { setMenuMovil(false); setPapelera(true) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><Trash2 className="w-4 h-4 text-slate-500"  /> Papelera</button>}
               <div className="border-t border-slate-100 my-1.5" />
               {perfil.es_superadmin && <button onClick={() => { setMenuMovil(false); aviso('La administración de etapas se está migrando.') }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><Settings className="w-4 h-4 text-slate-500"  /> Administrar etapas</button>}
@@ -485,13 +487,13 @@ export default function Crm({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
       {abierta && gestiones.find((x) => x.key === abierta) && (
         <Ficha g={gestiones.find((x) => x.key === abierta)!} perfil={perfil} asesores={asesores} etapas={estados} colorEstado={colorEstado}
           cerrar={() => setAbierta(null)} cambiarEstado={cambiarEstado} recargar={cargar} aviso={aviso}
-          verProforma={setProforma} editarDoc={(row) => { setAbierta(null); setDocumento({ modo: 'Cotización', origen: null, editar: row }) }} facturar={() => abrirVenta(gestiones.find((x) => x.key === abierta)!)} cotizar={() => cotizarDesde(gestiones.find((x) => x.key === abierta)!)} clientes={() => setClientes(true)} />
+          mod={mod} empresa={empresa} verProforma={setProforma} editarDoc={(row) => { setAbierta(null); setDocumento({ modo: 'Cotización', origen: null, editar: row }) }} facturar={() => abrirVenta(gestiones.find((x) => x.key === abierta)!)} cotizar={() => cotizarDesde(gestiones.find((x) => x.key === abierta)!)} clientes={() => setClientes(true)} />
       )}
-      {clientes && <ClientesLista perfil={perfil} asesores={asesores} cerrar={() => setClientes(false)} aviso={aviso} />}
-      {papelera && <Papelera cerrar={() => setPapelera(false)} alRestaurar={cargar} aviso={aviso} />}
-      {documento && <CrmDocumento editar={documento.editar} modo={documento.modo} perfil={perfil} asesores={asesores} origen={documento.origen} cerrar={() => setDocumento(null)} guardado={(m, doc) => { setDocumento(null); aviso(m); cargar(); setProforma(doc) }} />}
+      {clientes && <ClientesLista empresa={empresa} perfil={perfil} asesores={asesores} cerrar={() => setClientes(false)} aviso={aviso} />}
+      {papelera && <Papelera empresa={empresa} cerrar={() => setPapelera(false)} alRestaurar={cargar} aviso={aviso} />}
+      {documento && <CrmDocumento empresa={empresa} editar={documento.editar} modo={documento.modo} perfil={perfil} asesores={asesores} origen={documento.origen} cerrar={() => setDocumento(null)} guardado={(m, doc) => { setDocumento(null); aviso(m); cargar(); setProforma(doc) }} />}
       {proforma && <ProformaVisor datos={proforma} cerrar={() => setProforma(null)} />}
-      {nueva && <NuevaGestion perfil={perfil} asesores={asesores} cerrar={() => setNueva(false)} guardado={() => { setNueva(false); aviso('Gestión creada.'); cargar() }} />}
+      {nueva && <NuevaGestion empresa={empresa} perfil={perfil} asesores={asesores} cerrar={() => setNueva(false)} guardado={() => { setNueva(false); aviso('Gestión creada.'); cargar() }} />}
     </div>
   )
 }
@@ -535,7 +537,8 @@ function Tarjeta({ g, asesor, color, arrastrando, abrir, iniciarArrastre, finArr
 }
 
 /* ============================ Ficha lateral de la gestión ============================ */
-function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado, recargar, aviso, facturar, cotizar, clientes, verProforma, editarDoc }: {
+function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado, recargar, aviso, facturar, cotizar, clientes, verProforma, editarDoc, mod, empresa }: {
+  mod: string; empresa: 'VIMEDIC' | 'FEMEDICS'
   g: Gestion; perfil: Perfil; asesores: Asesor[]; etapas: string[]; colorEstado: (e: string) => string
   cerrar: () => void; cambiarEstado: (key: string, nuevo: string) => Promise<void>; recargar: () => void; aviso: (t: string) => void; facturar: () => void; cotizar: () => void; clientes: () => void; verProforma: (d: DatosDoc) => void; editarDoc: (row: Record<string, any>) => void // eslint-disable-line @typescript-eslint/no-explicit-any
 }) {
@@ -611,7 +614,7 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
 
   async function verVersion(v: NonNullable<typeof versiones>[number]) {
     const items = await enriquecerItems(((v.items ?? []) as Record<string, any>[]).map((i) => ({ ...i, precio: Number(i.precio) || 0, cantidad: Number(i.cantidad) || 0, descuento: Number(i.descuento) || 0, iva: i.iva !== false })) as never) // eslint-disable-line @typescript-eslint/no-explicit-any
-    verProforma({ codigo: g.codigo + ' · v' + v.version, fecha: new Date(v.fecha).toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric' }), tipo: g.tipo === 'Venta' ? 'Venta' : 'Cotización', empresa: perfil.empresa,
+    verProforma({ codigo: g.codigo + ' · v' + v.version, fecha: new Date(v.fecha).toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric' }), tipo: g.tipo === 'Venta' ? 'Venta' : 'Cotización', empresa,
       cliente: { nombre: v.cliente?.nombre ?? g.nombre, identificacion: v.cliente?.identificacion, email: v.cliente?.email, telefono: v.cliente?.telefono }, asesor: asesor, nota: v.nota, items })
   }
 
@@ -622,7 +625,7 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
     const r = data as Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
     const venta = r.tipo_registro === 'Venta'
     verProforma({
-      codigo: r.codigo ?? g.codigo, fecha: new Date(r.fecha).toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric' }), tipo: venta ? 'Venta' : 'Cotización', empresa: perfil.empresa,
+      codigo: r.codigo ?? g.codigo, fecha: new Date(r.fecha).toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric' }), tipo: venta ? 'Venta' : 'Cotización', empresa,
       cliente: { nombre: r.nombre, identificacion: r.identificacion, email: r.email, telefono: r.telefono }, asesor: asesor, nota: venta ? r.nota_venta : r.nota_cotizacion,
       items: await enriquecerItems(((r.items ?? []) as Record<string, any>[]).map((i) => ({ ...i, precio: Number(i.precio) || 0, cantidad: Number(i.cantidad) || 0, descuento: Number(i.descuento) || 0, iva: i.iva !== false })) as never), // eslint-disable-line @typescript-eslint/no-explicit-any
       pagoEntrega: venta ? { pago: [r.estado_pago, r.metodo_pago].filter(Boolean).join(' · '), entrega: r.tipo_entrega ?? '', detalle: [r.direccion_entrega, r.fecha_entrega ? 'Fecha de entrega: ' + r.fecha_entrega : ''].filter(Boolean) } : null,
@@ -704,7 +707,7 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
             {g.estado === 'Ganado' ? 'Ganado · En facturación' : 'Facturar / Marcar ganado'}
           </button>
 
-          {g.tabla === 'cotizaciones' && g.tipo === 'Cotización' && g.estado !== 'Ganado' && puede(perfil, 'crm', 'editar') && (
+          {g.tabla === 'cotizaciones' && g.tipo === 'Cotización' && g.estado !== 'Ganado' && puede(perfil, mod, 'editar') && (
             <button onClick={editarProforma} className="w-full text-sm font-bold py-2.5 rounded-xl border flex items-center justify-center gap-1.5" style={{ borderColor: 'var(--primary)', color: 'var(--primary)' }}><Pencil className="w-4 h-4" /> Editar proforma</button>
           )}
           {g.tabla === 'cotizaciones' && (
@@ -745,7 +748,7 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
             <button onClick={guardarNota} disabled={guardando} className="mt-1.5 w-full text-white text-xs font-bold py-2 rounded-lg transition-transform hover:-translate-y-0.5" style={{ background: 'var(--teal)' }}>{guardando ? 'Guardando…' : 'Guardar Nota'}</button>
           </div>
 
-          {puede(perfil, 'crm', 'eliminar') && g.estado !== 'Ganado' && (
+          {puede(perfil, mod, 'eliminar') && g.estado !== 'Ganado' && (
             <button onClick={() => setElim(true)} className="w-full text-xs font-bold py-2 rounded-lg border flex items-center justify-center gap-1.5" style={{ borderColor: '#fecaca', color: '#b91c1c', background: '#fff5f5' }}><Trash2 className="w-3.5 h-3.5" /> Eliminar gestión</button>
           )}
 
@@ -812,7 +815,7 @@ const SEGUIMIENTOS: [string, string, number][] = [['2h', '2 horas', 2 * 3600000]
 
 type ClienteRes = { id: string; nombre: string; identificacion: string | null; email: string | null; telefono: string | null }
 
-function NuevaGestion({ perfil, asesores, cerrar, guardado }: { perfil: Perfil; asesores: Asesor[]; cerrar: () => void; guardado: () => void }) {
+function NuevaGestion({ perfil, asesores, cerrar, guardado, empresa }: { empresa: 'VIMEDIC' | 'FEMEDICS'; perfil: Perfil; asesores: Asesor[]; cerrar: () => void; guardado: () => void }) {
   const [busca, setBusca] = useState('')
   const [resultados, setResultados] = useState<ClienteRes[]>([])
   const [cliente, setCliente] = useState<ClienteRes | null>(null)
@@ -832,7 +835,7 @@ function NuevaGestion({ perfil, asesores, cerrar, guardado }: { perfil: Perfil; 
     const q = busca.trim().replace(/[,()%*\\]/g, ' ')
     if (q.length < 2) { setResultados([]); return }
     const t = setTimeout(() => {
-      supabase.from('clientes').select('id,nombre,identificacion,email,telefono').is('deleted_at', null)
+      supabase.from('clientes').select('id,nombre,identificacion,email,telefono').is('deleted_at', null).eq('empresa', empresa)
         .or(`nombre.ilike.%${q}%,identificacion.ilike.%${q}%,email.ilike.%${q}%`).limit(8)
         .then(({ data }) => setResultados((data as ClienteRes[]) ?? []))
     }, 250)
@@ -856,7 +859,7 @@ function NuevaGestion({ perfil, asesores, cerrar, guardado }: { perfil: Perfil; 
     const id = crypto.randomUUID()
     const codigo = 'CON-' + id.slice(0, 6).toUpperCase()
     const { error } = await supabase.from('leads').insert({
-      id, codigo, origen_tipo: 'contacto', nombre, telefono: cliente?.telefono ?? (manual.telefono.trim() || null), email: cliente?.email ?? (manual.email.trim() || null),
+      id, codigo, empresa, origen_tipo: 'contacto', nombre, telefono: cliente?.telefono ?? (manual.telefono.trim() || null), email: cliente?.email ?? (manual.email.trim() || null),
       identificacion: cliente?.identificacion ?? null, cliente_id: cliente?.id ?? null, medio_captacion: medio, interes: interes.trim() || null, canal: canal || null,
       contesto, estado_crm: estadoInicial, asesor_id: asesorId || null, ultima_actividad: new Date(ahora).toISOString(), proximo_seguimiento: new Date(proximo).toISOString(),
     })
