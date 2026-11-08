@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ArrowDownAZ, ArrowLeft, BadgeCheck, BadgeDollarSign, Barcode, Boxes, Check, ChevronDown, ChevronUp,
-  ChevronsUpDown, ClipboardCopy, Download, Eraser, Eye, EyeOff, FileText, Hash, Images, LayoutGrid,
-  PackageX, PanelsTopLeft, Pencil, Plus, RefreshCw, Search, SlidersHorizontal, Table2, Tag, TriangleAlert, X,
+  ArrowDownAZ, BadgeCheck, BadgeDollarSign, Barcode, Boxes, Check, ChevronDown, ChevronUp,
+  ChevronsUpDown, ClipboardCopy, Download, Eraser, Eye, EyeOff, FileText, Hash, ImagePlus, Images, LayoutGrid,
+  Package, PackagePlus, PackageX, PanelsTopLeft, Pencil, Plus, RefreshCw, Search, SlidersHorizontal, Table2, Tag,
+  Trash2, TriangleAlert, X,
 } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
@@ -310,10 +311,11 @@ export default function Inventario({ perfil, volver }: { perfil: Perfil; volver:
     return () => clearTimeout(t)
   }, [texto])
 
-  useEffect(() => {
+  const cargarCategorias = useCallback(() => {
     supabase.from('categorias').select('id,nombre').eq('activo', true).is('deleted_at', null).order('nombre')
       .then(({ data }) => setCategorias((data as Categoria[]) ?? []))
   }, [])
+  useEffect(() => { cargarCategorias() }, [cargarCategorias])
 
   const consulta = useCallback(() => {
     let q = supabase.from('productos').select(COLUMNAS, { count: 'exact' }).is('deleted_at', null)
@@ -572,143 +574,372 @@ export default function Inventario({ perfil, volver }: { perfil: Perfil; volver:
         </div>
       </main>
 
-      {/* Cajón de detalle (pantallas que no tienen panel lateral) */}
+      {/* Ficha completa del producto (igual que la app original) */}
       {enCajon && (
-        <div className="vq-overlay open" onClick={() => setCajon(null)}>
-          <div className="vq-drawer" onClick={(e) => e.stopPropagation()}>
-            <div className="vq-drawer-head">
-              <div className="vq-drawer-title"><div><h2>Detalle del producto</h2><p>{enCajon.codigo}</p></div></div>
-              <button className="vq-close" onClick={() => setCajon(null)} aria-label="Cerrar"><X className="w-4 h-4" /></button>
-            </div>
-            <div className="flex-1 overflow-auto">
-              <Panel p={enCajon} editar={editar} abrirEditar={(id) => { setCajon(null); setForm(id) }} />
-            </div>
-          </div>
-        </div>
+        <DetalleProducto
+          p={enCajon}
+          editar={editar}
+          eliminar={puede(perfil, 'inventario', 'eliminar')}
+          cerrar={() => setCajon(null)}
+          abrirEditar={(id) => { setCajon(null); setForm(id) }}
+          eliminado={() => { setCajon(null); cargar(Math.max(LOTE, items.length)) }}
+        />
       )}
 
       {form && (
         <FormularioProducto
-          perfil={perfil}
           id={form}
           categorias={categorias}
           cerrar={() => setForm(null)}
-          guardado={() => { setForm(null); cargar(Math.max(LOTE, items.length)) }}
+          guardado={() => { setForm(null); cargarCategorias(); cargar(Math.max(LOTE, items.length)) }}
         />
       )}
     </div>
   )
 }
 
-/* ---------- Formulario de producto (estilo pf-* de la app original) ---------- */
-type Campos = {
-  id: string; codigo: string; codigo_unico: string | null; nombre: string; categoria_id: string | null; marca: string | null
-  descripcion: string | null; pvp: number | null; precio_dis: number | null; aplica_iva: boolean; stock: number
-  stock_minimo: number | null; stock_maximo: number | null; en_catalogo: boolean; oculto: boolean; imagen_url: string | null
+/* ---------- Ficha completa del producto (copia de #detailOverlay de Inventario.html) ---------- */
+function DetalleProducto({ p, editar, eliminar, cerrar, abrirEditar, eliminado }: {
+  p: Fila; editar: boolean; eliminar: boolean; cerrar: () => void; abrirEditar: (id: string) => void; eliminado: () => void
+}) {
+  const [descripcion, setDescripcion] = useState<string | null>(null)
+  const [verDis, setVerDis] = useState(false)
+  useEffect(() => {
+    supabase.from('productos').select('descripcion').eq('id', p.id).single()
+      .then(({ data }) => setDescripcion((data as { descripcion: string | null } | null)?.descripcion ?? ''))
+  }, [p.id])
+  useEffect(() => {
+    const f = (e: KeyboardEvent) => { if (e.key === 'Escape') cerrar() }
+    document.addEventListener('keydown', f)
+    return () => document.removeEventListener('keydown', f)
+  }, [cerrar])
+
+  const pvp = Number(p.pvp) || 0
+  const conIva = p.aplica_iva !== false
+  const dis = Number(p.precio_dis) || 0
+  const pct = pvp > 0 && dis > 0 && dis < pvp ? Math.round((1 - dis / pvp) * 10000) / 100 : 0
+  const stockN = Number(p.stock) || 0
+
+  async function eliminarProducto() {
+    if (!confirm(`¿Eliminar "${p.nombre || p.codigo}"?\n\nDesaparece de Inventario. Su stock y movimientos se conservan y se puede restaurar.`)) return
+    // Borrado lógico: nunca DELETE.
+    const { error } = await supabase.from('productos').update({ deleted_at: new Date().toISOString() }).eq('id', p.id)
+    if (error) alert('No se pudo eliminar: ' + error.message); else eliminado()
+  }
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-[2px] z-[60] flex items-center justify-center p-0 sm:p-4" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
+      <div className="bg-[#f6f9fc] sm:rounded-3xl shadow-2xl w-full h-full sm:h-auto sm:max-w-4xl sm:max-h-[92vh] flex flex-col overflow-hidden">
+        {/* Encabezado */}
+        <div className="inv-dhead shrink-0 px-5 pt-4 pb-4 text-white" style={{ background: 'linear-gradient(135deg,var(--navy),var(--primary))' }}>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center shrink-0"><Package className="w-4 h-4" /></span>
+              <p className="text-[11px] font-mono-spec text-white/75 truncate">{p.codigo}{p.codigo_unico ? ' - ' + p.codigo_unico : ''}</p>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button onClick={cerrar} className="w-9 h-9 rounded-xl bg-white/15 hover:bg-white/25 flex items-center justify-center transition-colors" title="Cerrar"><X className="w-4 h-4" /></button>
+            </div>
+          </div>
+          <h2 className="font-display font-bold text-lg sm:text-xl leading-snug mt-2">{p.nombre}</h2>
+          <div className="flex items-center gap-1.5 flex-wrap mt-2">
+            <span className="inv-chip" style={{ background: 'rgba(255,255,255,.14)', borderColor: 'rgba(255,255,255,.2)', color: '#fff' }}><Tag /><span>{p.categoria?.nombre || '—'}</span></span>
+            <span className="inv-chip" style={stockN > 0 ? { background: '#e7f6f2', borderColor: '#bfe6da', color: '#04896f' } : { background: '#fdecea', borderColor: '#f5c6c0', color: '#c0392b' }}>
+              {stockN > 0 ? 'Stock: ' + stockN : stockN < 0 ? `Stock: ${stockN} (facturado sin stock)` : 'Sin stock'}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex flex-col sm:flex-row flex-1 min-h-0 overflow-y-auto sm:overflow-hidden">
+          {/* IZQUIERDA — imagen del producto */}
+          <div className="contents sm:flex sm:w-[320px] shrink-0 flex-col sm:overflow-hidden sm:border-r border-slate-200/70">
+            <div className="order-1 sm:order-none p-4 pb-0 shrink-0">
+              <div className="bg-white rounded-2xl border border-slate-200 p-2 shadow-sm max-w-[260px] mx-auto sm:max-w-none">
+                <div className="relative">
+                  {p.imagen_url
+                    ? <img decoding="async" src={imagen(p.imagen_url, 800)} onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} className="w-full aspect-square object-contain p-2 rounded-xl bg-white" alt="" />
+                    : <div className="w-full aspect-square rounded-xl bg-white" />}
+                  {p.imagen_url && (
+                    <div className="inv-hero-tools">
+                      <a href={imagen(p.imagen_url, 1600)} target="_blank" rel="noopener noreferrer" title="Descargar imagen"><Download /></a>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* DERECHA — detalles */}
+          <div className="order-2 sm:order-none flex-1 p-4 sm:p-5 sm:overflow-y-auto space-y-4">
+            {p.reservaciones && (
+              <div className="flex items-start gap-2 text-xs font-bold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+                <TriangleAlert className="w-4 h-4 shrink-0 mt-0.5" /><span>{p.reservaciones}</span>
+              </div>
+            )}
+
+            {/* Precio + DIS oculto */}
+            <div className="inv-price">
+              <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3 items-stretch">
+                <div>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Precio PVP</p>
+                  <p className="font-display font-bold text-2xl leading-tight" style={{ color: 'var(--primary)' }}><span>${pvp.toFixed(2)}</span> <span className="text-[11px] font-semibold text-slate-500">{conIva ? '+ IVA' : 'IVA 0%'}</span></p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">{conIva ? '$' + (pvp * 1.15).toFixed(2) + ' IVA incluido' : 'No aplica IVA'}</p>
+                </div>
+                {dis > 0 && (
+                  <div className={'inv-dis' + (verDis ? ' show' : '')}>
+                    <div className="inv-dis-val" onClick={() => setVerDis(false)} title="Ocultar precio DIS">
+                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Precio DIS</p>
+                      <p className="flex items-baseline gap-2 flex-wrap">
+                        <span className="font-display font-bold text-xl" style={{ color: 'var(--teal)' }}>${dis.toFixed(2)}</span>
+                        {pct > 0 && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: '#7c3aed1A', color: '#7c3aed' }}>DIS:{String(pct).replace('.', ',')}%</span>}
+                      </p>
+                    </div>
+                    <button type="button" className="inv-dis-cover" onClick={() => setVerDis(true)}><Eye /> Mostrar DIS</button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2">
+              <div className="inv-stat"><small>Stock</small><b style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}><UbicStock p={p} grande /></b></div>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-2xl p-4">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Descripción</p>
+              <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-line">{descripcion === null ? 'Cargando…' : descripcion || '—'}</p>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex flex-col gap-2">
+                {p.ficha_tecnica_url && (
+                  <a href={p.ficha_tecnica_url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold px-3 py-2 rounded-xl border bg-white flex items-center gap-1.5" style={{ borderColor: '#cfe0ef', color: 'var(--primary)' }}>
+                    <FileText className="w-3.5 h-3.5" /> Ficha Técnica
+                  </a>
+                )}
+                {p.drive_carpeta_url && (
+                  <a href={p.drive_carpeta_url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold px-3 py-2 rounded-xl border bg-white flex items-center gap-1.5" style={{ borderColor: '#cdebe4', color: 'var(--teal)' }}>
+                    <Images className="w-3.5 h-3.5" /> Multimedia
+                  </a>
+                )}
+              </div>
+              {editar && (
+                <button type="button" onClick={() => abrirEditar(p.id)} className="text-[11px] font-bold px-3 py-2 rounded-xl border bg-white flex items-center gap-1.5" style={{ borderColor: '#f1dfbf', color: '#a86d10' }}>
+                  <Pencil className="w-3.5 h-3.5" /> Editar producto
+                </button>
+              )}
+              {eliminar && (
+                <button type="button" onClick={eliminarProducto} className="text-[11px] font-bold px-3 py-2 rounded-xl border flex items-center gap-1.5" style={{ borderColor: '#fecaca', color: '#b91c1c', background: '#fff5f5' }}>
+                  <Trash2 className="w-3.5 h-3.5" /> Eliminar
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Acciones fijas abajo */}
+        <div className="shrink-0 border-t border-slate-200 bg-white px-4 py-3 flex items-center gap-2">
+          <button onClick={(e) => copiar(p, 'pvp', e.currentTarget)} title="Copiar nombre y precio PVP" className="inv-cpy"><ClipboardCopy className="w-4 h-4" />PVP</button>
+          {dis > 0 && <button onClick={(e) => copiar(p, 'dis', e.currentTarget)} title="Copiar nombre y precio DIS" className="inv-cpy dis"><ClipboardCopy className="w-4 h-4" />DIS</button>}
+        </div>
+      </div>
+    </div>
+  )
 }
 
-function FormularioProducto({ perfil, id, categorias, cerrar, guardado }: {
-  perfil: Perfil; id: string | 'nuevo'; categorias: Categoria[]; cerrar: () => void; guardado: () => void
+/* ---------- Editar / Agregar producto (copia de #productFormOverlay de Inventario.html) ---------- */
+const MENORES = ['de', 'del', 'la', 'las', 'el', 'los', 'y', 'e', 'o', 'u', 'con', 'sin', 'para', 'por', 'en', 'a', 'al']
+const SIGLAS = ['LED', 'DEA', 'UV', 'ECG', 'EKG', 'EEG', 'UCI', 'USB', 'LCD', 'PVC', 'ABS', 'SPO2', 'NIBP', 'HD', 'TV', 'PC', 'CPAP', 'BPAP', 'IV', 'AC', 'DC', 'RX', 'UPS', 'INOX', 'CE', 'ISO', 'PSI', 'LPM', 'ML', 'HLE']
+// Al crear, el nombre queda en formato título (igual que la app original).
+function nombreTitulo(txt: string): string {
+  return String(txt || '').replace(/\s+/g, ' ').trim().split(' ').map((p, i) => {
+    if (!p) return p
+    const limpio = p.replace(/^[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9]+|[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9]+$/g, '')
+    if (/\d/.test(p)) return p.toUpperCase()
+    if (SIGLAS.includes(limpio.toUpperCase())) return p.toUpperCase()
+    if (limpio.length === 1 && /[A-Za-z]/.test(limpio) && i > 0 && !MENORES.includes(limpio.toLowerCase())) return p.toUpperCase()
+    const low = p.toLowerCase()
+    if (i > 0 && MENORES.includes(limpio.toLowerCase())) return low
+    return low.replace(/(^|[-/(])([a-záéíóúüñ])/g, (_m, a, b) => a + b.toUpperCase())
+  }).join(' ')
+}
+
+function Interruptor({ activo, cambiar }: { activo: boolean; cambiar: () => void }) {
+  return (
+    <button type="button" onClick={cambiar} className="relative w-11 h-6 rounded-full transition-colors shrink-0" style={{ background: activo ? 'var(--teal)' : '#cbd5e1' }}>
+      <span className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform" style={{ transform: activo ? 'translateX(20px)' : 'translateX(0)' }} />
+    </button>
+  )
+}
+
+type Campos = {
+  codigo: string; codigo_unico: string; nombre: string; marca: string; categoria: string; imagen_url: string
+  descripcion: string; pvp: string; precio_dis: string; aplica_iva: boolean; reservaciones: string; en_catalogo: boolean
+}
+
+function Seccion({ n, t, children }: { n: number; t: string; children: React.ReactNode }) {
+  return <section className="pf-sec"><header><span className="pf-num">{n}</span><h4>{t}</h4></header>{children}</section>
+}
+
+function FormularioProducto({ id, categorias, cerrar, guardado }: {
+  perfil?: Perfil; id: string | 'nuevo'; categorias: Categoria[]; cerrar: () => void; guardado: () => void
 }) {
   const nuevo = id === 'nuevo'
-  const puedeArchivar = puede(perfil, 'inventario', 'eliminar')
-  const [p, setP] = useState<Campos | null>(nuevo ? {
-    id: crypto.randomUUID(), codigo: '', codigo_unico: null, nombre: '', categoria_id: null, marca: null, descripcion: null,
-    pvp: null, precio_dis: null, aplica_iva: true, stock: 0, stock_minimo: null, stock_maximo: null,
-    en_catalogo: false, oculto: false, imagen_url: null,
+  const [f, setF] = useState<Campos | null>(nuevo ? {
+    codigo: '', codigo_unico: '', nombre: '', marca: '', categoria: '', imagen_url: '', descripcion: '', pvp: '', precio_dis: '',
+    aplica_iva: true, reservaciones: '', en_catalogo: false,
   } : null)
-  const [error, setError] = useState('')
+  const [marcas, setMarcas] = useState<string[]>([])
+  const [imgError, setImgError] = useState(false)
   const [guardando, setGuardando] = useState(false)
+  const [error, setError] = useState('')
 
   useEffect(() => {
     if (nuevo) return
     supabase.from('productos')
-      .select('id,codigo,codigo_unico,nombre,categoria_id,marca,descripcion,pvp,precio_dis,aplica_iva,stock,stock_minimo,stock_maximo,en_catalogo,oculto,imagen_url')
+      .select('codigo,codigo_unico,nombre,marca,imagen_url,descripcion,pvp,precio_dis,aplica_iva,reservaciones,en_catalogo,categoria:categorias(nombre)')
       .eq('id', id).single()
-      .then(({ data, error }) => { if (error) setError(error.message); else setP(data as Campos) })
+      .then(({ data, error }) => {
+        if (error || !data) { setError(error?.message || 'No se encontró el producto'); return }
+        const d = data as unknown as Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
+        setF({
+          codigo: d.codigo, codigo_unico: d.codigo_unico ?? '', nombre: d.nombre, marca: d.marca ?? '', categoria: d.categoria?.nombre ?? '',
+          imagen_url: d.imagen_url ?? '', descripcion: d.descripcion ?? '', pvp: d.pvp == null ? '' : String(d.pvp),
+          precio_dis: d.precio_dis == null ? '' : String(d.precio_dis), aplica_iva: d.aplica_iva !== false,
+          reservaciones: d.reservaciones ?? '', en_catalogo: !!d.en_catalogo,
+        })
+      })
   }, [id, nuevo])
 
-  function set<K extends keyof Campos>(k: K, v: Campos[K]) { setP((x) => (x ? { ...x, [k]: v } : x)) }
-  const num = (s: string) => (s === '' ? null : Number(s))
+  // Sugerencias de marca con lo que ya existe en el inventario.
+  useEffect(() => {
+    supabase.from('productos').select('marca').not('marca', 'is', null).is('deleted_at', null).limit(3000)
+      .then(({ data }) => setMarcas([...new Set(((data as { marca: string }[]) ?? []).map((x) => x.marca.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'))))
+  }, [])
 
-  async function guardar(e: React.FormEvent) {
-    e.preventDefault()
-    if (!p) return
+  function set<K extends keyof Campos>(k: K, v: Campos[K]) { setF((x) => (x ? { ...x, [k]: v } : x)); if (k === 'imagen_url') setImgError(false) }
+
+  async function guardar() {
+    if (!f) return
+    const nombre = nuevo ? nombreTitulo(f.nombre) : f.nombre.trim()
+    if (!nombre) { setError('El nombre es obligatorio.'); return }
+    if (nuevo && !f.codigo.trim()) { setError('El ID del producto es obligatorio.'); return }
     setGuardando(true); setError('')
-    const { id: pid, ...campos } = p
+
+    // La categoría se escribe como texto: si no existe, se crea.
+    let categoria_id: string | null = null
+    const nomCat = f.categoria.trim()
+    if (nomCat) {
+      const existente = categorias.find((c) => c.nombre.toLowerCase() === nomCat.toLowerCase())
+      if (existente) categoria_id = existente.id
+      else {
+        const nueva = crypto.randomUUID()
+        const { error } = await supabase.from('categorias').insert({ id: nueva, nombre: nomCat })
+        if (error) { setError('No se pudo crear la categoría: ' + error.message); setGuardando(false); return }
+        categoria_id = nueva
+      }
+    }
+
+    const datos = {
+      nombre, categoria_id,
+      descripcion: f.descripcion.trim() || null,
+      pvp: Number(f.pvp) || 0,
+      precio_dis: Number(f.precio_dis) || 0,
+      reservaciones: f.reservaciones.trim() || null,
+      codigo_unico: f.codigo_unico.trim() || null,
+      marca: f.marca.trim() || null,
+      aplica_iva: f.aplica_iva,
+      en_catalogo: f.en_catalogo,
+      imagen_url: f.imagen_url.trim() || null,
+    }
     const { error } = nuevo
-      ? await supabase.from('productos').insert({ id: pid, ...campos })
-      : await supabase.from('productos').update(campos).eq('id', pid)
+      ? await supabase.from('productos').insert({ id: crypto.randomUUID(), codigo: f.codigo.trim(), ...datos })
+      : await supabase.from('productos').update(datos).eq('id', id)
     setGuardando(false)
-    if (error) setError(error.code === '23505' ? 'Ya existe un producto con ese código.' : error.message)
+    if (error) setError(error.code === '23505' ? 'Ya existe un producto con ese ID.' : error.message)
     else guardado()
   }
 
-  async function archivar() {
-    if (!p || !confirm(`¿Archivar "${p.nombre}"? Dejará de aparecer en el inventario.`)) return
-    // Borrado lógico: nunca DELETE.
-    const { error } = await supabase.from('productos').update({ deleted_at: new Date().toISOString() }).eq('id', p.id)
-    if (error) setError(error.message); else guardado()
-  }
-
-  const Seccion = ({ n, titulo, children }: { n: number; titulo: string; children: React.ReactNode }) => (
-    <section className="pf-sec"><header><span className="pf-num">{n}</span><h4>{titulo}</h4></header>{children}</section>
-  )
-
   return (
-    <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(15,23,42,.52)', zIndex: 130 }} onClick={cerrar}>
-      <form className="pf-shell" onClick={(e) => e.stopPropagation()} onSubmit={guardar}>
-        <div className="pf-head text-white px-5 py-4 shrink-0">
-          <div>
+    <div style={{ zIndex: 130 }} className="fixed inset-0 bg-slate-900/50 backdrop-blur-[2px] flex items-center justify-center p-0 sm:p-4" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
+      <div className="pf-shell w-full h-[100dvh] sm:h-auto sm:max-h-[92vh] sm:max-w-2xl flex flex-col overflow-hidden sm:rounded-3xl shadow-2xl">
+        <div className="pf-head px-5 pt-4 pb-3 text-white shrink-0">
+          <div className="flex items-center gap-3">
+            <span className="w-10 h-10 rounded-2xl grid place-items-center bg-white/15 shrink-0"><PackagePlus className="w-5 h-5" /></span>
             <div className="min-w-0">
-              <h2 className="font-display font-bold text-base leading-tight">{nuevo ? 'Agregar producto' : 'Editar producto'}</h2>
-              <p className="text-[11px] text-white/70">{nuevo ? 'Completa los datos del producto' : p?.codigo}</p>
+              <h3 className="font-display font-bold text-base leading-tight">{nuevo ? 'Agregar Producto' : 'Editar Producto'}</h3>
+              <p className="text-[11px] text-white/70">Los campos con * son obligatorios. Stock y estado se manejan con ingresos y ventas.</p>
             </div>
-            <button type="button" className="pf-x text-white" onClick={cerrar} aria-label="Cerrar"><X className="w-4 h-4" /></button>
+            <button type="button" onClick={cerrar} className="pf-x" aria-label="Cerrar"><X className="w-4 h-4" /></button>
           </div>
         </div>
-        {!p ? <div style={{ padding: 24 }} className="text-xs text-slate-400">{error || 'Cargando…'}</div> : (
+
+        {!f ? <div style={{ padding: 24 }} className="flex-1 text-xs text-slate-400">{error || 'Cargando…'}</div> : (
           <>
-            <div className="overflow-y-auto p-4 space-y-3">
-              <Seccion n={1} titulo="Identificación">
+            <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-4 space-y-3 bg-slate-50">
+              <Seccion n={1} t="Identificación">
                 <div className="pf-grid">
-                  <label className="pf-f"><span>Código *</span><input className="pf-in" required disabled={!nuevo} value={p.codigo} onChange={(e) => set('codigo', e.target.value.trim())} /></label>
-                  <label className="pf-f"><span>Código interno / modelo</span><input className="pf-in" value={p.codigo_unico ?? ''} onChange={(e) => set('codigo_unico', e.target.value || null)} /></label>
-                  <label className="pf-f pf-full"><span>Nombre *</span><input className="pf-in" required value={p.nombre} onChange={(e) => set('nombre', e.target.value)} /></label>
+                  {nuevo && <label className="pf-f"><span>ID del producto *</span>
+                    <input type="text" placeholder="Ej. EQM1234" autoComplete="off" className="pf-in" value={f.codigo} onChange={(e) => set('codigo', e.target.value)} /></label>}
+                  <label className="pf-f"><span>Código interno</span>
+                    <input type="text" placeholder="Ej. MDR-2026-001" autoComplete="off" className="pf-in" value={f.codigo_unico} onChange={(e) => set('codigo_unico', e.target.value)} /></label>
+                  <label className="pf-f pf-full"><span>Nombre del producto *</span>
+                    <input type="text" placeholder={'Ej. Monitor multiparámetros 8"'} className="pf-in" value={f.nombre}
+                      onChange={(e) => set('nombre', e.target.value)} onBlur={() => { if (nuevo && f.nombre.trim()) set('nombre', nombreTitulo(f.nombre)) }} /></label>
+                  <label className="pf-f"><span>Marca</span>
+                    <input type="text" list="pfMarcaList" placeholder="Ej. Vimedic, Mindray…" autoComplete="off" className="pf-in" value={f.marca} onChange={(e) => set('marca', e.target.value)} /></label>
                   <label className="pf-f"><span>Categoría</span>
-                    <select className="pf-in" value={p.categoria_id ?? ''} onChange={(e) => set('categoria_id', e.target.value || null)}>
-                      <option value="">Sin categoría</option>
-                      {categorias.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                    </select>
-                  </label>
-                  <label className="pf-f"><span>Marca</span><input className="pf-in" value={p.marca ?? ''} onChange={(e) => set('marca', e.target.value || null)} /></label>
-                  <label className="pf-f pf-full"><span>Descripción</span><textarea className="pf-in pf-ta" value={p.descripcion ?? ''} onChange={(e) => set('descripcion', e.target.value || null)} /></label>
+                    <input type="text" list="pfCategoriaList" placeholder="Ej. Monitoreo" autoComplete="off" className="pf-in" value={f.categoria} onChange={(e) => set('categoria', e.target.value)} /></label>
+                  <datalist id="pfMarcaList">{marcas.map((m) => <option key={m} value={m} />)}</datalist>
+                  <datalist id="pfCategoriaList">{categorias.map((c) => <option key={c.id} value={c.nombre} />)}</datalist>
                 </div>
               </Seccion>
-              <Seccion n={2} titulo="Precios y stock">
+
+              <Seccion n={2} t="Imagen principal">
+                <div className="pf-img">
+                  <div className="pf-img-box">
+                    {f.imagen_url && !imgError
+                      ? <img src={imagen(f.imagen_url, 320)} alt="Imagen del producto" onError={() => setImgError(true)} />
+                      : <span><ImagePlus className="w-7 h-7" />Sin imagen</span>}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <input type="text" placeholder="Pega el enlace de la imagen (Drive o web)" className="pf-in" value={f.imagen_url} onChange={(e) => set('imagen_url', e.target.value)} />
+                    {f.imagen_url && <div className="flex flex-wrap gap-2 mt-2"><button type="button" className="pf-img-btn pf-img-del" onClick={() => set('imagen_url', '')}><Trash2 className="w-4 h-4" />Quitar</button></div>}
+                    <p role="status" className="text-[11px] text-slate-500 mt-1.5">Por ahora se pega el enlace de la imagen. La subida de archivos se habilita al conectar el almacenamiento de imágenes.</p>
+                  </div>
+                </div>
+              </Seccion>
+
+              <Seccion n={3} t="Descripción">
+                <label className="pf-f"><span>Descripción / especificaciones</span>
+                  <textarea rows={4} placeholder="Características principales del equipo…" className="pf-in pf-ta" value={f.descripcion} onChange={(e) => set('descripcion', e.target.value)} /></label>
+              </Seccion>
+
+              <Seccion n={4} t="Precios">
                 <div className="pf-grid">
-                  <label className="pf-f"><span>Precio PVP</span><input className="pf-in" type="number" step="0.01" min="0" value={p.pvp ?? ''} onChange={(e) => set('pvp', num(e.target.value))} /></label>
-                  <label className="pf-f"><span>Precio distribuidor</span><input className="pf-in" type="number" step="0.01" min="0" value={p.precio_dis ?? ''} onChange={(e) => set('precio_dis', num(e.target.value))} /></label>
-                  <label className="pf-f"><span>Stock</span><input className="pf-in" type="number" step="1" value={p.stock} onChange={(e) => set('stock', Number(e.target.value))} /></label>
-                  <label className="pf-f"><span>Stock mínimo</span><input className="pf-in" type="number" step="1" min="0" value={p.stock_minimo ?? ''} onChange={(e) => set('stock_minimo', num(e.target.value))} /></label>
-                  <label className="pf-f"><span>Stock máximo</span><input className="pf-in" type="number" step="1" min="0" value={p.stock_maximo ?? ''} onChange={(e) => set('stock_maximo', num(e.target.value))} /></label>
+                  <label className="pf-f"><span>Precio PVP ($)</span>
+                    <input type="number" step="0.01" min="0" inputMode="decimal" placeholder="0.00" className="pf-in" value={f.pvp} onChange={(e) => set('pvp', e.target.value)} /></label>
+                  <label className="pf-f"><span>Precio distribuidor ($)</span>
+                    <input type="number" step="0.01" min="0" inputMode="decimal" placeholder="0.00" className="pf-in" value={f.precio_dis} onChange={(e) => set('precio_dis', e.target.value)} /></label>
                 </div>
-                <label className="pf-sw"><div><p>Aplica IVA</p><small>Se suma el 15 % al precio PVP</small></div><input type="checkbox" checked={p.aplica_iva} onChange={(e) => set('aplica_iva', e.target.checked)} /></label>
+                <div className="pf-sw mt-2.5"><div><p>Aplica IVA</p><small>Se cobra IVA sobre este producto.</small></div>
+                  <Interruptor activo={f.aplica_iva} cambiar={() => set('aplica_iva', !f.aplica_iva)} /></div>
               </Seccion>
-              <Seccion n={3} titulo="Visibilidad">
-                <label className="pf-sw"><div><p>Visible en el catálogo</p><small>Aparece en la web pública</small></div><input type="checkbox" checked={p.en_catalogo} onChange={(e) => set('en_catalogo', e.target.checked)} /></label>
-                <label className="pf-sw"><div><p>Oculto</p><small>No se muestra en los listados</small></div><input type="checkbox" checked={p.oculto} onChange={(e) => set('oculto', e.target.checked)} /></label>
+
+              <Seccion n={5} t="Stock y catálogo">
+                <label className="pf-f"><span>Observaciones de stock</span>
+                  <input type="text" placeholder="Ej. Reservado, en reparación…" className="pf-in" value={f.reservaciones} onChange={(e) => set('reservaciones', e.target.value)} /></label>
+                <div className="pf-sw mt-2.5"><div><p>Visible en catálogo público</p><small>Se muestra en la página web.</small></div>
+                  <Interruptor activo={f.en_catalogo} cambiar={() => set('en_catalogo', !f.en_catalogo)} /></div>
               </Seccion>
+
               {error && <div className="text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{error}</div>}
             </div>
-            <div className="px-4 py-3 border-t border-slate-200 bg-white flex items-center gap-2 shrink-0">
-              {!nuevo && puedeArchivar && <button type="button" onClick={archivar} className="text-xs font-bold px-3 py-2 rounded-xl text-red-700 bg-red-50 hover:bg-red-50">Archivar</button>}
-              <span style={{ flex: 1 }} />
-              <button className="pf-submit" style={{ width: 'auto', padding: '10px 22px' }} disabled={guardando}>{guardando ? 'Guardando…' : 'Guardar'}</button>
+            <div className="shrink-0 border-t border-slate-200 bg-white p-3 sm:p-4">
+              <button onClick={guardar} disabled={guardando} className="pf-submit">{guardando ? 'Guardando…' : 'Guardar producto'}</button>
             </div>
           </>
         )}
-      </form>
+      </div>
     </div>
   )
 }
