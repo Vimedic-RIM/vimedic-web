@@ -20,7 +20,7 @@ export const MODULOS: Record<string, Modulo> = {
   femedics: { id: 'femedics', label: 'Femedics CRM', desc: 'Leads, cotizaciones y ventas de Femedics (distribuidor VIMEDIC).', icono: Kanban, permiso: 'femedics', c: '#2570da', listo: true },
   empleados: { id: 'empleados', label: 'Empleados', desc: 'Directorio, permisos y organigrama.', icono: UsersRound, permiso: 'empleados', c: '#7c3aed', listo: true },
   bodega: { id: 'bodega', label: 'Bodega', desc: 'Despacho de ventas: series, evidencias y novedades.', icono: Warehouse, permiso: 'bodega', c: '#9a6a12', listo: true },
-  logistica: { id: 'logistica', label: 'Logística', desc: 'Entregas, seguimiento del cliente y postventa.', icono: Truck, permiso: 'logistica', c: '#0f766e', listo: false },
+  logistica: { id: 'logistica', label: 'Logística', desc: 'Entregas, seguimiento del cliente y postventa.', icono: Truck, permiso: 'logistica', c: '#0f766e', listo: true },
   serviciotecnico: { id: 'serviciotecnico', label: 'Servicio Técnico', desc: 'Órdenes, mantenimientos, instalaciones e informes técnicos.', icono: Wrench, permiso: 'servicio_tecnico', c: '#b45309', listo: true },
   talentohumano: { id: 'talentohumano', label: 'Talento Humano', desc: 'Personal, solicitudes, permisos y capacitaciones.', icono: Contact, permiso: 'talento_humano', c: '#be185d', listo: true },
   importaciones: { id: 'importaciones', label: 'Importaciones', desc: 'Compras al exterior, embarque, aduana, costeo y recepción.', icono: Ship, permiso: 'importaciones', c: '#1d4ed8', listo: true },
