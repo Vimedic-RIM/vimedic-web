@@ -38,7 +38,7 @@ Dos proyectos de Supabase: **vimedic-pruebas** (QA) y **vimedic-produccion**. Nu
 ## Permisos
 - Los permisos viven en `roles.permisos` (jsonb) + `empleados.permisos_extra`:
   `{"crm": ["ver","crear","editar","ver_todos"], "inventario": ["ver"]}`
-- Acciones: `ver`, `crear`, `editar`, `eliminar`, `aprobar`, `exportar`, `ver_todos`, `ver_costos`, `administrar`.
+- Acciones: `ver`, `crear`, `editar`, `eliminar`, `aprobar`, `exportar`, `ver_todos`, `ver_costos`, `respaldar`, `restaurar` (solo basedatos), `administrar`.
 - Módulos: crm, clientes, femedics, inventario, movimientos, facturacion, agenda, empleados, dashboard,
   marketing, catalogos, ofertas, promociones, documentos_tecnicos, bodega, logistica, importaciones,
   servicio_tecnico, talento_humano, financiero, seguridad.

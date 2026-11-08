@@ -21,9 +21,9 @@ const MODULOS: { k: string; t: string }[] = [
   { k: 'facturacion', t: 'Facturación' }, { k: 'agenda', t: 'Mi Agenda' }, { k: 'empleados', t: 'Empleados' }, { k: 'dashboard', t: 'Dashboard Ejecutivo' },
   { k: 'marketing', t: 'Marketing' }, { k: 'catalogos', t: 'Catálogos' }, { k: 'ofertas', t: 'Ofertas y Liquidación' }, { k: 'promociones', t: 'Promociones' },
   { k: 'documentos_tecnicos', t: 'Documentos técnicos' }, { k: 'bodega', t: 'Bodega' }, { k: 'logistica', t: 'Logística' }, { k: 'importaciones', t: 'Importaciones' },
-  { k: 'servicio_tecnico', t: 'Servicio Técnico' }, { k: 'talento_humano', t: 'Talento Humano' }, { k: 'financiero', t: 'Financiero' }, { k: 'seguridad', t: 'Seguridad y Bases de Datos' },
+  { k: 'servicio_tecnico', t: 'Servicio Técnico' }, { k: 'talento_humano', t: 'Talento Humano' }, { k: 'financiero', t: 'Financiero' }, { k: 'seguridad', t: 'Seguridad y Auditoría' }, { k: 'basedatos', t: 'Bases de Datos' },
 ]
-const ACCIONES = ['ver', 'crear', 'editar', 'eliminar', 'aprobar', 'exportar', 'ver_todos', 'ver_costos', 'administrar']
+const ACCIONES = ['ver', 'crear', 'editar', 'eliminar', 'aprobar', 'exportar', 'ver_todos', 'ver_costos', 'respaldar', 'restaurar', 'administrar']
 const ALCANCES: [string, string][] = [['propio', 'Propio'], ['departamento', 'Departamento'], ['subordinados', 'Subordinados'], ['organizacion', 'Organización']]
 const ROLES_CRM = ['Asesor', 'Supervisor Comercial', 'Alta Dirección', 'Marketing']
 const MODULOS_BIT = ['login', 'sesiones', 'empleados', 'seguridad', 'basedatos', 'crm', 'inventario', 'facturacion', 'marketing', 'agenda', 'sistema', 'web']

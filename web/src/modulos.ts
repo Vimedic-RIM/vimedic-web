@@ -33,7 +33,7 @@ export const MODULOS: Record<string, Modulo> = {
   clientes: { id: 'clientes', label: 'Clientes', desc: 'Ficha completa de cada cliente: datos, cotizaciones, facturas y productos.', icono: Users, permiso: 'clientes', c: '#0e7490', listo: true },
   seguridad: { id: 'seguridad', label: 'Seguridad y Auditoría', desc: 'Usuarios, roles, sesiones activas y bitácora de actividad.', icono: ShieldCheck, permiso: 'seguridad', c: '#334155', listo: true },
   // En la base nueva "bases de datos" cuelga del módulo seguridad.
-  basedatos: { id: 'basedatos', label: 'Bases de Datos', desc: 'Tablas, registros, exportaciones, respaldos y restauración.', icono: Database, permiso: 'seguridad', c: '#0f172a', listo: false },
+  basedatos: { id: 'basedatos', label: 'Bases de Datos', desc: 'Tablas, registros, exportaciones, respaldos y restauración.', icono: Database, permiso: 'basedatos', c: '#0f172a', listo: true },
 }
 
 // Orden por defecto de Mi Espacio (igual que la app original).
