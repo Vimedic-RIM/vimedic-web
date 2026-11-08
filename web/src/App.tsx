@@ -87,7 +87,7 @@ function MiEspacio({ perfil, abrir }: { perfil: Perfil; abrir: (clave: string) =
         {visibles.length === 0 ? (
           <p className="muted">Todavía no tienes módulos asignados. Pide acceso a tu administrador.</p>
         ) : (
-          <div className="grid">
+          <div className="modulos-grid">
             {visibles.map((m) => (
               <div
                 key={m.clave}
