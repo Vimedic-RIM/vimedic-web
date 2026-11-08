@@ -133,3 +133,9 @@ body.vm-rail-fijo .vr-pinbtn{color:var(--cyan);background:rgba(23,169,186,.18)}
   .vr-modal{padding-top:8vh}
 }
 @media(prefers-reduced-motion:reduce){#vmRail,#vmRail *,.vr-modal,.vr-caja{transition:none!important;animation:none!important}}
+/* Ordenar arrastrando dentro de la barra */
+.vr-mov{cursor:grab;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+#vmRail.ordenando{cursor:grabbing}
+#vmRail.ordenando .vr-item{cursor:grabbing;transition:none}
+#vmRail.ordenando .vr-item:not(.arrastrando):hover{background:none}
+.vr-item.arrastrando{background:rgba(23,169,186,.25)!important;color:#fff;box-shadow:0 0 0 1px rgba(23,169,186,.7),0 10px 24px -10px rgba(0,0,0,.6);transform:scale(1.03);z-index:2}

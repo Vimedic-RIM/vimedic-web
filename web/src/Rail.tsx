@@ -52,9 +52,13 @@ export default function Rail({ perfil, actual, ir, accion, aviso }: Props) {
   const [tip, setTip] = useState<{ t: string; s: string; top: number; left: number } | null>(null)
   const [paleta, setPaleta] = useState<{ q: string; sel: number } | null>(null)
   const [pers, setPers] = useState<'acciones' | 'modulos' | null>(null)
-  const temporizador = useRef<number | undefined>(undefined)
   const scrollRef = useRef<HTMLDivElement>(null)
   const [indic, setIndic] = useState<{ top: number; c: string } | null>(null)
+  // Arrastre para ordenar dentro de la misma barra (ratón y dedo con pulsación larga).
+  const [arr, setArr] = useState<{ g: 'acc' | 'mod'; k: string } | null>(null)
+  const [orden, setOrden] = useState<string[] | null>(null)
+  const ordenRef = useRef<string[] | null>(null)
+  const evitarClick = useRef(false)
 
   const clave = 'vm_rail_v2_' + norm(perfil.email || perfil.nombre || 'u')
 
@@ -96,6 +100,7 @@ export default function Rail({ perfil, actual, ir, accion, aviso }: Props) {
   }, [accPermitidas, modPermitidos, porDefecto, clave])
 
   function guardar(c: Cfg) { setCfg(c); try { localStorage.setItem(clave, JSON.stringify(c)) } catch { /* sin almacenamiento */ } }
+  const cfgRef = useRef(cfg); cfgRef.current = cfg
 
   // Clases en <body> que usa el CSS original para dejar espacio al contenido.
   useEffect(() => {
@@ -123,22 +128,69 @@ export default function Rail({ perfil, actual, ir, accion, aviso }: Props) {
 
   const favs = useMemo(() => (actual && !cfg.favoritos.includes(actual) && modPermitidos.includes(actual) ? [...cfg.favoritos, actual] : cfg.favoritos), [cfg.favoritos, actual, modPermitidos])
   const resto = modPermitidos.filter((p) => !favs.includes(p))
+  const accList = cfg.acciones.filter((k) => ACCIONES[k])
+  const accVivo = arr?.g === 'acc' && orden ? orden : accList
+  const favsVivo = arr?.g === 'mod' && orden ? orden : favs
+  const listaRef = useRef({ acc: accList, mod: favs }); listaRef.current = { acc: accList, mod: favs }
+
+  function iniciarArrastre(e: React.PointerEvent<HTMLElement>, g: 'acc' | 'mod', k: string) {
+    if (e.button !== 0) return
+    const touch = e.pointerType === 'touch', x0 = e.clientX, y0 = e.clientY
+    let activo = false, abortado = false, timer = 0
+    const empezar = () => {
+      activo = true; ordenRef.current = [...listaRef.current[g]]; setOrden(ordenRef.current); setArr({ g, k })
+      if (touch) { try { navigator.vibrate?.(12) } catch { /* sin vibración */ } }
+    }
+    if (touch) timer = window.setTimeout(empezar, 380)
+    const bloquear = (ev: TouchEvent) => { if (activo) ev.preventDefault() }
+    const mover = (ev: PointerEvent) => {
+      if (abortado) return
+      if (!activo) {
+        const d = Math.hypot(ev.clientX - x0, ev.clientY - y0)
+        if (touch) { if (d > 9) { abortado = true; window.clearTimeout(timer); limpiar() } return }
+        if (d > 5) empezar(); else return
+      }
+      const cont = scrollRef.current; if (!cont) return
+      const els = Array.from(cont.querySelectorAll<HTMLElement>('[data-g="' + g + '"]')).filter((el) => el.dataset.k !== k)
+      const pos = els.filter((el) => { const r = el.getBoundingClientRect(); return r.top + r.height / 2 < ev.clientY }).length
+      const base = (ordenRef.current ?? []).filter((x) => x !== k)
+      const nuevo = [...base.slice(0, pos), k, ...base.slice(pos)]
+      if (nuevo.join() !== (ordenRef.current ?? []).join()) { ordenRef.current = nuevo; setOrden(nuevo) }
+    }
+    const limpiar = () => {
+      document.removeEventListener('pointermove', mover); document.removeEventListener('pointerup', soltar); document.removeEventListener('pointercancel', soltar)
+      document.removeEventListener('touchmove', bloquear)
+    }
+    const soltar = () => {
+      window.clearTimeout(timer); limpiar()
+      if (activo && ordenRef.current) {
+        evitarClick.current = true; window.setTimeout(() => { evitarClick.current = false }, 60)
+        const l = ordenRef.current, c = cfgRef.current
+        guardar(g === 'acc' ? { ...c, acciones: l } : { ...c, favoritos: l })
+      }
+      ordenRef.current = null; setOrden(null); setArr(null)
+    }
+    document.addEventListener('pointermove', mover); document.addEventListener('pointerup', soltar); document.addEventListener('pointercancel', soltar)
+    document.addEventListener('touchmove', bloquear, { passive: false })
+  }
+  const arrastrable = (g: 'acc' | 'mod', k: string) => ({ 'data-g': g, 'data-k': k, onPointerDown: (e: React.PointerEvent<HTMLElement>) => iniciarArrastre(e, g, k) })
 
   // Barra indicadora del módulo actual.
   useEffect(() => {
     const on = scrollRef.current?.querySelector<HTMLElement>('.vr-item.on')
     setIndic(on ? { top: on.offsetTop + 10, c: MODULOS[actual]?.c || '' } : null)
-  }, [actual, favs, cfg.acciones, ancho])
+  }, [actual, favs, cfg.acciones, ancho, orden])
 
   function mostrarTip(el: HTMLElement, t: string, s: string) {
     if (ancho || esMovil()) return
     const r = el.getBoundingClientRect()
     setTip({ t, s, left: r.right + 12, top: r.top + r.height / 2 - 20 })
   }
-  const verTip = (t: string, s: string) => ({
+  const verTip = (t: string, s: string, arrastre = false) => ({
     'data-tip': t,
-    onMouseEnter: (e: React.MouseEvent<HTMLElement>) => mostrarTip(e.currentTarget, t, s),
+    onMouseEnter: (e: React.MouseEvent<HTMLElement>) => { if (!evitarClick.current) mostrarTip(e.currentTarget, t, (s ? s + ' · ' : '') + (arrastre ? 'arrastra para ordenar' : '')) },
     onMouseLeave: () => setTip(null),
+    onPointerDown: () => setTip(null),
   })
 
   function irA(p: string) {
@@ -159,8 +211,8 @@ export default function Rail({ perfil, actual, ir, accion, aviso }: Props) {
     const m = MODULOS[p]
     const Icono = m.icono
     return (
-      <button key={p} type="button" className={'vr-item' + (p === actual ? ' on' : '')} style={estilo(m.c)} aria-current={p === actual ? 'page' : undefined}
-        onClick={() => irA(p)} {...verTip(m.label, m.desc)}>
+      <button key={p} type="button" className={'vr-item vr-mov' + (p === actual ? ' on' : '') + (arr?.k === p && arr.g === 'mod' ? ' arrastrando' : '')} style={estilo(m.c)} aria-current={p === actual ? 'page' : undefined}
+        onClick={() => { if (!evitarClick.current) irA(p) }} {...verTip(m.label, m.desc, true)} {...arrastrable('mod', p)}>
         <Icono className="ic" /><span className="vr-lbl">{m.label}</span>
       </button>
     )
@@ -191,35 +243,31 @@ export default function Rail({ perfil, actual, ir, accion, aviso }: Props) {
         <svg className="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="4" x2="20" y1="7" y2="7" /><line x1="4" x2="14" y1="12" y2="12" /><line x1="4" x2="20" y1="17" y2="17" /></svg>
       </button>
 
-      <nav id="vmRail" aria-label="Acceso rápido" className={ancho ? 'ancho' : ''}
-        onMouseEnter={() => { if (esMovil() || cfg.fijo) return; window.clearTimeout(temporizador.current); temporizador.current = window.setTimeout(() => setAncho(true), 350) }}
-        onMouseLeave={() => { if (esMovil() || cfg.fijo) return; window.clearTimeout(temporizador.current); setAncho(false); setTip(null) }}
-        onFocus={() => { if (!esMovil()) setAncho(true) }}
-        onBlur={(e) => { if (!esMovil() && !cfg.fijo && !e.currentTarget.contains(e.relatedTarget as Node)) setAncho(false) }}>
+      <nav id="vmRail" aria-label="Acceso rápido" className={(ancho ? 'ancho' : '') + (arr ? ' ordenando' : '')} onMouseLeave={() => setTip(null)}>
         <button type="button" className="vr-item vr-home" onClick={() => irA('espacio')} {...verTip('Mi Espacio', 'Volver al inicio')}>
           <span className="vr-logo"><LayoutDashboard className="ic" /></span>
           <span className="vr-lbl"><b>Mi Espacio</b><small>Volver al inicio</small></span>
         </button>
-        <button type="button" className="vr-pinbtn" title={cfg.fijo ? 'Soltar barra' : 'Mantener abierta'} onClick={() => { guardar({ ...cfg, fijo: !cfg.fijo }); aviso(!cfg.fijo ? 'Barra fijada abierta.' : 'La barra se abrirá al pasar el mouse.') }}><Pin className="ic" /></button>
+        <button type="button" className="vr-pinbtn" title={cfg.fijo ? 'Barra angosta' : 'Mostrar nombres'} onClick={() => { guardar({ ...cfg, fijo: !cfg.fijo }); aviso(!cfg.fijo ? 'Barra con nombres.' : 'Barra angosta: los nombres salen al pasar el cursor.') }}><Pin className="ic" /></button>
         <button type="button" className="vr-buscar" onClick={() => { setMenuAbierto(false); setPaleta({ q: '', sel: 0 }) }} {...verTip('Buscar', 'Ctrl + K')}>
           <Search className="ic" /><span>Buscar…</span><kbd>Ctrl K</kbd>
         </button>
 
         <div className="vr-scroll" ref={scrollRef}>
           <span className="vr-indic" style={indic ? { top: indic.top, background: indic.c, boxShadow: `0 0 12px ${indic.c}`, opacity: 1 } : { opacity: 0 }} />
-          {cfg.acciones.filter((k) => ACCIONES[k]).length > 0 && <div className="vr-tit"><span>ACCIONES RÁPIDAS</span></div>}
-          {cfg.acciones.filter((k) => ACCIONES[k]).map((k) => {
+          {accList.length > 0 && <div className="vr-tit"><span>ACCIONES RÁPIDAS</span></div>}
+          {accVivo.map((k) => {
             const q = ACCIONES[k]
             const Icono = q.icono
             return (
-              <button key={k} type="button" className="vr-item vr-acc" style={estilo(q.c)} onClick={() => { setMenuAbierto(false); setTip(null); accion(k) }} {...verTip(q.label, q.sub)}>
+              <button key={k} type="button" className={'vr-item vr-acc vr-mov' + (arr?.k === k && arr.g === 'acc' ? ' arrastrando' : '')} style={estilo(q.c)} onClick={() => { if (evitarClick.current) return; setMenuAbierto(false); setTip(null); accion(k) }} {...verTip(q.label, q.sub, true)} {...arrastrable('acc', k)}>
                 <span className="vr-chip"><Icono className="ic" /></span>
                 <span className="vr-lbl">{q.label}<span className="vr-sub">{q.sub}</span></span>
               </button>
             )
           })}
           {favs.length > 0 && <div className="vr-tit"><span>MIS MÓDULOS</span></div>}
-          {favs.map(itemModulo)}
+          {favsVivo.map(itemModulo)}
           {resto.length > 0 && (
             <button type="button" className="vr-item" onClick={() => { setMenuAbierto(false); setPaleta({ q: '', sel: 0 }) }} {...verTip('Todos los módulos', `${resto.length} más`)}>
               <LayoutGrid className="ic" /><span className="vr-lbl">Todos los módulos</span>
@@ -342,7 +390,7 @@ function Personalizar({ cfg, tab, setTab, guardar, accPermitidas, modPermitidos,
         </div>
         <div className="vr-ppie">
           <label className="vr-sw"><input id="vrFijo" type="checkbox" checked={cfg.fijo} onChange={(e) => guardar({ ...cfg, fijo: e.target.checked })} /><span /></label>
-          <label htmlFor="vrFijo" style={{ cursor: 'pointer' }}>Mantener la barra abierta</label>
+          <label htmlFor="vrFijo" style={{ cursor: 'pointer' }}>Mostrar siempre los nombres</label>
           <button type="button" className="btn btn-light" style={{ marginLeft: 'auto' }} onClick={restaurar}>Restaurar</button>
           <button type="button" className="btn btn-primary" onClick={cerrar}>Listo</button>
         </div>
