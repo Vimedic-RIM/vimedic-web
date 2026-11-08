@@ -413,7 +413,6 @@ export default function Inventario({ perfil, volver }: { perfil: Perfil; volver:
     <div className="min-h-screen antialiased" style={{ background: 'var(--bg)' }}>
       <header className="sticky top-0 z-30 border-b border-slate-200" style={{ background: 'linear-gradient(135deg, var(--navy), var(--primary))' }}>
         <div className="inv-head relative px-3 sm:px-5 py-2 min-h-14 flex items-center gap-2 flex-wrap sm:flex-nowrap overflow-visible">
-          <button onClick={volver} className="w-9 h-9 text-white rounded-lg hover:bg-white/10 shrink-0 flex items-center justify-center transition-colors" title="Volver"><ArrowLeft className="w-4 h-4" /></button>
           <div className="min-w-0 flex-1 sm:flex-none sm:max-w-[240px] order-1 sm:mr-1 flex flex-col justify-center min-h-10">
             <h1 className="font-display font-bold text-white text-[15px] sm:text-base leading-tight whitespace-nowrap truncate">Inventario Vimedic</h1>
           </div>

@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase, type Perfil } from './supabase'
 import { puede } from './permisos'
 import Login from './Login'
 import MiEspacio from './MiEspacio'
+import Rail from './Rail'
+import { MODULOS } from './modulos'
 import Inventario from './modulos/Inventario'
 import './estilos/miespacio.css'
 
@@ -29,6 +31,13 @@ export default function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined)
   const [perfil, setPerfil] = useState<Perfil | null | undefined>(undefined)
   const [vista, setVista] = useState(window.location.hash.slice(1))
+  const [aviso, setAviso] = useState('')
+  const temporizador = useRef<number | undefined>(undefined)
+  const avisar = (t: string) => {
+    setAviso(t)
+    window.clearTimeout(temporizador.current)
+    temporizador.current = window.setTimeout(() => setAviso(''), 2600)
+  }
 
   useEffect(() => {
     const f = () => setVista(window.location.hash.slice(1))
@@ -54,6 +63,22 @@ export default function App() {
 
   const abrir = (id: string) => { window.location.hash = id }
   const volver = () => { window.location.hash = '' }
-  if (vista === 'inventario' && puede(perfil, 'inventario', 'ver')) return <Inventario perfil={perfil} volver={volver} />
+
+  // Dentro de un módulo se muestra la barra lateral de acceso rápido (igual que la app original).
+  if (vista === 'inventario' && puede(perfil, 'inventario', 'ver')) {
+    return (
+      <>
+        <Rail perfil={perfil} actual={vista} aviso={avisar}
+          ir={(id) => {
+            if (id === 'espacio') volver()
+            else if (MODULOS[id]?.listo) abrir(id)
+            else avisar(`${MODULOS[id]?.label ?? 'Este módulo'} todavía se está migrando. Sigue disponible en la app actual.`)
+          }}
+          accion={() => avisar('Esta acción depende del CRM, que todavía se está migrando.')} />
+        <div className="vm-modulo"><Inventario perfil={perfil} volver={volver} /></div>
+        <div id="toast" role="status" className={aviso ? 'show' : ''}>{aviso}</div>
+      </>
+    )
+  }
   return <MiEspacio perfil={perfil} abrir={abrir} />
 }
