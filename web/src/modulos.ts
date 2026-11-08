@@ -30,7 +30,7 @@ export const MODULOS: Record<string, Modulo> = {
   adquisiciones: { id: 'adquisiciones', label: 'Adquisiciones', desc: 'Ingresos de mercadería: compras a proveedor que suben el stock.', icono: PackagePlus, permiso: 'importaciones', c: '#0e7490', listo: false },
   catalogos: { id: 'catalogos', label: 'Catálogos personalizados', desc: 'Catálogos PDF por segmento con tu WhatsApp de asesor.', icono: BookOpen, permiso: 'catalogos', c: '#1d2344', listo: true },
   ofertas: { id: 'ofertas', label: 'Ofertas y Liquidación', desc: 'Stock dormido y con observaciones: estrategias, ofertas y resultados.', icono: Tag, permiso: 'ofertas', c: '#c2410c', listo: false },
-  clientes: { id: 'clientes', label: 'Clientes', desc: 'Ficha completa de cada cliente: datos, cotizaciones, facturas y productos.', icono: Users, permiso: 'clientes', c: '#0e7490', listo: false },
+  clientes: { id: 'clientes', label: 'Clientes', desc: 'Ficha completa de cada cliente: datos, cotizaciones, facturas y productos.', icono: Users, permiso: 'clientes', c: '#0e7490', listo: true },
   seguridad: { id: 'seguridad', label: 'Seguridad y Auditoría', desc: 'Usuarios, roles, sesiones activas y bitácora de actividad.', icono: ShieldCheck, permiso: 'seguridad', c: '#334155', listo: false },
   // En la base nueva "bases de datos" cuelga del módulo seguridad.
   basedatos: { id: 'basedatos', label: 'Bases de Datos', desc: 'Tablas, registros, exportaciones, respaldos y restauración.', icono: Database, permiso: 'seguridad', c: '#0f172a', listo: false },
