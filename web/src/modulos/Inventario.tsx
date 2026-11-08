@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ArrowDownAZ, BadgeCheck, BadgeDollarSign, Barcode, Boxes, Check, ChevronDown, ChevronUp,
+  ArrowDownAZ, ArrowRight, BadgeCheck, CircleCheck, ClipboardList, PlusCircle, ShoppingCart, BadgeDollarSign, Barcode, Boxes, Check, ChevronDown, ChevronUp,
   ChevronsUpDown, ClipboardCopy, Download, Eraser, Eye, EyeOff, FileText, Hash, ImagePlus, Images, LayoutGrid,
   Package, PackagePlus, PackageX, PanelsTopLeft, Pencil, Plus, RefreshCw, Search, SlidersHorizontal, Table2, Tag,
   Trash2, TriangleAlert, X,
@@ -69,6 +69,10 @@ export function imagen(url: string | null | undefined, ancho: number): string {
   } catch { return v }
 }
 
+type Linea = { id: string; codigo: string; nombre: string; imagen: string; precio: number; cantidad: number; descuento: number; iva: boolean; categoria: string; ficha: string; carpeta: string }
+type Carrito = { cant: (id: string) => number; agregar: (p: Fila, e?: HTMLElement | null) => void }
+const CLAVE_CARRITO = 'vm_cot_inv'
+const CLAVE_PENDIENTE = 'vm_cot_pendiente'
 const limpiar = (t: string) => t.replace(/[,()%*\\"']/g, ' ').trim()
 const inactivo = (p: Fila) => String(p.estado || '').trim().toLowerCase() === 'inactivo'
 const esNuevo = (p: Fila) => {
@@ -110,14 +114,16 @@ function Nuevo({ p, extra }: { p: Fila; extra?: string }) {
 }
 
 /* ---------- Tarjeta ---------- */
-function Tarjeta({ p, abrir }: { p: Fila; abrir: (id: string) => void }) {
+function Tarjeta({ p, abrir, car }: { p: Fila; abrir: (id: string) => void; car: Carrito | null }) {
   const act = !inactivo(p)
+  const n = car?.cant(p.id) ?? 0
   return (
-    <div className="row-card inv-card relative bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col" onClick={() => abrir(p.id)} title="Ver detalles" style={act ? undefined : { opacity: 0.55 }}>
+    <div className={'row-card inv-card relative bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col' + (n ? ' is-added' : '')} onClick={() => abrir(p.id)} title="Ver detalles" style={act ? undefined : { opacity: 0.55 }}>
       <div className="relative shrink-0">
         {p.imagen_url
           ? <img loading="lazy" decoding="async" src={imagen(p.imagen_url, 320)}onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} className="w-full aspect-square object-cover bg-slate-50 border-b border-slate-100" alt="" />
           : <div className="w-full aspect-square bg-slate-50 border-b border-slate-100" />}
+        <span className="inv-added"><Check /><span className="inv-added-n">Agregado{n > 1 ? ' ×' + n : ''}</span></span>
         <Nuevo p={p} extra="absolute bottom-1.5 left-1.5 shadow" />
         <div className="absolute top-1.5 right-1.5 flex flex-col gap-1">
           {p.ficha_tecnica_url && (
@@ -148,18 +154,25 @@ function Tarjeta({ p, abrir }: { p: Fila; abrir: (id: string) => void }) {
           <button type="button" className="inv-qc" onClick={(e) => { e.stopPropagation(); copiar(p, 'pvp', e.currentTarget) }} title="Copiar nombre, código y precio PVP"><ClipboardCopy />PVP</button>
           {Number(p.precio_dis) > 0 && <button type="button" className="inv-qc dis" onClick={(e) => { e.stopPropagation(); copiar(p, 'dis', e.currentTarget) }} title="Copiar nombre, código y precio distribuidor"><ClipboardCopy />DIS</button>}
         </span>
+        {car && (
+          <button type="button" className="inv-cot mt-1.5" onClick={(e) => { e.stopPropagation(); car.agregar(p, e.currentTarget) }} aria-label={'Cotizar ' + p.nombre}>
+            <span className="when-add inline-flex items-center gap-1.5"><ShoppingCart />Cotizar</span>
+            <span className="when-added"><CircleCheck /><span className="inv-cot-n">Agregado{n > 1 ? ' ×' + n : ''}</span><Plus /></span>
+          </button>
+        )}
       </div>
     </div>
   )
 }
 
 /* ---------- Fila de tabla ---------- */
-function FilaTabla({ p, sel, click }: { p: Fila; sel: boolean; click: (id: string) => void }) {
+function FilaTabla({ p, sel, click, car }: { p: Fila; sel: boolean; click: (id: string) => void; car: Carrito | null }) {
+  const n = car?.cant(p.id) ?? 0
   const act = !inactivo(p)
   const stockNum = Number(p.stock) || 0
   const ivaTxt = p.aplica_iva === false ? 'IVA 0%' : '+ IVA'
   return (
-    <div onClick={() => click(p.id)} className={'inv-tr ' + (sel ? 'is-sel' : '')} style={act ? undefined : { opacity: 0.55 }}>
+    <div onClick={() => click(p.id)} className={'inv-tr ' + (n ? 'is-added ' : '') + (sel ? 'is-sel' : '')} style={act ? undefined : { opacity: 0.55 }}>
       <div className="inv-td-img">{p.imagen_url ? <img loading="lazy" decoding="async" src={imagen(p.imagen_url, 120)}onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} alt="" /> : <img alt="" style={{ visibility: 'hidden' }} />}</div>
       <div className="inv-lg inv-arch items-center gap-1">
         {p.ficha_tecnica_url && <a className="inv-tico" href={p.ficha_tecnica_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} title="Ficha técnica" style={{ color: 'var(--primary)' }}><FileText /></a>}
@@ -183,13 +196,21 @@ function FilaTabla({ p, sel, click }: { p: Fila; sel: boolean; click: (id: strin
       <div className="inv-lg flex-col items-start gap-0.5"><span className={'inv-pill ' + (stockNum > 0 ? 'ok' : 'no')}>{p.stock ?? '—'}</span></div>
       <div className="inv-lg inv-xl min-w-0"><span className="block w-full text-[11px] font-semibold text-slate-600 truncate">{p.marca || '—'}</span></div>
       <div className="inv-lg flex-col items-start leading-tight"><b className="text-xs" style={{ color: 'var(--primary)' }}>{dinero(p.pvp)}</b><small className="text-[9px] text-slate-400 font-semibold">{ivaTxt}</small></div>
-      <div className="inv-cot-col" />
+      <div className="inv-cot-col">
+        {car && (
+          <button type="button" className="inv-mini-cot" onClick={(e) => { e.stopPropagation(); car.agregar(p, e.currentTarget) }} title="Agregar a la cotización">
+            <span className="when-add"><ShoppingCart /><span className="inv-cot-lbl">Cotizar</span></span>
+            <span className="when-added"><Check /><span className="inv-cot-n">{n > 1 ? '×' + n : 'Agregado'}</span></span>
+          </button>
+        )}
+      </div>
     </div>
   )
 }
 
 /* ---------- Panel de detalle (lateral en PC, cajón en pantallas chicas) ---------- */
-function Panel({ p, editar, abrirEditar }: { p: Fila; editar: boolean; abrirEditar: (id: string) => void }) {
+function Panel({ p, editar, abrirEditar, car }: { p: Fila; editar: boolean; abrirEditar: (id: string) => void; car: Carrito | null }) {
+  const nCot = car?.cant(p.id) ?? 0
   const [descripcion, setDescripcion] = useState<string | null>(null)
   useEffect(() => {
     setDescripcion(null)
@@ -224,6 +245,7 @@ function Panel({ p, editar, abrirEditar }: { p: Fila; editar: boolean; abrirEdit
             {p.drive_carpeta_url && <a className="inv-act" href={p.drive_carpeta_url} target="_blank" rel="noopener noreferrer"><span className="ic" style={{ ['--c' as string]: '#055c9d' }}><Images /></span>Multimedia</a>}
           </div>
         )}
+        {car && <button type="button" className={'inv-act inv-act-cot' + (nCot ? ' is-added' : '')} onClick={(e) => car.agregar(p, e.currentTarget)}><span className="ic" style={{ ['--c' as string]: '#04896f' }}>{nCot ? <Check /> : <ShoppingCart />}</span>{nCot ? 'Agregado' + (nCot > 1 ? ' ×' + nCot : '') : 'Cotizar'}</button>}
         {editar && <button type="button" className="inv-act" onClick={() => abrirEditar(p.id)}><span className="ic" style={{ ['--c' as string]: '#c98a1f' }}><Pencil /></span>Editar</button>}
         <button type="button" className="inv-act" onClick={(e) => copiar(p, 'pvp', e.currentTarget)} title="Copiar nombre, código y precio PVP"><span className="ic" style={{ ['--c' as string]: '#055c9d' }}><ClipboardCopy /></span>Copiar PVP</button>
         {dis > 0 && <button type="button" className="inv-act" onClick={(e) => copiar(p, 'dis', e.currentTarget)} title="Copiar nombre, código y precio distribuidor"><span className="ic" style={{ ['--c' as string]: '#7c3aed' }}><ClipboardCopy /></span>Copiar DIS</button>}
@@ -291,6 +313,13 @@ export default function Inventario({ perfil, volver }: { perfil: Perfil; volver:
   const [cajon, setCajon] = useState<string | null>(null)
   const [form, setForm] = useState<string | 'nuevo' | null>(null)
   const [esPc, setEsPc] = useState(() => window.matchMedia('(min-width: 1440px)').matches)
+  const [carrito, setCarrito] = useState<Linea[]>(() => { try { return JSON.parse(sessionStorage.getItem(CLAVE_CARRITO) || '[]') } catch { return [] } })
+  const [drawer, setDrawer] = useState(false)
+  const [estadoCot, setEstadoCot] = useState('')
+  const fabRef = useRef<HTMLButtonElement>(null)
+  const conCrm = puede(perfil, 'crm', 'crear')
+  useEffect(() => { try { sessionStorage.setItem(CLAVE_CARRITO, JSON.stringify(carrito)) } catch { /* sin almacenamiento */ } }, [carrito])
+  useEffect(() => { document.body.classList.toggle('vm-cot-abierto', drawer); return () => document.body.classList.remove('vm-cot-abierto') }, [drawer])
   const peticion = useRef(0)
   const centinela = useRef<HTMLDivElement>(null)
   const itemsRef = useRef<Fila[]>([])
@@ -298,6 +327,32 @@ export default function Inventario({ perfil, volver }: { perfil: Perfil; volver:
 
   const editar = puede(perfil, 'inventario', 'editar')
   const crear = puede(perfil, 'inventario', 'crear')
+
+  const car: Carrito | null = conCrm ? {
+    cant: (id) => carrito.find((x) => x.id === id)?.cantidad ?? 0,
+    agregar: (p, el) => {
+      setEstadoCot('')
+      setCarrito((a) => {
+        const i = a.findIndex((x) => x.id === p.id)
+        if (i >= 0) return a.map((x, k) => (k === i ? { ...x, cantidad: Math.min(x.cantidad + 1, 9999) } : x))
+        return [...a, { id: p.id, codigo: p.codigo, nombre: p.nombre, imagen: p.imagen_url ?? '', precio: Number(p.pvp) || 0, cantidad: 1, descuento: 0, iva: p.aplica_iva !== false, categoria: p.categoria?.nombre ?? '', ficha: p.ficha_tecnica_url ?? '', carpeta: p.drive_carpeta_url ?? '' }]
+      })
+      for (const b of [el, fabRef.current]) { if (!b) continue; const cls = b === fabRef.current ? 'bump' : 'pop'; b.classList.remove(cls); void b.offsetWidth; b.classList.add(cls); setTimeout(() => b.classList.remove(cls), 360) }
+    },
+  } : null
+  const unidades = carrito.reduce((a, x) => a + x.cantidad, 0)
+  const totales = carrito.reduce((t, x) => { const neto = x.precio * x.cantidad * (1 - x.descuento / 100); t.sub += neto; if (x.iva) t.iva += neto * 0.15; return t }, { sub: 0, iva: 0 })
+  const cambiarCant = (id: string, d: number) => setCarrito((a) => a.flatMap((x) => (x.id !== id ? [x] : x.cantidad + d <= 0 ? [] : [{ ...x, cantidad: x.cantidad + d }])))
+
+  async function completarCotizacion() {
+    if (!carrito.length) return
+    setEstadoCot('Preparando la cotización…')
+    const { data } = await supabase.from('productos').select('id,descripcion').in('id', carrito.map((x) => x.id))
+    const desc = new Map(((data as { id: string; descripcion: string | null }[]) ?? []).map((d) => [d.id, d.descripcion ?? '']))
+    try { sessionStorage.setItem(CLAVE_PENDIENTE, JSON.stringify(carrito.map((x) => ({ ...x, descripcion: desc.get(x.id) ?? '', observacion: '' })))) } catch { setEstadoCot('No se pudo preparar la cotización en este navegador.'); return }
+    setCarrito([]); setDrawer(false)
+    window.location.hash = 'crm'
+  }
 
   useEffect(() => {
     const mq = window.matchMedia('(min-width: 1440px)')
@@ -429,15 +484,15 @@ export default function Inventario({ perfil, volver }: { perfil: Perfil; volver:
   return (
     <div className="min-h-screen antialiased" style={{ background: 'var(--bg)' }}>
       <header className="sticky top-0 z-30 border-b border-slate-200" style={{ background: 'linear-gradient(135deg, var(--navy), var(--primary))' }}>
-        <div className="inv-head relative px-3 sm:px-5 py-2 min-h-14 flex items-center gap-2 flex-wrap sm:flex-nowrap overflow-visible">
-          <div className="min-w-0 flex-1 sm:flex-none sm:max-w-[240px] order-1 sm:mr-1 flex flex-col justify-center min-h-10">
+        <div className="inv-head relative px-3 sm:px-5 py-2 min-h-14 flex items-center gap-2 flex-wrap lg:flex-nowrap overflow-visible">
+          <div className="min-w-0 flex-1 lg:flex-none lg:max-w-[240px] order-1 lg:mr-1 flex flex-col justify-center min-h-10">
             <h1 className="font-display font-bold text-white text-[15px] sm:text-base leading-tight whitespace-nowrap truncate">Inventario Vimedic</h1>
           </div>
 
-          <div className="order-3 sm:order-2 w-full sm:w-auto flex items-center gap-2 pb-1 sm:pb-0">
-            <div className="relative flex-1 sm:flex-none">
+          <div className="order-3 lg:order-2 w-full lg:w-auto flex items-center gap-2 pb-1 lg:pb-0">
+            <div className="relative flex-1 lg:flex-none">
               <input type="text" value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Buscar por código, nombre, marca o categoría…"
-                className="w-full sm:w-64 xl:w-80 pl-8 pr-3 py-2 rounded-lg bg-white/10 text-white placeholder:text-white/55 text-xs focus:outline-none focus:ring-2 focus:ring-white/40" />
+                className="w-full lg:w-64 xl:w-80 pl-8 pr-3 py-2 rounded-lg bg-white/10 text-white placeholder:text-white/55 text-xs focus:outline-none focus:ring-2 focus:ring-white/40" />
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-white/60" />
             </div>
 
@@ -488,7 +543,7 @@ export default function Inventario({ perfil, volver }: { perfil: Perfil; volver:
             <span className="shrink-0 whitespace-nowrap text-[11px] font-semibold text-white/75 bg-white/10 rounded-lg px-2.5 py-2" title="Productos encontrados"><b className="text-white">{total}</b> productos</span>
           </div>
 
-          <div className="order-2 sm:order-3 flex items-center gap-1 shrink-0 sm:ml-auto">
+          <div className="order-2 lg:order-3 flex items-center gap-1 shrink-0 lg:ml-auto">
             <div className="relative" data-menu>
               <button type="button" onClick={(e) => abrirMenu(e, 'vista')} className="w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors" title="Cambiar vista">
                 {vista === 'tabla' ? <Table2 className="w-4 h-4" /> : <LayoutGrid className="w-4 h-4" />}
@@ -531,8 +586,8 @@ export default function Inventario({ perfil, volver }: { perfil: Perfil; volver:
         )}
 
         {vista === 'tarjetas' && items.length > 0 && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-8 gap-2">
-            {items.map((p) => <Tarjeta key={p.id} p={p} abrir={clickProducto} />)}
+          <div className="inv-grid">
+            {items.map((p) => <Tarjeta key={p.id} p={p} abrir={clickProducto} car={car} />)}
           </div>
         )}
 
@@ -545,11 +600,11 @@ export default function Inventario({ perfil, volver }: { perfil: Perfil; volver:
                 <Th campo="codInterno" etiqueta="Código interno" cls="inv-xl" /><Th campo="stock" etiqueta="Stock" />
                 <Th campo="marca" etiqueta="Marca" cls="inv-xl" /><Th campo="precio" etiqueta="PVP" /><span className="text-right" />
               </div>
-              <div>{items.map((p) => <FilaTabla key={p.id} p={p} sel={esPc && selId === p.id} click={clickProducto} />)}</div>
+              <div>{items.map((p) => <FilaTabla key={p.id} p={p} sel={esPc && selId === p.id} click={clickProducto} car={car} />)}</div>
             </div>
             <aside className="inv-side">
               {seleccionado
-                ? <Panel p={seleccionado} editar={editar} abrirEditar={(id) => setForm(id)} />
+                ? <Panel p={seleccionado} editar={editar} abrirEditar={(id) => setForm(id)} car={car} />
                 : <div className="p-10 text-center text-xs text-slate-400">Selecciona un producto de la lista para ver sus detalles.</div>}
             </aside>
           </div>
@@ -580,10 +635,61 @@ export default function Inventario({ perfil, volver }: { perfil: Perfil; volver:
           p={enCajon}
           editar={editar}
           eliminar={puede(perfil, 'inventario', 'eliminar')}
+          car={car}
           cerrar={() => setCajon(null)}
           abrirEditar={(id) => { setCajon(null); setForm(id) }}
           eliminado={() => { setCajon(null); cargar(Math.max(LOTE, items.length)) }}
         />
+      )}
+
+      {conCrm && !cajon && !form && (
+        <button ref={fabRef} type="button" className="vq-fab" onClick={() => { setEstadoCot(''); setDrawer(true) }} title="Cotizador" aria-label="Abrir cotizador">
+          <ShoppingCart className="w-6 h-6" />
+          {unidades > 0 && <span className="vq-fab-count">{unidades}</span>}
+        </button>
+      )}
+      {conCrm && (
+        <div className={'vq-overlay' + (drawer ? ' open' : '')} aria-hidden={!drawer} onClick={(e) => { if (e.target === e.currentTarget) setDrawer(false) }}>
+          <aside className="vq-drawer" onClick={(e) => e.stopPropagation()}>
+            <div className="vq-drawer-head">
+              <div className="vq-drawer-title">
+                <ShoppingCart className="w-5 h-5 shrink-0" />
+                <div className="min-w-0"><h2>Cotizador</h2><p>Productos seleccionados</p></div>
+                <span className="vq-badge">{unidades}</span>
+              </div>
+              <button type="button" className="vq-close" onClick={() => setDrawer(false)} aria-label="Cerrar cotizador"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="px-4 pt-2 text-[10px] font-semibold text-red-600" role="status">{estadoCot}</div>
+            <div className="vq-items">
+              {!carrito.length ? (
+                <div className="vq-empty"><ClipboardList className="w-9 h-9 text-slate-300" /><p>No has agregado equipos a la cotización.</p><p className="mt-1 text-[10px]">Pulsa «Cotizar» en cualquier producto para agregarlo.</p></div>
+              ) : carrito.map((x) => (
+                <div key={x.id} className="vq-cart-row">
+                  {x.imagen ? <img loading="lazy" decoding="async" src={imagen(x.imagen, 160)} alt={x.nombre} onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} /> : <div className="w-[52px] h-[52px] rounded-[10px] border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-300"><ImagePlus className="w-5 h-5" /></div>}
+                  <div className="vq-cart-main">
+                    <b title={x.nombre}>{x.nombre}</b>
+                    <small>{x.codigo}{x.categoria ? ' · ' + x.categoria : ''}</small>
+                    <div className="vq-cart-price">{'$'}{x.precio.toFixed(2)} {x.iva ? '+ IVA' : '· IVA 0%'}</div>
+                    <div className="vq-qty"><button type="button" onClick={() => cambiarCant(x.id, -1)}>−</button><span>{x.cantidad}</span><button type="button" onClick={() => cambiarCant(x.id, 1)}>+</button></div>
+                  </div>
+                  <button type="button" className="vq-remove" onClick={() => setCarrito((a) => a.filter((y) => y.id !== x.id))} title="Quitar">×</button>
+                </div>
+              ))}
+            </div>
+            <div className="vq-footer">
+              <div className="vq-totals">
+                <div className="vq-total-line"><span>Subtotal</span><strong>{'$'}{totales.sub.toFixed(2)}</strong></div>
+                <div className="vq-total-line"><span>IVA</span><strong>{'$'}{totales.iva.toFixed(2)}</strong></div>
+                <div className="vq-total-line grand"><span>Total</span><strong>{'$'}{(totales.sub + totales.iva).toFixed(2)}</strong></div>
+              </div>
+              <p className="vq-note">Revisa los productos y cantidades. Al completar la cotización se abrirá el formulario del CRM con esta lista ya cargada.</p>
+              <div className="vq-footer-actions">
+                <button type="button" className="vq-btn vq-btn-secondary" onClick={() => setDrawer(false)}><PlusCircle className="w-4 h-4" /> Seguir agregando productos</button>
+                <button type="button" className="vq-btn vq-btn-primary" disabled={!carrito.length} onClick={completarCotizacion}><ArrowRight className="w-4 h-4" /> Completar cotización</button>
+              </div>
+            </div>
+          </aside>
+        </div>
       )}
 
       {form && (
@@ -599,9 +705,10 @@ export default function Inventario({ perfil, volver }: { perfil: Perfil; volver:
 }
 
 /* ---------- Ficha completa del producto (copia de #detailOverlay de Inventario.html) ---------- */
-function DetalleProducto({ p, editar, eliminar, cerrar, abrirEditar, eliminado }: {
-  p: Fila; editar: boolean; eliminar: boolean; cerrar: () => void; abrirEditar: (id: string) => void; eliminado: () => void
+function DetalleProducto({ p, editar, eliminar, cerrar, abrirEditar, eliminado, car }: {
+  p: Fila; editar: boolean; eliminar: boolean; cerrar: () => void; abrirEditar: (id: string) => void; eliminado: () => void; car: Carrito | null
 }) {
+  const nCot = car?.cant(p.id) ?? 0
   const [descripcion, setDescripcion] = useState<string | null>(null)
   const [verDis, setVerDis] = useState(false)
   useEffect(() => {
@@ -740,6 +847,12 @@ function DetalleProducto({ p, editar, eliminar, cerrar, abrirEditar, eliminado }
         <div className="shrink-0 border-t border-slate-200 bg-white px-4 py-3 flex items-center gap-2">
           <button onClick={(e) => copiar(p, 'pvp', e.currentTarget)} title="Copiar nombre y precio PVP" className="inv-cpy"><ClipboardCopy className="w-4 h-4" />PVP</button>
           {dis > 0 && <button onClick={(e) => copiar(p, 'dis', e.currentTarget)} title="Copiar nombre y precio DIS" className="inv-cpy dis"><ClipboardCopy className="w-4 h-4" />DIS</button>}
+          {car && (
+            <button type="button" className={'inv-dcot flex-1' + (nCot ? ' is-added' : '')} onClick={(e) => car.agregar(p, e.currentTarget)}>
+              <span className="when-add inline-flex items-center gap-2"><ShoppingCart />Cotizar este producto</span>
+              <span className="when-added"><CircleCheck />Agregado{nCot > 1 ? ' ×' + nCot : ''} · agregar otro</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

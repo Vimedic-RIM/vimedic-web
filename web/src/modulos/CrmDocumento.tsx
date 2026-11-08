@@ -48,7 +48,8 @@ function diferencias(prev: Record<string, any>[], sig: Linea[], extra: { notaPre
   return c
 }
 
-export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, guardado, editar, empresa }: {
+export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, guardado, editar, empresa, itemsIniciales }: {
+  itemsIniciales?: Record<string, any>[] // eslint-disable-line @typescript-eslint/no-explicit-any
   empresa: 'VIMEDIC' | 'FEMEDICS'
   modo: 'Cotización' | 'Venta'; perfil: Perfil; asesores: Asesor[]; origen: Origen; cerrar: () => void; guardado: (msg: string, doc: DatosDoc) => void
   editar?: Record<string, any> | null // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -73,7 +74,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   const [qp, setQp] = useState('')
   const [prods, setProds] = useState<Prod[]>([])
   const [buscando, setBuscando] = useState(false)
-  const [carrito, setCarrito] = useState<Linea[]>(() => ((ed?.items ?? []) as Record<string, any>[]).map((i) => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [carrito, setCarrito] = useState<Linea[]>(() => ((ed?.items ?? itemsIniciales ?? []) as Record<string, any>[]).map((i) => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
     id: String(i.id), codigo: i.codigo ?? '', nombre: i.nombre, imagen: i.imagen ?? '', precio: Number(i.precio) || 0, cantidad: Number(i.cantidad) || 1, descuento: Number(i.descuento) || 0,
     iva: i.iva !== false, observacion: i.observacion ?? '', base: i.base != null ? Number(i.base) : undefined, obj: i.obj != null ? Number(i.obj) : undefined, categoria: i.categoria ?? '', descripcion: i.descripcion ?? '', ficha: i.ficha ?? '', carpeta: i.carpeta ?? '' })))
   useEffect(() => {

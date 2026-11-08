@@ -139,3 +139,5 @@ body.vm-rail-fijo .vr-pinbtn{color:var(--cyan);background:rgba(23,169,186,.18)}
 #vmRail.ordenando .vr-item{cursor:grabbing;transition:none}
 #vmRail.ordenando .vr-item:not(.arrastrando):hover{background:none}
 .vr-item.arrastrando{background:rgba(23,169,186,.25)!important;color:#fff;box-shadow:0 0 0 1px rgba(23,169,186,.7),0 10px 24px -10px rgba(0,0,0,.6);transform:scale(1.03);z-index:2}
+
+body.vm-cot-abierto #vmRailBtn{display:none!important}

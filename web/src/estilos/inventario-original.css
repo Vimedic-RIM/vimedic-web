@@ -339,3 +339,8 @@
     @media(max-width:639px){.pf-in{font-size:16px;height:44px}}
     .pf-ta{height:auto!important;min-height:96px}
     .inv-nuevo{display:inline-block;background:#c98a1f;color:#fff;font-size:9px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:999px;vertical-align:middle;line-height:1.4}
+
+/* Cuadrícula de tarjetas: se adapta al ancho disponible (con o sin barra lateral) */
+.inv-grid{display:grid;gap:8px;grid-template-columns:repeat(2,minmax(0,1fr))}
+@media(min-width:560px){.inv-grid{grid-template-columns:repeat(auto-fill,minmax(168px,1fr))}}
+@media(min-width:1440px){.inv-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}}

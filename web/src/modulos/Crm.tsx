@@ -103,7 +103,11 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC' }: { perfil: Pe
   const [proforma, setProforma] = useState<DatosDoc | null>(null)
   const [clientes, setClientes] = useState(false)
   const [papelera, setPapelera] = useState(false)
-  const [documento, setDocumento] = useState<{ modo: 'Cotización' | 'Venta'; origen: Origen; editar?: Record<string, any> | null } | null>(null) // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [documento, setDocumento] = useState<{ modo: 'Cotización' | 'Venta'; origen: Origen; editar?: Record<string, any> | null; items?: Record<string, any>[] } | null>(() => { // eslint-disable-line @typescript-eslint/no-explicit-any
+    // Viene del cotizador de Inventario: abre «Nueva cotización» con los productos ya cargados.
+    try { const j = sessionStorage.getItem('vm_cot_pendiente'); if (j && empresa === 'VIMEDIC') { sessionStorage.removeItem('vm_cot_pendiente'); return { modo: 'Cotización', origen: null, items: JSON.parse(j) } } } catch { /* sin almacenamiento */ }
+    return null
+  }) // eslint-disable-line @typescript-eslint/no-explicit-any
   const [mover, setMover] = useState<{ key: string; x: number; y: number } | null>(null)
   const [arrastrando, setArrastrando] = useState<string | null>(null)
   const peticion = useRef(0)
@@ -491,7 +495,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC' }: { perfil: Pe
       )}
       {clientes && <ClientesLista empresa={empresa} perfil={perfil} asesores={asesores} cerrar={() => setClientes(false)} aviso={aviso} />}
       {papelera && <Papelera empresa={empresa} cerrar={() => setPapelera(false)} alRestaurar={cargar} aviso={aviso} />}
-      {documento && <CrmDocumento empresa={empresa} editar={documento.editar} modo={documento.modo} perfil={perfil} asesores={asesores} origen={documento.origen} cerrar={() => setDocumento(null)} guardado={(m, doc) => { setDocumento(null); aviso(m); cargar(); setProforma(doc) }} />}
+      {documento && <CrmDocumento empresa={empresa} editar={documento.editar} itemsIniciales={documento.items} modo={documento.modo} perfil={perfil} asesores={asesores} origen={documento.origen} cerrar={() => setDocumento(null)} guardado={(m, doc) => { setDocumento(null); aviso(m); cargar(); setProforma(doc) }} />}
       {proforma && <ProformaVisor datos={proforma} cerrar={() => setProforma(null)} />}
       {nueva && <NuevaGestion empresa={empresa} perfil={perfil} asesores={asesores} cerrar={() => setNueva(false)} guardado={() => { setNueva(false); aviso('Gestión creada.'); cargar() }} />}
     </div>
