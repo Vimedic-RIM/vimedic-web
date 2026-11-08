@@ -57,3 +57,5 @@
 @media(max-width:639px){.vm-ag .hdr-in{padding-left:56px}}
 body.vm-con-rail .vm-ag .timerbar{left:var(--vr-w);z-index:130}
 @media(max-width:639px){body.vm-con-rail .vm-ag .timerbar{left:0}}
+
+@keyframes agfly{0%{opacity:0;transform:translate(-50%,20px) scale(.6)}20%{opacity:1;transform:translate(-50%,0) scale(1.2)}100%{opacity:0;transform:translate(-50%,-140px) scale(1)}}

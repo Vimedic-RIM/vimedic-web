@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, ArrowLeft, Bell, Calendar, Check, CheckSquare, Clock, Columns3, FolderKanban, Gift, Inbox, Layers3, LayoutGrid, Paperclip, Pause, Pencil, Play, Plus, RefreshCw, Search, Send, SlidersHorizontal, Table2, Timer, Trash2, UserRound, Users, UsersRound, X, XCircle } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Bell, Calendar, CalendarDays, ChevronLeft, ChevronRight, Download, ExternalLink, GanttChartSquare, Check, CheckSquare, Clock, Columns3, FolderKanban, Gift, Inbox, Layers3, LayoutGrid, Paperclip, Pause, Pencil, Play, Plus, RefreshCw, Search, Send, SlidersHorizontal, Table2, Timer, Trash2, UserRound, Users, UsersRound, X, XCircle } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
 import '../estilos/agenda.css'
@@ -51,16 +51,24 @@ export default function Agenda({ perfil, aviso }: { perfil: Perfil; aviso: (t: s
   const [eco, setEco] = useState<Eco | null>(null)
   const [scope, setScope] = useState<'mi' | 'asignadas' | 'delegadas'>('mi')
   const [verEquipo, setVerEquipo] = useState(false)
-  const [vista, setVista] = useState<'kanban' | 'tarjetas' | 'tabla'>(() => { try { return (localStorage.getItem('ag:vista') as 'kanban') || 'kanban' } catch { return 'kanban' } })
+  const [vista, setVista] = useState<'kanban' | 'tarjetas' | 'tabla' | 'gantt' | 'calendario'>(() => { try { return (localStorage.getItem('ag:vista') as 'kanban') || 'kanban' } catch { return 'kanban' } })
   const [grupo, setGrupo] = useState('estado')
   const [q, setQ] = useState('')
   const [f, setF] = useState({ proyecto: '', estado: '', prioridad: '', desde: '', hasta: '' })
   const [menu, setMenu] = useState<'' | 'filtros' | 'grupo' | 'vista' | 'wallet'>('')
   const [alertas, setAlertas] = useState<'' | 'vencidas' | 'devueltas' | 'revisar'>('')
-  const [modal, setModal] = useState<{ k: 'form'; act?: Act } | { k: 'detalle'; id: string } | { k: 'fin'; id: string } | { k: 'dev'; id: string } | { k: 'calif'; id: string } | { k: 'proyectos' } | { k: 'tienda' } | null>(null)
+  const [modal, setModal] = useState<{ k: 'form'; act?: Act; fecha?: string } | { k: 'detalle'; id: string } | { k: 'fin'; id: string } | { k: 'dev'; id: string } | { k: 'calif'; id: string } | { k: 'proyectos' } | { k: 'tienda' } | null>(null)
   const [arrastrando, setArrastrando] = useState<string | null>(null)
   const [sobre, setSobre] = useState<string | null>(null)
   const [tick, setTick] = useState(0)
+  const [anchor, setAnchor] = useState(() => new Date())
+  const [visor, setVisor] = useState<{ lista: string[]; i: number } | null>(null)
+  const [fx, setFx] = useState(false)
+  const [efectos, setEfectos] = useState(() => { try { return localStorage.getItem('ag:fx') !== '0' } catch { return true } })
+  const [sonido, setSonido] = useState(() => { try { return localStorage.getItem('ag:snd') !== '0' } catch { return true } })
+  useEffect(() => { try { localStorage.setItem('ag:fx', efectos ? '1' : '0'); localStorage.setItem('ag:snd', sonido ? '1' : '0') } catch { /* nada */ } }, [efectos, sonido])
+  useEffect(() => { const f = (e: Event) => setVisor((e as CustomEvent).detail); window.addEventListener('ag-visor', f); return () => window.removeEventListener('ag-visor', f) }, [])
+  useEffect(() => { if (fx) { const t = setTimeout(() => setFx(false), 1600); return () => clearTimeout(t) } }, [fx])
   const yo = perfil.id
   const jefatura = puede(perfil, 'agenda', 'ver_todos'), crear = puede(perfil, 'agenda', 'crear'), editar = puede(perfil, 'agenda', 'editar')
 
@@ -139,6 +147,8 @@ export default function Agenda({ perfil, aviso }: { perfil: Perfil; aviso: (t: s
   }
 
   const grupos = agrupar(lista)
+  const esDeleg = scope === 'delegadas' && !verEquipo
+  const sonar = () => { if (!sonido) return; try { const c = new (window.AudioContext || (window as never as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)(), o = c.createOscillator(), g = c.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(880, c.currentTime); o.frequency.setValueAtTime(1320, c.currentTime + 0.08); g.gain.setValueAtTime(0.12, c.currentTime); g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.3); o.connect(g); g.connect(c.destination); o.start(); o.stop(c.currentTime + 0.3) } catch { /* sin audio */ } }
   return (
     <div className="vm-ag" onClick={() => setMenu('')}>
       <header className="hdr"><div className="hdr-in">
@@ -159,7 +169,7 @@ export default function Agenda({ perfil, aviso }: { perfil: Perfil; aviso: (t: s
         </div>
         <div style={{ position: 'relative' }} onClick={(e) => e.stopPropagation()}>
           <button className="tool" title="Cambiar vista" onClick={() => setMenu(menu === 'vista' ? '' : 'vista')}><LayoutGrid /></button>
-          {menu === 'vista' && <div className="pop" style={{ left: 0, right: 'auto' }}><h4>Cambiar vista</h4>{([['kanban', 'Kanban', 'Por columnas', Columns3], ['tarjetas', 'Tarjetas', 'Vista visual compacta', LayoutGrid], ['tabla', 'Tabla', 'Información en filas', Table2]] as const).map(([k, t, s, I]) => <button key={k} className={'opt' + (vista === k ? ' on' : '')} onClick={() => { setVista(k); setMenu('') }}><I /><span><b>{t}</b><small>{s}</small></span></button>)}</div>}
+          {menu === 'vista' && <div className="pop" style={{ left: 0, right: 'auto' }}><h4>Cambiar vista</h4>{([['kanban', 'Kanban', 'Por columnas', Columns3], ['tarjetas', 'Tarjetas', 'Vista visual compacta', LayoutGrid], ['tabla', 'Tabla', 'Información en filas', Table2], ['gantt', 'Gantt', 'Planificación en el tiempo', GanttChartSquare], ['calendario', 'Calendario', 'Organización por fecha', CalendarDays]] as const).map(([k, t, s, I]) => <button key={k} className={'opt' + (vista === k ? ' on' : '')} onClick={() => { setVista(k); setMenu('') }}><I /><span><b>{t}</b><small>{s}</small></span></button>)}</div>}
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
           <div style={{ position: 'relative' }} onClick={(e) => e.stopPropagation()}>
@@ -168,7 +178,7 @@ export default function Agenda({ perfil, aviso }: { perfil: Perfil; aviso: (t: s
               <p style={{ fontWeight: 800, fontSize: 13, marginTop: 8 }}>Nivel {eco.nivel.numero} · {eco.nivel.nombre}</p><div className="bar" style={{ margin: '6px 0' }}><i style={{ width: eco.nivel.siguiente ? Math.min(100, (eco.nivel.dias - eco.nivel.minimo) / (eco.nivel.siguiente - eco.nivel.minimo) * 100) + '%' : '100%' }} /></div>
               <small style={{ color: '#64748b' }}>{eco.nivel.siguiente ? `${eco.nivel.siguiente - eco.nivel.dias} día(s) con tareas completadas para el siguiente nivel` : 'Nivel máximo'}</small>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6, textAlign: 'center', margin: '10px 0' }}>{[['Hoy', eco.hoy], ['Racha', eco.racha], ['Días', eco.nivel.dias]].map(([t, n]) => <div key={t} style={{ background: '#f8fafc', borderRadius: 10, padding: 6 }}><b style={{ display: 'block', fontSize: 16 }}>{n}</b><span style={{ fontSize: 10, color: '#64748b' }}>{t}</span></div>)}</div>
-              <button className="btn btn-p" style={{ width: '100%' }} onClick={() => { setMenu(''); setModal({ k: 'tienda' }) }}><Gift />Tienda de premios</button></div>}
+              <button className="btn btn-p" style={{ width: '100%' }} onClick={() => { setMenu(''); setModal({ k: 'tienda' }) }}><Gift />Tienda de premios</button><div style={{ display: 'flex', gap: 6, marginTop: 8 }}><button className="btn" style={{ flex: 1 }} onClick={() => setEfectos(!efectos)}>Efectos: {efectos ? 'sí' : 'no'}</button><button className="btn" style={{ flex: 1 }} onClick={() => setSonido(!sonido)}>Sonido: {sonido ? 'sí' : 'no'}</button></div></div>}
           </div>
           <button className="tool" title="Alertas" onClick={() => setAlertas(alertas ? '' : vencidas.length ? 'vencidas' : devueltas.length ? 'devueltas' : 'revisar')}><Bell />{nAlertas > 0 && <span className="bad">{nAlertas}</span>}</button>
           {jefatura && <button className="tool" title="Proyectos" onClick={() => setModal({ k: 'proyectos' })}><FolderKanban /></button>}
@@ -192,14 +202,26 @@ export default function Agenda({ perfil, aviso }: { perfil: Perfil; aviso: (t: s
         )}
         {error && <p style={{ color: '#c0392b', fontWeight: 700, padding: 24 }}>{error}</p>}
         {acts === null && !error && <p style={{ color: '#94a3b8', padding: 24 }}><Spin /> Cargando actividades…</p>}
-        {acts && !lista.length && <div style={{ textAlign: 'center', padding: '60px 0', color: '#94a3b8' }}><p style={{ fontWeight: 700 }}>No hay actividades en esta vista.</p></div>}
-        {acts && lista.length > 0 && vista === 'kanban' && (
+        {acts && !lista.length && !esDeleg && <div style={{ textAlign: 'center', padding: '60px 0', color: '#94a3b8' }}><p style={{ fontWeight: 700 }}>No hay actividades en esta vista.</p></div>}
+        {acts && esDeleg && <Delegadas lista={lista} abrir={abrir} revisar={(id) => setModal({ k: 'calif', id })} delegar={() => setModal({ k: 'form' })} hoy={hoy} />}
+        {acts && !esDeleg && (vista === 'calendario' || vista === 'gantt') && (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <button className="btn" onClick={() => { const d = new Date(anchor); if (vista === 'calendario') d.setMonth(d.getMonth() - 1); else d.setDate(d.getDate() - 28); setAnchor(d) }}><ChevronLeft /></button>
+              <button className="btn" onClick={() => setAnchor(new Date())}>Hoy</button>
+              <b style={{ minWidth: 150, textAlign: 'center', textTransform: 'capitalize' }}>{vista === 'calendario' ? anchor.toLocaleDateString('es-EC', { month: 'long', year: 'numeric' }) : dfecha(ymd(anchor)) + ' · 28 días'}</b>
+              <button className="btn" onClick={() => { const d = new Date(anchor); if (vista === 'calendario') d.setMonth(d.getMonth() + 1); else d.setDate(d.getDate() + 28); setAnchor(d) }}><ChevronRight /></button>
+            </div>
+            {vista === 'calendario' ? <Calendario lista={lista} anchor={anchor} hoy={hoy} abrir={abrir} nuevoDia={(d) => { if (crear) setModal({ k: 'form', fecha: d }) }} /> : <Gantt lista={lista} anchor={anchor} abrir={abrir} />}
+          </>
+        )}
+        {acts && lista.length > 0 && vista === 'kanban' && !esDeleg && (
           <div className="board">{grupos.map(([k, l]) => (
             <section key={k} className={'col' + (sobre === k ? ' drop' : '')} onDragOver={(e) => { if (!arrastrando || grupo !== 'estado') return; e.preventDefault(); setSobre(k) }} onDragLeave={() => setSobre(null)} onDrop={(e) => { e.preventDefault(); setSobre(null); const id = arrastrando; setArrastrando(null); if (id && grupo === 'estado') mover(id, k) }}>
               <h5>{k}<span>{l.length}</span></h5>{l.map((a) => <Tarjeta key={a.id} a={a} />)}</section>))}</div>
         )}
-        {acts && lista.length > 0 && vista === 'tarjetas' && grupos.filter(([, l]) => l.length).map(([k, l]) => <div key={k} style={{ marginBottom: 18 }}><h5 style={{ fontWeight: 800, color: '#0b2545', margin: '4px 2px 8px' }}>{k} <span style={{ color: '#94a3b8', fontWeight: 600 }}>({l.length})</span></h5><div className="grid-t">{l.map((a) => <Tarjeta key={a.id} a={a} />)}</div></div>)}
-        {acts && lista.length > 0 && vista === 'tabla' && grupos.filter(([, l]) => l.length).map(([k, l]) => (
+        {acts && lista.length > 0 && vista === 'tarjetas' && !esDeleg && grupos.filter(([, l]) => l.length).map(([k, l]) => <div key={k} style={{ marginBottom: 18 }}><h5 style={{ fontWeight: 800, color: '#0b2545', margin: '4px 2px 8px' }}>{k} <span style={{ color: '#94a3b8', fontWeight: 600 }}>({l.length})</span></h5><div className="grid-t">{l.map((a) => <Tarjeta key={a.id} a={a} />)}</div></div>)}
+        {acts && lista.length > 0 && vista === 'tabla' && !esDeleg && grupos.filter(([, l]) => l.length).map(([k, l]) => (
           <div key={k} style={{ marginBottom: 18, overflowX: 'auto' }}>{grupo !== 'ninguna' && <h5 style={{ fontWeight: 800, color: '#0b2545', margin: '4px 2px 8px' }}>{k} ({l.length})</h5>}
             <table className="tb"><thead><tr><th>Actividad</th><th>Estado</th><th>Prioridad</th><th>Proyecto</th><th>Responsable</th><th>Fecha</th><th>Tiempo</th></tr></thead><tbody>{l.map((a) => <tr key={a.id} onClick={() => abrir(a)}><td><b>{a.descripcion}</b></td><td><span className={'pill e-' + slug(a.estado)}>{a.estado}</span></td><td>{a.prioridad}</td><td>{a.proyecto || '—'}</td><td>{a.delegado || a.creador}</td><td>{a.fecha ? dfecha(a.fecha) + (a.hora ? ' ' + a.hora : '') : '—'}</td><td>{corto(segTimer(a))}</td></tr>)}</tbody></table></div>
         ))}
@@ -210,12 +232,14 @@ export default function Agenda({ perfil, aviso }: { perfil: Perfil; aviso: (t: s
           <div className="mono" style={{ fontSize: 20, fontWeight: 700 }}>{reloj(segTimer(timer))}</div>
           <button className="tool" title="Pausar" onClick={() => pausar(timer)}><Pause /></button><button className="tool" style={{ background: 'var(--teal)' }} title="Finalizar" onClick={() => setModal({ k: 'fin', id: timer.id })}><Check /></button></div></div>
       )}
-      {modal?.k === 'form' && <Formulario act={modal.act} emps={emps} proyectos={proyectos.filter((p) => p.estado === 'Activo')} perfil={perfil} aviso={aviso} cerrar={() => setModal(null)} guardado={async () => { setModal(null); await cargar(); cargarEco() }} recargarProyectos={cargarProyectos} jefatura={jefatura} />}
+      {modal?.k === 'form' && <Formulario fechaIni={modal.fecha} act={modal.act} emps={emps} proyectos={proyectos.filter((p) => p.estado === 'Activo')} perfil={perfil} aviso={aviso} cerrar={() => setModal(null)} guardado={async () => { setModal(null); await cargar(); cargarEco() }} recargarProyectos={cargarProyectos} jefatura={jefatura} />}
       {modal?.k === 'detalle' && (() => { const a = A.find((x) => x.id === modal.id); return a ? <Detalle a={a} yo={yo} jefatura={jefatura} editar={editar} aviso={aviso} segTimer={segTimer} cerrar={() => setModal(null)} act={{ iniciar: () => iniciar(a), pausar: () => pausar(a), fin: () => setModal({ k: 'fin', id: a.id }), dev: () => setModal({ k: 'dev', id: a.id }), calif: () => setModal({ k: 'calif', id: a.id }), editarForm: () => setModal({ k: 'form', act: a }), cancelar: async () => { if (confirm('¿Cancelar esta actividad?')) { await rpc('ag_estado', { p_id: a.id, p_estado: 'Cancelado' }, 'Actividad cancelada'); setModal(null) } } }} /> : null })()}
-      {modal?.k === 'fin' && (() => { const a = A.find((x) => x.id === modal.id); return a ? <Finalizar a={a} perfil={perfil} segTimer={segTimer} aviso={aviso} cerrar={() => setModal(null)} listo={async (p) => { const r = await rpc('ag_finalizar', { p_id: a.id, p }); if (r) { setModal(null); cargarEco(); aviso((r as { monedaGanada?: boolean }).monedaGanada ? '¡Actividad lista! Ganaste 1 moneda 🪙' : 'Actividad lista') } }} /> : null })()}
+      {modal?.k === 'fin' && (() => { const a = A.find((x) => x.id === modal.id); return a ? <Finalizar a={a} perfil={perfil} segTimer={segTimer} aviso={aviso} cerrar={() => setModal(null)} listo={async (p) => { const r = await rpc('ag_finalizar', { p_id: a.id, p }); if (r) { setModal(null); cargarEco(); { if ((r as { monedaGanada?: boolean }).monedaGanada) { aviso('¡Actividad lista! Ganaste 1 moneda 🪙'); sonar(); if (efectos) setFx(true) } else aviso('Actividad lista') } } }} /> : null })()}
       {modal?.k === 'dev' && (() => { const a = A.find((x) => x.id === modal.id); return a ? <Devolver a={a} emps={emps} cerrar={() => setModal(null)} listo={async (p) => { const r = await rpc('ag_devolver', { p_id: a.id, p }, 'Actividad devuelta'); if (r) setModal(null) }} /> : null })()}
       {modal?.k === 'calif' && (() => { const a = A.find((x) => x.id === modal.id); return a ? <Calificar a={a} cerrar={() => setModal(null)} aprobar={async (c) => { const r = await rpc('ag_calificar', { p_id: a.id, p_calificacion: 'Aprobado', p_comentario: c }, 'Actividad aprobada'); if (r) setModal(null) }} corregir={() => setModal({ k: 'dev', id: a.id })} /> : null })()}
       {modal?.k === 'proyectos' && <Proyectos proyectos={proyectos} emps={emps} perfil={perfil} aviso={aviso} cerrar={() => setModal(null)} cambio={cargarProyectos} eliminar={puede(perfil, 'agenda', 'eliminar')} />}
+      {fx && <div style={{ position: 'fixed', left: '50%', top: '40%', zIndex: 300, fontSize: 64, pointerEvents: 'none', animation: 'agfly 1.5s ease-out forwards' }}>🪙 +1</div>}
+      {visor && <Visor v={visor} cerrar={() => setVisor(null)} mover={(d) => setVisor((x) => (x ? { ...x, i: (x.i + d + x.lista.length) % x.lista.length } : x))} />}
       {modal?.k === 'tienda' && <Tienda eco={eco} aviso={aviso} cerrar={() => setModal(null)} recargar={cargarEco} />}
     </div>
   )
@@ -250,7 +274,7 @@ function Evidencias({ valor, set, perfil, aviso }: { valor: string; set: (v: str
 }
 
 /* ============================ Formulario ============================ */
-function Formulario({ act, emps, proyectos, perfil, aviso, cerrar, guardado, recargarProyectos, jefatura }: { act?: Act; emps: Emp[]; proyectos: Proyecto[]; perfil: Perfil; aviso: (t: string) => void; cerrar: () => void; guardado: () => Promise<void>; recargarProyectos: () => Promise<void>; jefatura: boolean }) {
+function Formulario({ fechaIni, act, emps, proyectos, perfil, aviso, cerrar, guardado, recargarProyectos, jefatura }: { fechaIni?: string; act?: Act; emps: Emp[]; proyectos: Proyecto[]; perfil: Perfil; aviso: (t: string) => void; cerrar: () => void; guardado: () => Promise<void>; recargarProyectos: () => Promise<void>; jefatura: boolean }) {
   void jefatura
   const edit = !!act
   const [tipo, setTipo] = useState(act?.tipo === 'Reunión' ? 'Reunión' : 'Tarea')
@@ -261,7 +285,7 @@ function Formulario({ act, emps, proyectos, perfil, aviso, cerrar, guardado, rec
   const [area, setArea] = useState('')
   const [buscar, setBuscar] = useState('')
   const [supervisar, setSupervisar] = useState(act ? act.supervisar : true)
-  const [fecha, setFecha] = useState(act?.fecha ?? '')
+  const [fecha, setFecha] = useState(act?.fecha ?? fechaIni ?? '')
   const [hora, setHora] = useState(act?.hora ?? '')
   const [dur, setDur] = useState(act?.duracion || 30)
   const [prio, setPrio] = useState(act?.prioridad ?? 'Normal')
@@ -332,7 +356,7 @@ function Detalle({ a, yo, jefatura, editar, aviso, segTimer, cerrar, act }: { a:
   const esResp = respId(a) === yo, esCreador = a.creadoPorId === yo, corriendo = a.estado === 'En marcha' && a.sesion?.por === yo
   const abierta = !['Listo', 'Cancelado'].includes(a.estado)
   const puedeEditar = editar && (esCreador || jefatura) && abierta && !(a.delegadoId && a.delegadoId !== a.creadoPorId && !['Por hacer', 'Devuelto'].includes(a.estado))
-  async function abrirEv(u: string) { if (u.startsWith('agenda:')) { const { data } = await supabase.storage.from('agenda').createSignedUrl(u.slice(7), 600); if (data) window.open(data.signedUrl, '_blank', 'noopener') } else window.open(u, '_blank', 'noopener') }
+  async function abrirEv(u: string, lista?: string[]) { const l = lista ?? [u]; window.dispatchEvent(new CustomEvent('ag-visor', { detail: { lista: l, i: Math.max(0, l.indexOf(u)) } })) }
   void aviso
   const kv = (k: string, v: React.ReactNode) => (v ? <><dt>{k}</dt><dd>{v}</dd></> : null)
   const evs = (t: string) => t.split('\n').filter(Boolean)
@@ -347,7 +371,7 @@ function Detalle({ a, yo, jefatura, editar, aviso, segTimer, cerrar, act }: { a:
       <dl className="kv">{kv('Proyecto', a.proyecto)}{kv('Fecha', a.fecha ? dfecha(a.fecha) + (a.hora ? ' · ' + a.hora : '') : '')}{kv('Responsable', a.delegado || a.creador)}{kv('Creada por', a.creador)}{kv('Tiempo trabajado', segTimer(a) ? corto(segTimer(a)) + (a.inicios ? ` · ${a.inicios} inicio(s)` : '') : '')}{kv('Detalle', a.detalle && <span style={{ whiteSpace: 'pre-wrap' }}>{a.detalle}</span>)}</dl>
       {a.estado === 'Devuelto' && <div className="sec" style={{ borderColor: '#f5c6c0', background: '#fff7f6' }}><h4 style={{ color: '#c0392b' }}>↩️ Devuelta para corregir</h4><dl className="kv">{kv('Motivo', a.devolucion.motivo)}{kv('Qué corregir', a.devolucion.comentario)}{kv('Para el', a.devolucion.fecha_limite && dfecha(a.devolucion.fecha_limite))}</dl></div>}
       {a.estado === 'Listo' && <div className="sec" style={{ borderColor: '#9ae6c7' }}><h4 style={{ color: '#04896f' }}>✅ Resultado</h4><p style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{a.resultado}</p>{a.quedoPendiente && <p style={{ fontSize: 12, color: '#a16207' }}>Quedó pendiente{a.fechaRetomar ? ' · retomar el ' + dfecha(a.fechaRetomar) : ''}</p>}{a.comentarioCalif && <p style={{ fontSize: 12, color: '#64748b' }}>Revisión: {a.comentarioCalif}</p>}</div>}
-      {[...evs(a.evidencia), ...evs(a.evidenciaFinal)].length > 0 && <div className="sec"><h4><Paperclip />Evidencias</h4><div style={{ display: 'grid', gap: 4 }}>{[...evs(a.evidencia), ...evs(a.evidenciaFinal)].map((u, i) => <button key={i} className="btn" style={{ justifyContent: 'flex-start', overflow: 'hidden' }} onClick={() => abrirEv(u)}>{u.startsWith('agenda:') ? u.split('/').pop()?.replace(/^\d+_/, '') : u}</button>)}</div></div>}
+      {[...evs(a.evidencia), ...evs(a.evidenciaFinal)].length > 0 && <div className="sec"><h4><Paperclip />Evidencias</h4><div style={{ display: 'grid', gap: 4 }}>{[...evs(a.evidencia), ...evs(a.evidenciaFinal)].map((u, i) => <button key={i} className="btn" style={{ justifyContent: 'flex-start', overflow: 'hidden' }} onClick={() => abrirEv(u, [...evs(a.evidencia), ...evs(a.evidenciaFinal)])}>{u.startsWith('agenda:') ? u.split('/').pop()?.replace(/^\d+_/, '') : u}</button>)}</div></div>}
     </Modal>
   )
 }
@@ -466,3 +490,150 @@ function Tienda({ eco, aviso, cerrar, recargar }: { eco: Eco | null; aviso: (t: 
   )
 }
 void AlertTriangle; void ArrowLeft; void Calendar; void CheckSquare; void Gift; void useRef
+
+/* ============================ Vistas: Delegadas, Calendario y Gantt ============================ */
+const COLOR_EST: Record<string, string> = { 'Por hacer': '#64748b', 'En marcha': '#6d28d9', Pausado: '#c98a1f', Listo: '#04896f', Devuelto: '#c0392b', Cancelado: '#94a3b8' }
+function Delegadas({ lista, abrir, revisar, delegar, hoy }: { lista: Act[]; abrir: (a: Act) => void; revisar: (id: string) => void; delegar: () => void; hoy: string }) {
+  const [filtro, setFiltro] = useState('activas')
+  const act = (a: Act) => !['Listo', 'Cancelado'].includes(a.estado)
+  const rev = (a: Act) => a.estado === 'Listo' && a.supervisar
+  const venc = (a: Act) => act(a) && !!a.fecha && a.fecha < hoy
+  const F: Record<string, [string, (a: Act) => boolean]> = { activas: ['Activas', act], revisar: ['Por revisar', rev], vencidas: ['Vencidas', venc], cerradas: ['Terminadas', (a) => a.estado === 'Listo'], todas: ['Todas', () => true] }
+  const personas = new Map<string, { id: string; nombre: string; todas: Act[] }>()
+  lista.forEach((a) => { const k = a.delegadoId ?? ''; if (!personas.has(k)) personas.set(k, { id: k, nombre: a.delegado || 'Sin asignar', todas: [] }); personas.get(k)!.todas.push(a) })
+  const arr = [...personas.values()].map((p) => ({ ...p, ver: p.todas.filter(F[filtro][1]), rev: p.todas.filter(rev).length, venc: p.todas.filter(venc).length, act: p.todas.filter(act).length, listas: p.todas.filter((a) => a.estado === 'Listo').length }))
+    .filter((p) => p.ver.length || (filtro === 'activas' && p.rev))
+    .sort((a, b) => b.rev - a.rev || b.venc - a.venc || b.act - a.act || a.nombre.localeCompare(b.nombre, 'es'))
+  const orden = (a: Act) => (rev(a) ? 0 : venc(a) ? 1 : a.estado === 'Devuelto' ? 2 : a.estado === 'En marcha' ? 3 : act(a) ? 4 : 5)
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+        {Object.keys(F).map((k) => <button key={k} className="kp" style={{ cursor: 'pointer', borderColor: filtro === k ? '#0b2545' : undefined, boxShadow: filtro === k ? '0 0 0 2px rgba(11,37,69,.12)' : undefined }} onClick={() => setFiltro(k)}><b>{lista.filter(F[k][1]).length}</b><span>{F[k][0]}</span></button>)}
+        <button className="btn btn-p" style={{ marginLeft: 'auto' }} onClick={delegar}><Send />Delegar tarea</button>
+      </div>
+      {!lista.length && <div className="sec" style={{ textAlign: 'center', color: '#64748b' }}><b>Aún no has delegado tareas</b><p style={{ fontSize: 13 }}>Cuando delegues, aquí verás el avance de cada persona, lo vencido y lo que debes revisar.</p></div>}
+      {lista.length > 0 && !arr.length && <div className="sec" style={{ textAlign: 'center', color: '#64748b' }}><b>Nada por aquí</b><p style={{ fontSize: 13 }}>No hay tareas delegadas en «{F[filtro][0]}».</p></div>}
+      <div className="grid-t" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(330px,1fr))' }}>
+        {arr.map((p) => {
+          const pct = p.todas.length ? Math.round((p.listas / p.todas.length) * 100) : 0
+          return (
+            <article key={p.id} className="sec" style={{ background: '#fff' }}>
+              <header style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ width: 36, height: 36, borderRadius: 99, background: '#055c9d', color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 13 }}>{p.nombre.split(/\s+/).slice(0, 2).map((x) => x[0]).join('').toUpperCase()}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontWeight: 800 }}>{p.nombre}</p>
+                  <div style={{ fontSize: 11.5, color: '#64748b' }}>{p.act} activa{p.act === 1 ? '' : 's'}{p.venc > 0 && <span style={{ color: '#c0392b', fontWeight: 700 }}> · {p.venc} vencida{p.venc === 1 ? '' : 's'}</span>}{p.rev > 0 && <span style={{ color: '#a16207', fontWeight: 700 }}> · {p.rev} por revisar</span>}</div>
+                  <div className="bar" style={{ marginTop: 4 }} title={pct + '% terminado'}><i style={{ width: pct + '%' }} /></div>
+                </div>
+              </header>
+              <div style={{ display: 'grid', gap: 4 }}>
+                {p.ver.length ? [...p.ver].sort((a, b) => orden(a) - orden(b)).map((a) => (
+                  <div key={a.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '7px 8px', borderRadius: 10, border: '1px solid ' + (rev(a) ? '#fde68a' : venc(a) ? '#fecaca' : '#f1f5f9'), cursor: 'pointer' }} onClick={() => abrir(a)}>
+                    <span style={{ width: 8, height: 8, borderRadius: 99, background: COLOR_EST[a.estado] }} />
+                    <div style={{ flex: 1, minWidth: 0 }}><p style={{ fontWeight: 700, fontSize: 13 }}>{a.descripcion}</p><small style={{ color: '#64748b' }}><span style={{ color: COLOR_EST[a.estado], fontWeight: 700 }}>{a.estado}</span>{a.fecha ? ' · ' + (venc(a) ? 'Venció ' : '') + dfecha(a.fecha) : ''} · ⏱ {corto(a.segundos)}</small></div>
+                    {rev(a) ? <button className="btn btn-n" onClick={(e) => { e.stopPropagation(); revisar(a.id) }}>Revisar</button> : a.estado === 'Listo' ? <span className="pill e-listo">Lista</span> : a.estado === 'Devuelto' ? <span className="pill e-devuelto">Corrigiendo</span> : null}
+                  </div>
+                )) : <p style={{ fontSize: 12, color: '#94a3b8' }}>Sin tareas en este filtro.</p>}
+              </div>
+            </article>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function Calendario({ lista, anchor, hoy, abrir, nuevoDia }: { lista: Act[]; anchor: Date; hoy: string; abrir: (a: Act) => void; nuevoDia: (d: string) => void }) {
+  const y = anchor.getFullYear(), m = anchor.getMonth(), first = new Date(y, m, 1, 12), start = new Date(first)
+  start.setDate(start.getDate() - ((start.getDay() + 6) % 7))
+  const [mostrar, setMostrar] = useState<string | null>(null)
+  const sinFecha = lista.filter((a) => !a.fecha)
+  return (
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,minmax(0,1fr))', gap: 1, background: '#e2e8f0', border: '1px solid #e2e8f0', borderRadius: 14, overflow: 'hidden' }}>
+        {['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map((d) => <div key={d} style={{ background: '#f8fafc', padding: 6, fontSize: 11, fontWeight: 800, color: '#64748b', textAlign: 'center' }}>{d}</div>)}
+        {Array.from({ length: 42 }, (_, i) => {
+          const d = new Date(start); d.setDate(start.getDate() + i)
+          const day = ymd(d), items = lista.filter((a) => a.fecha === day)
+          return (
+            <div key={i} style={{ background: day === hoy ? '#eef6fb' : d.getMonth() !== m ? '#fafbfc' : '#fff', minHeight: 96, padding: 4, opacity: d.getMonth() !== m ? 0.55 : 1 }}>
+              <button style={{ border: 0, background: 'none', fontSize: 12, fontWeight: 800, color: day === hoy ? '#055c9d' : '#334155', cursor: 'pointer' }} title={'Crear actividad el ' + day} onClick={() => nuevoDia(day)}>{d.getDate()} <span style={{ color: '#94a3b8' }}>+</span></button>
+              {items.slice(0, 3).map((a) => <button key={a.id} onClick={() => abrir(a)} style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', border: 0, background: '#f1f5f9', borderRadius: 6, padding: '2px 5px', margin: '2px 0', fontSize: 11, textAlign: 'left', cursor: 'pointer', overflow: 'hidden' }}><span style={{ width: 6, height: 6, borderRadius: 99, background: COLOR_EST[a.estado], flexShrink: 0 }} /><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.descripcion}</span></button>)}
+              {items.length > 3 && <button style={{ border: 0, background: 'none', fontSize: 11, color: '#055c9d', fontWeight: 700, cursor: 'pointer' }} onClick={() => setMostrar(mostrar === day ? null : day)}>+{items.length - 3} actividades</button>}
+              {mostrar === day && items.slice(3).map((a) => <button key={a.id} onClick={() => abrir(a)} style={{ display: 'block', width: '100%', border: 0, background: '#f1f5f9', borderRadius: 6, padding: '2px 5px', margin: '2px 0', fontSize: 11, textAlign: 'left', cursor: 'pointer' }}>{a.descripcion}</button>)}
+            </div>
+          )
+        })}
+      </div>
+      {sinFecha.length > 0 && (
+        <>
+          <h5 style={{ fontWeight: 800, color: '#0b2545', margin: '14px 2px 8px' }}>Sin fecha programada · {sinFecha.length}</h5>
+          <div className="grid-t">{sinFecha.slice(0, 60).map((a) => <article key={a.id} className="card" style={{ marginBottom: 0 }} onClick={() => abrir(a)}><p className="t">{a.descripcion}</p><div className="meta"><span className={'pill e-' + slug(a.estado)}>{a.estado}</span></div></article>)}</div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function Gantt({ lista, anchor, abrir }: { lista: Act[]; anchor: Date; abrir: (a: Act) => void }) {
+  const start = new Date(anchor); start.setHours(12, 0, 0, 0)
+  const dias = 28, ancho = 40
+  const dia = (v: string) => (v ? new Date(v.slice(0, 10) + 'T12:00:00') : null)
+  return (
+    <div>
+      <p style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>Los puntos indican fechas programadas. Las barras unen la fecha programada y la finalización registrada; no representan una duración planificada.</p>
+      <div style={{ overflowX: 'auto', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14 }}>
+        <div style={{ minWidth: 240 + dias * ancho }}>
+          <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0' }}>
+            <div style={{ width: 240, padding: 8, fontSize: 11, fontWeight: 800, color: '#64748b' }}>Actividad</div>
+            {Array.from({ length: dias }, (_, i) => { const d = new Date(start); d.setDate(d.getDate() + i); return <span key={i} style={{ width: ancho, textAlign: 'center', fontSize: 11, padding: '6px 0', color: '#475569', borderLeft: '1px solid #f1f5f9' }}>{d.getDate()}<small style={{ display: 'block', color: '#94a3b8' }}>{d.toLocaleDateString('es-EC', { weekday: 'narrow' })}</small></span> })}
+          </div>
+          {lista.slice(0, 80).map((a) => {
+            const d = dia(a.fecha), fin = dia(a.fechaFin)
+            const off = d ? Math.round((d.getTime() - start.getTime()) / 864e5) : null
+            const last = fin && d && fin >= d ? Math.round((fin.getTime() - start.getTime()) / 864e5) : off
+            const visible = d !== null && off !== null && off < dias && (last ?? 0) >= 0
+            const left = Math.max(0, off ?? 0), width = Math.max(1, Math.min(dias - 1, last ?? 0) - left + 1)
+            return (
+              <div key={a.id} style={{ display: 'flex', borderBottom: '1px solid #f1f5f9', alignItems: 'center', minHeight: 38 }}>
+                <button style={{ width: 240, padding: '6px 8px', textAlign: 'left', border: 0, background: 'none', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} onClick={() => abrir(a)}>{a.descripcion}</button>
+                <div style={{ position: 'relative', flex: 1, height: 38 }}>
+                  {visible ? <button title={a.descripcion} onClick={() => abrir(a)} style={{ position: 'absolute', top: 7, height: 24, left: left * ancho, width: width * ancho - 6, border: 0, borderRadius: 8, background: COLOR_EST[a.estado] ?? '#64748b', color: '#fff', cursor: 'pointer', fontSize: 11 }}>{fin && (last ?? 0) > (off ?? 0) ? '' : '◆'}</button> : <span style={{ fontSize: 11, color: '#94a3b8', padding: 10 }}>{d ? 'Fuera del período' : 'Sin fecha programada'}</span>}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ============================ Visor de evidencias ============================ */
+function Visor({ v, cerrar, mover }: { v: { lista: string[]; i: number }; cerrar: () => void; mover: (d: number) => void }) {
+  const u = v.lista[v.i]
+  const [url, setUrl] = useState('')
+  useEffect(() => {
+    setUrl(''); let vivo = true
+    if (u.startsWith('agenda:')) supabase.storage.from('agenda').createSignedUrl(u.slice(7), 3600).then(({ data }) => { if (vivo && data) setUrl(data.signedUrl) })
+    else setUrl(u)
+    return () => { vivo = false }
+  }, [u])
+  useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') cerrar(); if (e.key === 'ArrowLeft') mover(-1); if (e.key === 'ArrowRight') mover(1) }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [cerrar, mover])
+  const nombre = u.startsWith('agenda:') ? (u.split('/').pop() ?? '').replace(/^\d+_/, '') : u
+  const esImg = /\.(png|jpe?g|webp|gif|heic)$/i.test(nombre), esPdf = /\.pdf$/i.test(nombre), esVideo = /\.(mp4|webm|mov)$/i.test(nombre)
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 400, background: 'rgba(8,18,32,.92)', display: 'flex', flexDirection: 'column' }} onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', color: '#fff' }}>
+        <div style={{ flex: 1, minWidth: 0 }}><p style={{ fontWeight: 800, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nombre}</p><p style={{ fontSize: 11, color: 'rgba(255,255,255,.6)' }}>{v.i + 1} de {v.lista.length}</p></div>
+        {url && <a className="tool" href={url} target="_blank" rel="noopener" title="Abrir"><ExternalLink /></a>}
+        {url && <a className="tool" href={url} download={nombre} title="Descargar"><Download /></a>}
+        <button className="tool" onClick={cerrar} title="Cerrar"><X /></button>
+      </div>
+      <div style={{ flex: 1, overflow: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }} onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
+        {!url ? <span className="spin" /> : esImg ? <img src={url} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} /> : esPdf ? <iframe src={url} title={nombre} style={{ width: '100%', height: '100%', border: 0, background: '#fff', borderRadius: 8 }} /> : esVideo ? <video src={url} controls style={{ maxWidth: '100%', maxHeight: '100%' }} /> : <div style={{ color: '#fff', textAlign: 'center' }}><p>Este tipo de archivo no se puede mostrar aquí.</p><a className="btn" href={url} target="_blank" rel="noopener" style={{ marginTop: 10 }}>Abrir en una pestaña nueva</a></div>}
+      </div>
+      {v.lista.length > 1 && <><button className="tool" style={{ position: 'absolute', left: 8, top: '50%' }} onClick={() => mover(-1)}><ChevronLeft /></button><button className="tool" style={{ position: 'absolute', right: 8, top: '50%' }} onClick={() => mover(1)}><ChevronRight /></button></>}
+    </div>
+  )
+}
