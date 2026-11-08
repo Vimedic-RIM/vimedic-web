@@ -24,7 +24,7 @@ export const MODULOS: Record<string, Modulo> = {
   serviciotecnico: { id: 'serviciotecnico', label: 'Servicio Técnico', desc: 'Órdenes, mantenimientos, instalaciones e informes técnicos.', icono: Wrench, permiso: 'servicio_tecnico', c: '#b45309', listo: true },
   talentohumano: { id: 'talentohumano', label: 'Talento Humano', desc: 'Personal, solicitudes, permisos y capacitaciones.', icono: Contact, permiso: 'talento_humano', c: '#be185d', listo: true },
   importaciones: { id: 'importaciones', label: 'Importaciones', desc: 'Compras al exterior, embarque, aduana, costeo y recepción.', icono: Ship, permiso: 'importaciones', c: '#1d4ed8', listo: true },
-  articulos: { id: 'articulos', label: 'Artículos a importar', desc: 'Reposición: stock, tránsito, ventas y cantidad sugerida a pedir.', icono: Package, permiso: 'importaciones', c: '#0e7490', listo: false },
+  articulos: { id: 'articulos', label: 'Artículos a importar', desc: 'Reposición: stock, tránsito, ventas y cantidad sugerida a pedir.', icono: Package, permiso: 'importaciones', c: '#0e7490', listo: true },
   financiero: { id: 'financiero', label: 'Financiero', desc: 'Cobros, pagos, flujo de caja y reportes.', icono: Landmark, permiso: 'financiero', c: '#15803d', listo: true },
   // En la base nueva "adquisiciones" no es un módulo aparte: se controla con importaciones.
   adquisiciones: { id: 'adquisiciones', label: 'Adquisiciones', desc: 'Ingresos de mercadería: compras a proveedor que suben el stock.', icono: PackagePlus, permiso: 'importaciones', c: '#0e7490', listo: false },
