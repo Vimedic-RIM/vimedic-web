@@ -25,6 +25,7 @@ const MEDIOS: [string, string[]][] = [
 const PLAZOS = ['5 DIAS', '15 DIAS', '30 DIAS', '45 DIAS', '60 DIAS', '90 DIAS', '120 DIAS']
 const TRANSPORTES = ['Empresa', 'Tramaco', 'Enetsa', 'Jhetro', 'Esmeraldeño', 'Terminal Terrestre', 'Servientrega']
 const dinero = (n: number) => '$' + n.toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const LOTE_PRODS = 24
 const limpiar = (t: string) => t.replace(/[,()%*\\"']/g, ' ').trim()
 
 /** Lista legible de lo que cambió entre dos versiones de una cotización. */
@@ -74,6 +75,15 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   const [qp, setQp] = useState('')
   const [prods, setProds] = useState<Prod[]>([])
   const [buscando, setBuscando] = useState(false)
+  const [hayMas, setHayMas] = useState(false)
+  const [cargandoMas, setCargandoMas] = useState(false)
+  const consultaProds = (q: string, desde: number) => {
+    // Sin texto: los primeros productos activos en el orden del Inventario. Con texto: coincidencias. Siempre por lotes (no se carga todo).
+    let c = supabase.from('productos').select('id,codigo,nombre,pvp,precio_dis,aplica_iva,stock,imagen_url,reservaciones,descripcion,ficha_tecnica_url,drive_carpeta_url,categoria:categorias(nombre)').is('deleted_at', null).or('estado.is.null,estado.not.ilike.inactivo')
+    for (const p of q.split(/\s+/).filter(Boolean)) c = c.or(`nombre.ilike.%${p}%,codigo.ilike.%${p}%,codigo_unico.ilike.%${p}%,marca.ilike.%${p}%`)
+    if (!q) c = c.order('orden', { ascending: true, nullsFirst: false })
+    return c.order('nombre').range(desde, desde + LOTE_PRODS - 1)
+  }
   const [carrito, setCarrito] = useState<Linea[]>(() => ((ed?.items ?? itemsIniciales ?? []) as Record<string, any>[]).map((i) => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
     id: String(i.id), codigo: i.codigo ?? '', nombre: i.nombre, imagen: i.imagen ?? '', precio: Number(i.precio) || 0, cantidad: Number(i.cantidad) || 1, descuento: Number(i.descuento) || 0,
     iva: i.iva !== false, observacion: i.observacion ?? '', base: i.base != null ? Number(i.base) : undefined, obj: i.obj != null ? Number(i.obj) : undefined, categoria: i.categoria ?? '', descripcion: i.descripcion ?? '', ficha: i.ficha ?? '', carpeta: i.carpeta ?? '' })))
@@ -126,15 +136,21 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
 
   useEffect(() => {
     const q = limpiar(qp)
-    if (!q) { setProds([]); return }
     setBuscando(true)
+    let vivo = true
     const t = setTimeout(() => {
-      let c = supabase.from('productos').select('id,codigo,nombre,pvp,precio_dis,aplica_iva,stock,imagen_url,reservaciones,descripcion,ficha_tecnica_url,drive_carpeta_url,categoria:categorias(nombre)').is('deleted_at', null)
-      for (const p of q.split(/\s+/)) c = c.or(`nombre.ilike.%${p}%,codigo.ilike.%${p}%,codigo_unico.ilike.%${p}%,marca.ilike.%${p}%`)
-      c.order('nombre').range(0, 29).then(({ data }) => { setProds((data as unknown as Prod[]) ?? []); setBuscando(false) })
-    }, 250)
-    return () => clearTimeout(t)
+      consultaProds(q, 0).then(({ data }) => { if (!vivo) return; const d = (data as unknown as Prod[]) ?? []; setProds(d); setHayMas(d.length === LOTE_PRODS); setBuscando(false) })
+    }, q ? 250 : 0)
+    return () => { vivo = false; clearTimeout(t) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qp])
+  async function masProds() {
+    if (cargandoMas || buscando || !hayMas) return
+    setCargandoMas(true)
+    const { data } = await consultaProds(limpiar(qp), prods.length)
+    const d = (data as unknown as Prod[]) ?? []
+    setProds((a) => [...a, ...d.filter((x) => !a.some((y) => y.id === x.id))]); setHayMas(d.length === LOTE_PRODS); setCargandoMas(false)
+  }
 
   /* descuento del cliente: DIS+VIP usa precio distribuidor, DIS+% descuenta ese % del PVP */
   function descCliente(c: Cli | null) { if (esFm) return 0; return c?.tipo_cliente === 'DIS' && /^\d+$/.test(c.descuento_fijo ?? '') ? Number(c.descuento_fijo) : 0 }
@@ -416,8 +432,8 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
           <input type="text" value={qp} onChange={(e) => setQp(e.target.value)} placeholder="Buscar por nombre, código o marca..." className="ns-input pl-9" />
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
         </div>
-        <div className="flex-1 overflow-y-auto rounded-xl border border-slate-100 p-1.5 min-h-[260px]">
-          {!qp.trim() && <div className="text-center py-6 px-3"><p className="text-[12px] font-semibold text-slate-500">Escribe el nombre, código o marca del equipo</p><p className="text-[10.5px] text-slate-400 mt-1">Los productos aparecen al buscar (así el formulario abre más rápido).</p></div>}
+        <div className="flex-1 overflow-y-auto rounded-xl border border-slate-100 p-1.5 min-h-[260px]" onScroll={(e) => { const el = e.currentTarget; if (el.scrollHeight - el.scrollTop - el.clientHeight < 240) masProds() }}>
+          {!qp.trim() && !buscando && prods.length > 0 && <p className="text-[10.5px] text-slate-400 text-center pb-1.5">Primeros productos del inventario · escribe para buscar entre todos</p>}
           {qp.trim() && !buscando && prods.length === 0 && <p className="text-[11px] text-slate-400 text-center py-3">Sin coincidencias para "{qp}".</p>}
           <div className="ns-pgrid grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3 gap-2">
             {prods.map((p) => {
@@ -441,6 +457,8 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
               )
             })}
           </div>
+          {buscando && !prods.length && <p className="text-[11px] text-slate-400 text-center py-4">Cargando productos…</p>}
+          {hayMas && <button type="button" onClick={masProds} disabled={cargandoMas} className="w-full mt-2 py-2 rounded-xl border border-slate-200 text-[11px] font-bold text-slate-500 hover:bg-slate-50">{cargandoMas ? "Cargando…" : "Ver más productos"}</button>}
         </div>
       </section>
     </div>
