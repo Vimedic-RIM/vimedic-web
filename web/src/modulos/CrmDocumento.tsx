@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  BadgeCheck, Bike, CalendarClock, CreditCard, ImagePlus, FilePlus2, HandCoins, Handshake, Magnet, MapPin, Package, PackageSearch, Receipt, Search,
+  BadgeCheck, Bike, CalendarClock, ChevronDown, ChevronUp, Copy, Lock, MessageCircle, Pencil, Phone, UserPlus, CreditCard, ImagePlus, FilePlus2, HandCoins, Handshake, Magnet, MapPin, Package, PackageSearch, Receipt, Search,
   ShoppingCart, StickyNote, Truck, User, Warehouse, X,
 } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
+import { puede } from '../permisos'
+import { FormularioCliente, type Cliente as ClienteFicha } from './CrmClientes'
 import { imagen } from './Inventario'
 import type { DatosDoc } from '../proforma'
 
@@ -11,7 +13,7 @@ type Asesor = { id: string; nombre: string }
 export type Origen = { tabla: 'leads' | 'cotizaciones'; id: string; codigo: string; nombre: string; telefono: string; email: string; identificacion: string; medio: string } | null
 type Prod = { id: string; codigo: string | null; nombre: string; pvp: number | null; precio_dis: number | null; aplica_iva: boolean; stock: number | null; imagen_url: string | null; reservaciones: string | null; descripcion: string | null; ficha_tecnica_url: string | null; drive_carpeta_url: string | null; categoria: { nombre: string } | null }
 type Linea = { base?: number; obj?: number; id: string; codigo: string; nombre: string; imagen: string; precio: number; cantidad: number; descuento: number; iva: boolean; observacion: string; categoria?: string; descripcion?: string; ficha?: string; carpeta?: string }
-type Cli = { datos_venta?: Record<string, string> | null; id: string; nombre: string; identificacion: string | null; email: string | null; telefono: string | null; direccion: string | null; tipo_cliente: string | null; descuento_fijo: string | null }
+type Cli = { ciudad?: string | null; asesor_id?: string | null; datos_venta?: Record<string, string> | null; id: string; nombre: string; identificacion: string | null; email: string | null; telefono: string | null; direccion: string | null; tipo_cliente: string | null; descuento_fijo: string | null }
 
 const MEDIOS: [string, string[]][] = [
   ['Web y catálogo VIMEDIC', ['🤖 Chat bot web', '📝 Cotización web', '📅 Visita web', '🔓 Desbloqueo precios y stock web', '🛒 Catálogo web', '🌐 Página web']],
@@ -67,6 +69,14 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   const [res, setRes] = useState<Cli[]>([])
   const [cliente, setCliente] = useState<Cli | null>(null)
   const [lead, setLead] = useState({ nombre: ed?.nombre ?? origen?.nombre ?? '', telefono: ed?.telefono ?? origen?.telefono ?? '', email: ed?.email ?? origen?.email ?? '', identificacion: ed?.identificacion ?? origen?.identificacion ?? '' })
+  const veTodos = puede(perfil, 'crm', 'ver_todos') || puede(perfil, 'femedics', 'ver_todos')
+  const ajeno = (c: Cli) => !veTodos && !!c.asesor_id && c.asesor_id !== perfil.id
+  const [leadCiudad, setLeadCiudad] = useState<string>(ed?.ciudad ?? '')
+  const [leadAbierto, setLeadAbierto] = useState(false)
+  const [leadListo, setLeadListo] = useState(!!(ed?.nombre ?? origen?.nombre))
+  const [fichaOculta, setFichaOculta] = useState(false)
+  const [formCli, setFormCli] = useState<null | { cliente: ClienteFicha | null; prefill?: { nombre?: string; telefono?: string; email?: string; ciudad?: string; identificacion?: string } }>(null)
+  const [copiado, setCopiado] = useState(false)
   const [medio, setMedio] = useState(ed?.medio_captacion_lead ?? origen?.medio ?? '')
   const [nota, setNota] = useState<string>(ed?.nota_cotizacion ?? '')
   const [asesorId, setAsesorId] = useState<string>(ed?.asesor_id ?? perfil.id)
@@ -128,8 +138,8 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     const q = limpiar(busca)
     if (q.length < 2) { setRes([]); return }
     const t = setTimeout(() => {
-      supabase.from('clientes').select('id,nombre,identificacion,email,telefono,direccion,tipo_cliente,descuento_fijo,datos_venta').is('deleted_at', null).eq('empresa', empresa)
-        .or(`nombre.ilike.%${q}%,identificacion.ilike.%${q}%,email.ilike.%${q}%`).limit(8).then(({ data }) => setRes((data as Cli[]) ?? []))
+      supabase.from('clientes').select('id,nombre,identificacion,email,telefono,direccion,ciudad,asesor_id,tipo_cliente,descuento_fijo,datos_venta').is('deleted_at', null).eq('empresa', empresa)
+        .or(`nombre.ilike.%${q}%,identificacion.ilike.%${q}%,email.ilike.%${q}%,telefono.ilike.%${q}%,ciudad.ilike.%${q}%,institucion.ilike.%${q}%`).order('nombre').limit(15).then(({ data }) => setRes(((data as Cli[]) ?? []).sort((a, b) => Number(ajeno(a)) - Number(ajeno(b)))))
     }, 250)
     return () => clearTimeout(t)
   }, [busca])
@@ -209,7 +219,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     const datos: Record<string, unknown> = {
       tipo_registro: modo, cliente_id: cliente?.id ?? null, lead_sin_cliente: !cliente, nombre,
       identificacion: cliente?.identificacion ?? (lead.identificacion || null), email: cliente?.email ?? (lead.email.trim() || null), telefono: cliente?.telefono ?? (lead.telefono.trim() || null),
-      direccion: cliente?.direccion ?? null, asesor_id: asesorId || null, detalle_equipos: carrito.map((i) => `${i.nombre} (Cant: ${i.cantidad})`).join(', '),
+      direccion: cliente?.direccion ?? null, ciudad: cliente?.ciudad ?? (leadCiudad.trim() || null), asesor_id: asesorId || null, detalle_equipos: carrito.map((i) => `${i.nombre} (Cant: ${i.cantidad})`).join(', '),
       items, total: Math.round(total * 100) / 100, medio_captacion_lead: medio, nota_cotizacion: nota.trim() || null,
       estado_crm: esVenta ? 'Ganado' : 'Seguimiento', ultima_actividad: ahora,
     }
@@ -280,43 +290,140 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     <button key={valor} type="button" onClick={() => set(valor)} className={`${clase} ns-${tipo}` + (actual === valor ? ' active' : '')}>{texto}</button>
   )
 
+  const soloDig = (s: string) => String(s || '').replace(/\D/g, '')
+  const waLink = (s: string) => { const d = soloDig(s); return d ? 'https://wa.me/' + (d.startsWith('0') ? '593' + d.slice(1) : d) : '' }
+  const titulo1 = (s: string) => s.replace(/(^|\s)(\p{L})/gu, (_m, a, b) => a + b.toUpperCase())
+  const nombreAsesor = (id?: string | null) => asesores.find((x) => x.id === id)?.nombre ?? ''
+  const etiquetaDis = (c: Cli) => { const n = String(c.descuento_fijo || '').trim().toUpperCase(); return n === '5' || n === '10' || n === '15' ? 'DIS:' + n + '%' : n === 'VIP' ? 'DIS VIP' : 'DIS' }
+  const avisoLocal = (m: string) => { setInfoCli(m); setTimeout(() => setInfoCli(''), 2500) }
+  const [infoCli, setInfoCli] = useState('')
+  function elegirCliente(c: Cli) {
+    if (ajeno(c)) { alert('"' + c.nombre + '" ya está asignado a ' + (nombreAsesor(c.asesor_id) || 'otro asesor') + '.\n\nNo puedes editarlo ni generar cotización/venta para este cliente.'); return }
+    setCliente(c); setBusca(''); setRes([]); setLeadAbierto(false); setFichaOculta(window.innerWidth < 1024)
+    setCarrito((a) => a.map((l) => ({ ...l, descuento: descCliente(c) }))); aplicarDv(c)
+  }
+  function quitarCliente() { setCliente(null); setFichaOculta(false) }
+  function usarLead() {
+    const tel = lead.telefono.trim(), vacio = /^\+?593$/.test(tel.replace(/\s/g, ''))
+    if (!lead.nombre.trim() && (!tel || vacio) && !lead.email.trim()) { alert('Ingresa al menos un dato (nombre, teléfono o email).'); return }
+    setLead((l) => ({ ...l, nombre: l.nombre.trim() || 'Lead ' + (vacio ? '' : tel || l.email), telefono: vacio ? '' : tel }))
+    setLeadListo(true); setLeadAbierto(false); setFichaOculta(window.innerWidth < 1024)
+  }
+  async function recargarCliente(id: string) {
+    const { data } = await supabase.from('clientes').select('id,nombre,identificacion,email,telefono,direccion,ciudad,asesor_id,tipo_cliente,descuento_fijo,datos_venta').eq('id', id).single()
+    if (data) elegirCliente(data as Cli)
+  }
+  function solicitarDatos(c: Cli) {
+    const campos: [string, string | null | undefined][] = [['Cédula / RUC', c.identificacion], ['Nombre completo', c.nombre], ['Ciudad', c.ciudad], ['Dirección', c.direccion], ['Teléfono', c.telefono], ['Correo', c.email]]
+    const ok = campos.filter(([, v]) => v), falta = campos.filter(([, v]) => !v)
+    const l = ['Estos son los datos que tenemos en nuestro sistema:', '', ...ok.map(([k, v]) => '✅ ' + k + ': ' + v), '']
+    if (falta.length) l.push('Nos ayudarías mucho completando también esto:', ...falta.map(([k]) => '📝 ' + k), '', 'Y si algún dato de arriba está erróneo, este es un buen momento para corregirlo. ¡Gracias! 🙌')
+    else l.push('¿Nos ayudas confirmando que todo está correcto? Si algún dato está erróneo, este es el momento ideal para corregirlo. 🙌')
+    l.push('', '*VIMEDIC | Equipamiento médico con respaldo en todo Ecuador*')
+    navigator.clipboard?.writeText(l.join('\n')).then(() => { setCopiado(true); setTimeout(() => setCopiado(false), 1800) }).catch(() => alert(l.join('\n')))
+  }
+  const bannerDesc = (c: Cli) => {
+    if (esFm || c.tipo_cliente?.toUpperCase() !== 'DIS') return null
+    const nivel = String(c.descuento_fijo || '').trim().toUpperCase()
+    return (
+      <div className="mt-2.5 flex items-start gap-2 rounded-xl px-3 py-2 text-[11px] text-violet-800" style={{ background: '#7c3aed12', border: '1px solid #7c3aed33' }}>
+        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-white shrink-0" style={{ background: '#7c3aed' }}>{etiquetaDis(c)}</span>
+        <span>Cliente distribuidor · {nivel === '5' || nivel === '10' || nivel === '15' ? <>Descuento fijo de <b>{nivel}%</b> sobre el PVP en todos los productos.</> : <>Descuento de distribuidor según el <b>precio DIS</b> de cada producto (el % se ve en cada tarjeta).</>}</span>
+      </div>
+    )
+  }
   const panelCliente = (
     <div className={'overflow-y-auto p-4 space-y-3 lg:block' + (pestana === 'cliente' ? '' : ' hidden')}>
       <section className="ns-sec">
-        <header><span className="ns-num">1</span><h4>Cliente</h4></header>
+        <header><span className="ns-num">1</span><h4>Cliente</h4>
+          <button type="button" onClick={() => setFichaOculta((v) => !v)} className="ml-auto text-[10px] font-bold flex items-center gap-0.5" style={{ color: acento }}>{fichaOculta ? 'Expandir' : 'Contraer'}{fichaOculta ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}</button>
+        </header>
         <div className="relative mb-2">
           <input type="text" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar cliente por nombre, cédula o correo..." className="ns-input pl-9" />
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
         </div>
-        {res.length > 0 && !cliente && (
+        {busca.trim().length >= 2 && (
           <div className="border border-slate-200 rounded-xl max-h-40 overflow-y-auto mb-2 divide-y divide-slate-100 bg-white shadow-sm">
-            {res.map((c) => (
-              <button key={c.id} type="button" className="w-full text-left px-3 py-2 hover:bg-slate-50" onClick={() => { setCliente(c); setBusca(''); setRes([]); setCarrito((a) => a.map((l) => ({ ...l, descuento: descCliente(c) }))); aplicarDv(c) }}>
-                <p className="text-xs font-bold text-slate-800 truncate">{c.nombre}</p>
-                <p className="text-[10px] text-slate-500 truncate">{[c.identificacion, c.telefono, c.email].filter(Boolean).join(' · ')}</p>
-              </button>
-            ))}
+            {res.length === 0 && <p className="text-[11px] text-slate-400 text-center py-2.5">Sin coincidencias — puedes crear un cliente nuevo abajo.</p>}
+            {res.map((c) => {
+              const bloqueado = ajeno(c)
+              return (
+                <button key={c.id} type="button" className={'w-full text-left px-3 py-2 hover:bg-slate-50' + (bloqueado ? ' opacity-60' : '')} onClick={() => elegirCliente(c)}>
+                  <p className="text-xs font-semibold text-slate-800 truncate flex items-center gap-1.5">{bloqueado && <Lock className="w-3 h-3 shrink-0" style={{ color: 'var(--red)' }} />}{c.nombre}{!bloqueado && c.tipo_cliente?.toUpperCase() === 'DIS' && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white" style={{ background: '#7c3aed' }}>{etiquetaDis(c)}</span>}</p>
+                  <p className={'text-[10px] truncate ' + (bloqueado ? 'font-bold' : 'text-slate-500')} style={bloqueado ? { color: 'var(--red)' } : undefined}>
+                    {bloqueado ? 'Asignado a: ' + (nombreAsesor(c.asesor_id) || 'otro asesor') + ' — no editable' : <>{c.identificacion || 'Sin cédula'} · {c.ciudad || 'Sin ciudad'}{c.asesor_id ? ' · Asesor: ' + nombreAsesor(c.asesor_id) : <> · <span style={{ color: 'var(--red)' }}>Sin asesor</span></>}</>}
+                  </p>
+                </button>
+              )
+            })}
           </div>
         )}
-        {cliente ? (
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-start gap-2">
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-bold text-slate-800 truncate">{cliente.nombre} {cliente.tipo_cliente === 'DIS' && <span className="pill" style={{ background: '#7c3aed1A', color: '#7c3aed' }}>DIS {cliente.descuento_fijo}</span>}</p>
-              <p className="text-[10px] text-slate-500 truncate">{[cliente.identificacion, cliente.telefono, cliente.email].filter(Boolean).join(' · ') || 'Sin más datos'}</p>
-            </div>
-            <button type="button" className="text-[10px] font-bold" style={{ color: 'var(--acc)' }} onClick={() => setCliente(null)}>Cambiar</button>
-          </div>
-        ) : (
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
-            <p className="text-[10px] text-slate-500">¿Aún no es cliente? Cotiza a un prospecto:</p>
-            <input className="ns-input" placeholder="Nombre *" value={lead.nombre} onChange={(e) => setLead({ ...lead, nombre: e.target.value })} />
-            <div className="grid grid-cols-2 gap-2">
-              <input className="ns-input" placeholder="Teléfono" value={lead.telefono} onChange={(e) => setLead({ ...lead, telefono: e.target.value.replace(/\D/g, '') })} />
-              <input className="ns-input" placeholder="Correo" value={lead.email} onChange={(e) => setLead({ ...lead, email: e.target.value })} />
-            </div>
+        {!fichaOculta && (
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+            {cliente ? (
+              <>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="text-xs text-slate-700 space-y-0.5 min-w-0">
+                    <p className="font-bold text-slate-800 truncate">{cliente.nombre}</p>
+                    <p className="text-slate-500 truncate">{cliente.identificacion || '—'}</p>
+                    <p className="text-slate-500 truncate">{cliente.email || '—'}</p>
+                    <p className="text-slate-500 truncate">{cliente.telefono ? <span className="inline-flex items-center gap-1.5"><span>{cliente.telefono}</span>
+                      <a href={'tel:' + soloDig(cliente.telefono)} title="Llamar" className="text-slate-400 hover:text-blue-600 shrink-0"><Phone className="w-3 h-3" /></a>
+                      <a href={waLink(cliente.telefono)} target="_blank" rel="noopener noreferrer" title="WhatsApp" className="text-slate-400 hover:text-green-600 shrink-0"><MessageCircle className="w-3 h-3" /></a></span> : <span className="text-slate-400">—</span>}</p>
+                    <p className="text-slate-500 truncate">{cliente.direccion || '—'}</p>
+                  </div>
+                  <div className="flex flex-col gap-1.5 shrink-0">
+                    <button type="button" onClick={() => setFormCli({ cliente: cliente as unknown as ClienteFicha })} className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg border flex items-center gap-1" style={{ borderColor: acento, color: acento }}><Pencil className="w-3 h-3" /> Editar Cliente</button>
+                    <button type="button" onClick={() => solicitarDatos(cliente)} className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg border flex items-center gap-1" style={{ borderColor: '#25D366', color: '#25D366' }}><Copy className="w-3 h-3" /> {copiado ? '¡Copiado!' : 'Solicitar Datos'}</button>
+                    <button type="button" onClick={quitarCliente} className="text-[10px] font-semibold text-slate-400 hover:text-slate-600">Cambiar cliente</button>
+                  </div>
+                </div>
+                {bannerDesc(cliente)}
+              </>
+            ) : leadListo && lead.nombre.trim() && !leadAbierto ? (
+              esVenta ? (
+                <>
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 p-2.5 mb-2.5">
+                    <p className="text-xs font-bold text-amber-800">Esta cotización es de un lead ({lead.nombre}).</p>
+                    <p className="text-[11px] text-amber-700">Para generar la venta, crea el cliente (o búscalo arriba si ya existe).</p>
+                  </div>
+                  <button type="button" onClick={() => setFormCli({ cliente: null, prefill: { nombre: lead.nombre, telefono: lead.telefono, email: lead.email, ciudad: leadCiudad, identificacion: lead.identificacion } })} className="text-xs font-bold px-3 py-1.5 rounded-lg text-white flex items-center gap-1.5" style={{ background: '#04896f' }}><UserPlus className="w-3.5 h-3.5" /> Crear cliente con estos datos</button>
+                </>
+              ) : (
+                <div className="flex items-start justify-between gap-3">
+                  <div className="text-xs text-slate-700 space-y-0.5 min-w-0">
+                    <p className="font-bold text-slate-800 truncate">{lead.nombre || '(sin nombre)'} <span className="font-normal text-[10px] text-slate-400">(lead — sin cliente)</span></p>
+                    <p className="text-slate-500 truncate">{lead.email || '—'}</p>
+                    <p className="text-slate-500 truncate">{lead.telefono || '—'}</p>
+                    {leadCiudad && <p className="text-slate-500 truncate">{leadCiudad}</p>}
+                    <p className="text-[10px] text-amber-600 pt-1">Al generar la venta se pedirá crear el cliente.</p>
+                  </div>
+                  <button type="button" onClick={() => { setLeadAbierto(true); if (!lead.telefono) setLead((l) => ({ ...l, telefono: '+593 ' })) }} className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg border shrink-0 flex items-center gap-1" style={{ borderColor: 'var(--primary)', color: 'var(--primary)' }}><Pencil className="w-3 h-3" /> Cambiar</button>
+                </div>
+              )
+            ) : (
+              <>
+                <p className="text-xs text-slate-500 mb-2.5">{esVenta ? 'Ningún cliente seleccionado todavía. Búscalo arriba o crea uno nuevo.' : 'Ningún cliente seleccionado todavía. Búscalo arriba, o elige una de estas dos opciones.'}</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button type="button" onClick={() => setFormCli({ cliente: null })} className="text-xs font-bold px-3 py-1.5 rounded-lg text-white flex items-center gap-1.5" style={{ background: 'var(--teal)' }}><UserPlus className="w-3.5 h-3.5" /> Nuevo Cliente</button>
+                  {!esVenta && <button type="button" onClick={() => { setLeadAbierto(true); setLead((l) => ({ ...l, telefono: l.telefono || '+593 ' })) }} className="text-xs font-bold px-3 py-1.5 rounded-lg border flex items-center gap-1.5" style={{ borderColor: 'var(--primary)', color: 'var(--primary)' }}><User className="w-3.5 h-3.5" /> Agregar Lead</button>}
+                </div>
+              </>
+            )}
+            {!cliente && leadAbierto && !esVenta && (
+              <div className="mt-3 space-y-2 bg-white border border-slate-200 rounded-lg p-3">
+                <p className="text-[10px] text-slate-400">Cotiza sin crear cliente. Ningún campo es obligatorio — completa lo que tengas.</p>
+                <input className="w-full border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2" style={{ ['--tw-ring-color' as string]: 'var(--cyan)' }} placeholder="Nombre (opcional)" value={lead.nombre} onChange={(e) => setLead({ ...lead, nombre: titulo1(e.target.value) })} />
+                <input className="w-full border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2" style={{ ['--tw-ring-color' as string]: 'var(--cyan)' }} placeholder="+593 99 999 9999" value={lead.telefono} onChange={(e) => setLead({ ...lead, telefono: e.target.value })} />
+                <input className="w-full border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2" style={{ ['--tw-ring-color' as string]: 'var(--cyan)' }} placeholder="Email (opcional)" value={lead.email} onChange={(e) => setLead({ ...lead, email: e.target.value })} />
+                <input className="w-full border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2" style={{ ['--tw-ring-color' as string]: 'var(--cyan)' }} placeholder="Ciudad (opcional)" value={leadCiudad} onChange={(e) => setLeadCiudad(titulo1(e.target.value))} />
+                <button type="button" onClick={usarLead} className="w-full text-xs font-bold py-2 rounded-lg text-white" style={{ background: 'var(--primary)' }}>Usar estos datos</button>
+              </div>
+            )}
           </div>
         )}
       </section>
+      {formCli && <FormularioCliente empresa={empresa} perfil={perfil} asesores={asesores} cliente={formCli.cliente} prefill={formCli.prefill} cerrar={() => setFormCli(null)} aviso={avisoLocal} guardado={(id) => { setFormCli(null); recargarCliente(id) }} />}
 
       <section className="ns-sec">
         <header><span className="ns-num">2</span><h4>Medio de captación <span className="text-red-500">*</span></h4></header>

@@ -153,13 +153,14 @@ export function ClientesLista({ perfil, asesores, cerrar, aviso, empresa }: { em
 }
 
 /* ============== Formulario de cliente ============== */
-function FormularioCliente({ perfil, asesores, cliente, cerrar, guardado, aviso, empresa }: {
-  empresa: 'VIMEDIC' | 'FEMEDICS'; perfil: Perfil; asesores: Asesor[]; cliente: Cliente | null; cerrar: () => void; guardado: () => void; aviso: (t: string) => void
+export function FormularioCliente({ perfil, asesores, cliente, cerrar, guardado, aviso, empresa, prefill }: {
+  empresa: 'VIMEDIC' | 'FEMEDICS'; perfil: Perfil; asesores: Asesor[]; cliente: Cliente | null; cerrar: () => void; guardado: (id: string) => void; aviso: (t: string) => void
+  prefill?: { nombre?: string; telefono?: string; email?: string; ciudad?: string; identificacion?: string }
 }) {
   const v = (x: string | null | undefined) => x ?? ''
   const [f, setF] = useState({
-    identificacion: v(cliente?.identificacion), nombre: v(cliente?.nombre), telefono: v(cliente?.telefono), email: v(cliente?.email),
-    ciudad: v(cliente?.ciudad), direccion: v(cliente?.direccion), tipo: v(cliente?.tipo_cliente), descuento: v(cliente?.descuento_fijo),
+    identificacion: v(cliente?.identificacion ?? prefill?.identificacion), nombre: v(cliente?.nombre ?? prefill?.nombre), telefono: v(cliente?.telefono ?? prefill?.telefono), email: v(cliente?.email ?? prefill?.email),
+    ciudad: v(cliente?.ciudad ?? prefill?.ciudad), direccion: v(cliente?.direccion), tipo: v(cliente?.tipo_cliente), descuento: v(cliente?.descuento_fijo),
     telefono2: v(cliente?.telefono2), institucion: v(cliente?.institucion), url_maps: v(cliente?.url_maps),
     asesor: cliente?.asesor_id ?? perfil.id, contacto: v(cliente?.persona_contacto), cargo: v(cliente?.cargo_contacto), medio: v(cliente?.medio_captacion),
     responsable: v(cliente?.responsable_id), fecha: cliente?.fecha_registro ? cliente.fecha_registro.slice(0, 19) : '',
@@ -196,19 +197,20 @@ function FormularioCliente({ perfil, asesores, cliente, cerrar, guardado, aviso,
       medio_captacion: f.medio || null, responsable_id: f.responsable || null, fecha_registro: f.fecha ? new Date(f.fecha).toISOString() : null,
       cumpleanos: f.cumple || null, aniversario_empresa: f.aniv || null,
     }
+    const idNuevo = cliente?.id ?? crypto.randomUUID()
     const r = cliente
       ? await supabase.from('clientes').update(fila).eq('id', cliente.id)
-      : await supabase.from('clientes').insert({ id: crypto.randomUUID(), codigo: 'CLI-' + crypto.randomUUID().slice(0, 6).toUpperCase(), empresa, ...fila, fecha_registro: fila.fecha_registro ?? new Date().toISOString() })
+      : await supabase.from('clientes').insert({ id: idNuevo, codigo: 'CLI-' + crypto.randomUUID().slice(0, 6).toUpperCase(), empresa, ...fila, fecha_registro: fila.fecha_registro ?? new Date().toISOString() })
     setGuardando(false)
     if (r.error) { setError(r.error.message); return }
-    aviso(cliente ? 'Cliente actualizado.' : 'Cliente creado.'); guardado()
+    aviso(cliente ? 'Cliente actualizado.' : 'Cliente creado.'); guardado(idNuevo)
   }
 
   async function eliminar(motivo: string) {
     if (!cliente) return
     const { error } = await supabase.from('clientes').update({ deleted_at: new Date().toISOString(), motivo_eliminacion: motivo || null }).eq('id', cliente.id)
     if (error) { aviso('No se pudo eliminar: ' + error.message); return }
-    setElim(false); aviso('Cliente enviado a la Papelera.'); guardado()
+    setElim(false); aviso('Cliente enviado a la Papelera.'); guardado(cliente.id)
   }
 
   function copiarSolicitud() {

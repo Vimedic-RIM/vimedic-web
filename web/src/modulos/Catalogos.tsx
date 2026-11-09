@@ -5,6 +5,7 @@ import qrcode from 'qrcode-generator'
 import { supabase, type Perfil } from '../supabase'
 import { imagen } from './Inventario'
 import { LOGO_BLANCO, LOGO_COLOR, LOGO_RATIO } from '../catalogoAssets'
+import { htmlCatalogo } from '../catalogoHtml'
 import '../estilos/catalogos.css'
 
 /* ============================ Constantes (idénticas a catalogo-pdf.js) ============================ */
@@ -192,6 +193,20 @@ export default function Catalogos({ perfil, aviso }: { perfil: Perfil; aviso: (t
   const [gen, setGen] = useState<{ f: number; txt: string } | null>(null)
   const [msg, setMsg] = useState('')
   const ocupado = useRef(false)
+  const [vista, setVista] = useState<string | null>(null)
+  const marco = useRef<HTMLIFrameElement>(null)
+  /* Lo que se quita dentro de la vista previa HTML se refleja aquí (y queda recordado para la próxima vez). */
+  useEffect(() => {
+    const f = (e: MessageEvent) => {
+      const d = e.data as { vmc?: string; id?: string } | null
+      if (!d || !d.vmc || !d.id || e.source !== marco.current?.contentWindow) return
+      const id = d.id
+      if (d.vmc === 'quitar') setEx((x) => ({ ...x, [id]: true }))
+      else if (d.vmc === 'volver') setEx((x) => { const n = { ...x }; delete n[id]; return n })
+    }
+    window.addEventListener('message', f)
+    return () => window.removeEventListener('message', f)
+  }, [])
 
   useEffect(() => {
     try { const p = JSON.parse(localStorage.getItem(PREF) || 'null'); if (p) { setOff(p.off || {}); setEx(p.ex || {}); setContra(p.contra !== false); setPrecios(!!p.precios) } } catch { /* sin preferencias */ }
@@ -280,6 +295,39 @@ export default function Catalogos({ perfil, aviso }: { perfil: Perfil; aviso: (t
     } finally { ocupado.current = false }
   }
 
+  function abrirHtml() {
+    if (!nProd || faltaCliente) return
+    const segs = seleccion.map((s) => ({ nombre: s.nombre, productos: s.productos.map((p) => ({ ...p, foto: p.foto ? imagen(p.foto, 520) : '' })) }))
+    setMsg(''); setVista(htmlCatalogo(segs, { precios, contra, cliente: conCliente ? cliente.trim() : '', asesor, web: WEB, lema: LEMA }))
+  }
+  function htmlLimpio() {
+    const doc = marco.current?.contentDocument
+    if (!doc) return ''
+    const c = doc.documentElement.cloneNode(true) as HTMLElement
+    c.querySelectorAll('.ed, #vmc-edit').forEach((e) => e.remove())
+    c.querySelector('body')?.classList.remove('edit')
+    return '<!doctype html>' + c.outerHTML
+  }
+  function registrar(formatoTxt: string, tam: number) {
+    supabase.from('catalogos_generados').insert({
+      id: crypto.randomUUID(), codigo: 'CAT-' + crypto.randomUUID().slice(0, 6).toUpperCase(), asesor_id: perfil.id, cliente_texto: conCliente ? cliente.trim() || null : null, formato: formatoTxt,
+      precios: precios ? 'Con precios' : 'Sin precios', contraportada: contra, segmentos: seleccion.map((s) => s.nombre).join(', '), n_productos: nProd,
+      productos: seleccion.flatMap((s) => s.productos.map((p) => p.id)).join(','), paginas: nPag, tamano_kb: Math.round((tam / 1024) * 10) / 10,
+    }).then(() => undefined)
+  }
+  function descargarHtml() {
+    const h = htmlLimpio(); if (!h) return
+    const nombre = 'Catalogo_Vimedic_' + ((conCliente && cliente.trim()) || asesor.nombre).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '') + '_' + new Date().toISOString().slice(0, 10) + '.html'
+    const blob = new Blob([h], { type: 'text/html;charset=utf-8' }), a = document.createElement('a')
+    a.href = URL.createObjectURL(blob); a.download = nombre; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000)
+    registrar('HTML', blob.size); aviso('Catálogo HTML descargado: ' + nombre)
+  }
+  function imprimirHtml() {
+    const w = marco.current?.contentWindow; if (!w) return
+    w.document.body.classList.remove('edit'); w.focus(); w.print(); w.document.body.classList.add('edit')
+    registrar('PDF (impresión)', 0)
+  }
+
   const resumen = msg ? <span className="vmc-err">{msg}</span>
     : !formato ? <span style={{ color: '#9a5b00', fontWeight: 600 }}>Elija si el catálogo es digital o impreso.</span>
     : faltaCliente ? <span style={{ color: '#9a5b00', fontWeight: 600 }}>Escriba el nombre del cliente o desmarque la opción.</span>
@@ -353,11 +401,24 @@ export default function Catalogos({ perfil, aviso }: { perfil: Perfil; aviso: (t
                 </div>
               </div>
               <div className="vmc-ft"><div className="vmc-res">{resumen}</div>
-                <button type="button" className="vmc-b pri" onClick={generar} disabled={!nProd || !formato || faltaCliente}><img alt="" src={icUrl('bajar', '#ffffff')} style={{ width: 17, height: 17 }} />Descargar PDF</button></div>
+                <button type="button" className="vmc-b pri" onClick={abrirHtml} disabled={!nProd || faltaCliente} title="Se arma al instante y puedes quitar productos desde la vista previa"><img alt="" src={icUrl('ext', '#ffffff')} style={{ width: 17, height: 17 }} />Crear catálogo web (rápido)</button>
+                <button type="button" className="vmc-b" onClick={generar} disabled={!nProd || !formato || faltaCliente}><img alt="" src={icUrl('bajar', '#ffffff')} style={{ width: 17, height: 17 }} />Descargar PDF (lento)</button></div>
             </>
           )}
         </div>
       </main>
+      {vista && (
+        <div className="vmc-pre" role="dialog" aria-label="Vista previa del catálogo">
+          <div className="vmc-pre-bar">
+            <div className="vmc-pre-t"><b>Vista previa del catálogo</b><span>Toca la <b style={{ color: '#ff8a7a' }}>×</b> de cada producto para quitarlo · {nProd} producto{nProd === 1 ? '' : 's'}</span></div>
+            <button type="button" className="vmc-b" onClick={() => marco.current?.contentWindow?.postMessage({ vmc: 'deshacer' }, '*')}>Deshacer</button>
+            <button type="button" className="vmc-b" onClick={imprimirHtml}>Imprimir / PDF</button>
+            <button type="button" className="vmc-b pri" onClick={descargarHtml}><img alt="" src={icUrl('bajar', '#ffffff')} style={{ width: 16, height: 16 }} />Descargar HTML</button>
+            <button type="button" className="vmc-b" onClick={() => setVista(null)}>Cerrar</button>
+          </div>
+          <iframe ref={marco} className="vmc-pre-f" title="Catálogo" srcDoc={vista} />
+        </div>
+      )}
     </div>
   )
 }
