@@ -9,6 +9,7 @@ import { supabase, type Perfil } from '../supabase'
 import {
   Grafico, baseOpts, canal, CANAL_COLOR, cleanMedio, corto, ecKey, esMk, hoyKey, keyAdd, keyDiff, keyLabel, money, money0, monthKeys, monthLabel, normalize, PALETA, sumBy, topEntries, usdTick,
 } from '../graficos'
+import ECMAP from '../datos/ecuador.json'
 import '../estilos/dashboard.css'
 
 /* ============================ Datos ============================ */
@@ -20,7 +21,7 @@ type Av = { f: string; tipo: string; estado: string; responsable: string; produc
 type Nc = { f: string; base: number; total: number }
 type Pipe = { embudo: Record<string, number>; abierto: number; cuenta: number; tasa: number }
 type R = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
-type Filtro = { asesor: string; cliente: string; ciudad: string; medio: string; tipo: string }
+type Filtro = { asesor: string; cliente: string; ciudad: string; provincia: string; medio: string; tipo: string }
 type Ctx = { desde: string; hasta: string; version: number; filtro: Filtro; setFiltro: (c: keyof Filtro, v: string) => void }
 
 const ventanaDe = (hasta: string) => monthKeys(hasta, 13)[0] + '-01'
@@ -390,19 +391,107 @@ function SecEquipo({ c }: { c: Ctx }) {
 /* ============================ Clientes y ciudades ============================ */
 const REGION: Record<string, string> = {}
 ;[['Costa', ['Esmeraldas', 'Manabí', 'Los Ríos', 'Guayas', 'Santa Elena', 'El Oro']], ['Sierra', ['Carchi', 'Imbabura', 'Pichincha', 'Cotopaxi', 'Tungurahua', 'Bolívar', 'Chimborazo', 'Cañar', 'Azuay', 'Loja', 'Santo Domingo de los Tsáchilas']], ['Amazonía', ['Sucumbíos', 'Napo', 'Orellana', 'Pastaza', 'Morona Santiago', 'Zamora Chinchipe']], ['Insular', ['Galápagos']]].forEach(([r, ps]) => (ps as string[]).forEach((p) => { REGION[normalize(p)] = r as string }))
+/* ---- Geografía: ciudad escrita por el cliente → provincia y punto en el mapa (provincias INEC) ---- */
+type Geo = { ciudad?: string; prov?: string; x?: number; y?: number; soloProv?: boolean }
+const EC = ECMAP as unknown as { w: number; h: number; prov: { n: string; d: string; cx: number; cy: number }[]; ciu: Record<string, [string, string, number, number]>; alias: Record<string, string>; gal: string }
+Object.assign(EC.alias, { cumbaya: 'quito', tumbaco: 'quito', calderon: 'quito', pomasqui: 'quito', nayon: 'quito', puembo: 'quito', conocoto: 'quito', 'san antonio de pichincha': 'quito', 'la mitad del mundo': 'quito', dmq: 'quito', 'distrito metropolitano de quito': 'quito', 'valle de los chillos': 'sangolqui', 'san rafael': 'sangolqui', capelo: 'sangolqui', 'la puntilla': 'samborondon', 'via a la costa': 'guayaquil', gye: 'guayaquil', uio: 'quito', 'eloy alfaro': 'duran', 'san cristobal de galapagos': 'puerto baquerizo moreno', galapagos: 'puerto ayora' })
+const PROV_BY_NORM = new Map(EC.prov.map((p) => [normalize(p.n), p]))
+const stsa = PROV_BY_NORM.get(normalize('Santo Domingo de los Tsáchilas')); if (stsa) PROV_BY_NORM.set(normalize('Santo Domingo de los Tsachilas'), stsa)
+const geoCache = new Map<string, Geo>()
+function geoDe(ciudad: string): Geo {
+  const raw = String(ciudad || '').trim(); if (!raw) return {}
+  const hit = geoCache.get(raw); if (hit) return hit
+  let n = normalize(raw).replace(/[.,]/g, ' ').replace(/\s+/g, ' ').trim()
+  n = EC.alias[n] || n
+  let c = EC.ciu[n]
+  if (!c) { const first = n.split(/ - |,|\(|\//)[0].trim(); c = EC.ciu[EC.alias[first] || first] }
+  let out: Geo = {}
+  if (c) out = { ciudad: c[0], prov: c[1], x: c[2], y: c[3] }
+  else { const p = PROV_BY_NORM.get(n); if (p) out = { ciudad: raw, prov: p.n, x: p.cx, y: p.cy, soloProv: true } }
+  geoCache.set(raw, out); return out
+}
+const escalaSeq = (t: number) => { const a = [[232, 241, 250], [120, 186, 226], [5, 92, 157], [11, 37, 69]]; t = Math.max(0, Math.min(1, t)); const k = t * (a.length - 1), i = Math.min(a.length - 2, Math.floor(k)), f = k - i; return 'rgb(' + a[i].map((x, j) => Math.round(x + (a[i + 1][j] - x) * f)).join(',') + ')' }
+const escalaDiv = (p: number | null) => { if (p == null) return '#eef2f7'; const t = Math.max(-1, Math.min(1, p / 100)), g = [236, 240, 244], hi = t > 0 ? [4, 137, 111] : [192, 57, 43], f = Math.abs(t); return 'rgb(' + g.map((x, j) => Math.round(x + (hi[j] - x) * f)).join(',') + ')' }
+const REG_COL: Record<string, string> = { Costa: '#17a9ba', Sierra: '#055c9d', Amazonía: '#04896f', Insular: '#c98a1f', 'Sin ubicar': '#cbd5e1' }
+type Agg = { n: number; usd: number; cli: Set<string>; prev: number; ciud: Record<string, number>; prov?: string; x?: number; y?: number }
+type GeoAgg = { P: Record<string, Agg>; C: Record<string, Agg>; sin: { n: number; usd: number; nombres: Record<string, number> }; totalUsd: number }
+const METRICAS: [string, string][] = [['usd', 'Ventas'], ['n', 'Nº'], ['cli', 'Clientes'], ['ticket', 'Ticket'], ['crec', 'Crecimiento']]
+const valorGeo = (o: Agg | undefined, m: string): number | null => (!o ? 0 : m === 'usd' ? o.usd : m === 'n' ? o.n : m === 'cli' ? o.cli.size : m === 'ticket' ? (o.n ? o.usd / o.n : 0) : o.prev ? ((o.usd - o.prev) / o.prev) * 100 : o.usd ? 100 : null)
+const fmtGeo = (x: number | null, m: string) => (x == null ? '—' : m === 'usd' || m === 'ticket' ? '$' + money0(x) : m === 'crec' ? (x > 0 ? '+' : '') + Math.round(x) + '%' : money0(x))
+
+function Mapa({ g, filtro, setFiltro }: { g: GeoAgg; filtro: Filtro; setFiltro: Ctx['setFiltro'] }) {
+  const [m, setM] = useState('usd')
+  const [burb, setBurb] = useState(true)
+  const [tip, setTip] = useState<{ x: number; y: number; h: ReactNode } | null>(null)
+  const ref = useRef<HTMLDivElement>(null)
+  const { P, C, sin, totalUsd } = g
+  const vals = EC.prov.map((p) => valorGeo(P[p.n], m)).filter((x): x is number => x != null && (m === 'crec' || x > 0))
+  const maxV = Math.max(1, ...vals), minV = vals.length ? Math.min(...vals) : 0
+  const maxC = Math.max(1, ...Object.values(C).map((c) => c.usd))
+  const ciudades = Object.entries(C).sort((a, b) => b[1].usd - a[1].usd)
+  const fill = (n: string) => { const o = P[n]; if (m === 'crec') return escalaDiv(o ? valorGeo(o, m) : null); const x = valorGeo(o, m); return x && x > 0 ? escalaSeq(Math.sqrt(x / maxV)) : '#f1f5f9' }
+  const mover = (ev: React.MouseEvent, h: ReactNode) => { const r = ref.current?.getBoundingClientRect(); if (!r) return; let x = ev.clientX - r.left + 14; if (x + 220 > r.width) x = ev.clientX - r.left - 230; setTip({ x, y: ev.clientY - r.top + 14, h }) }
+  const radio = (v: number) => Math.max(70, Math.sqrt(v / maxC) * 420)
+  return (
+    <>
+      <div className="flex items-center gap-2 flex-wrap mb-2">
+        <div className="seg sm">{METRICAS.map(([k, t]) => <button key={k} type="button" className={m === k ? 'active' : ''} onClick={() => setM(k)}>{t}</button>)}</div>
+        <label className="flex items-center gap-1.5 text-[10.5px] font-semibold text-slate-500"><input type="checkbox" checked={burb} onChange={(e) => setBurb(e.target.checked)} className="accent-[#04896f]" /> Ciudades</label>
+      </div>
+      <div id="mapa" ref={ref} onMouseLeave={() => setTip(null)}>
+        <svg viewBox={`0 0 ${EC.w} ${EC.h}`} role="img" aria-label="Mapa de ventas por provincia del Ecuador">
+          <defs>
+            <filter id="sh" x="-5%" y="-5%" width="110%" height="110%"><feDropShadow dx="0" dy="60" stdDeviation="80" floodColor="#0b2545" floodOpacity=".18" /></filter>
+            <radialGradient id="gb"><stop offset="0" stopColor="#04896f" stopOpacity=".95" /><stop offset="1" stopColor="#04896f" stopOpacity=".45" /></radialGradient>
+          </defs>
+          <path d={EC.gal} fill="#f8fafc" stroke="#cbd5e1" strokeWidth="14" strokeDasharray="70 50" />
+          <text x="120" y={EC.h * 0.06} className="lbl" style={{ fontSize: 170, fill: '#94a3b8' }}>GALÁPAGOS</text>
+          <g filter="url(#sh)">
+            {EC.prov.map((p) => {
+              const o = P[p.n], cr = o && o.prev ? Math.round(((o.usd - o.prev) / o.prev) * 100) : null, top = o ? Object.entries(o.ciud).sort((a, b) => b[1] - a[1])[0] : null
+              return <path key={p.n} className={'pv' + (filtro.provincia === p.n ? ' sel' : filtro.provincia ? ' dim' : '')} d={p.d} fill={fill(p.n)} onClick={() => setFiltro('provincia', p.n)} onMouseLeave={() => setTip(null)}
+                onMouseMove={(ev) => mover(ev, <><b>{p.n}</b><span className="block text-white/60 text-[10px]">{REGION[normalize(p.n)] || ''}</span>{o ? <>Ventas: <b className="!text-[11px]">${money0(o.usd)}</b> ({totalUsd ? Math.round((o.usd / totalUsd) * 100) : 0}%)<br />{o.n} venta(s) · {o.cli.size} cliente(s)<br />Ticket: ${money0(o.usd / o.n)}{cr != null && <><br />vs anterior: {cr > 0 ? '▲ ' : '▼ '}{Math.abs(cr)}%</>}{top && <><br />Ciudad líder: {top[0]}</>}</> : <span className="text-white/70">Sin ventas en el período · oportunidad</span>}</>)} />
+            })}
+          </g>
+          {burb && <g>{ciudades.map(([n, c]) => <circle key={n} className="cb" cx={c.x} cy={c.y} r={radio(c.usd)} fill="url(#gb)" onClick={(ev) => { ev.stopPropagation(); setFiltro('ciudad', n) }} onMouseLeave={() => setTip(null)}
+            onMouseMove={(ev) => mover(ev, <><b>{n}</b><span className="block text-white/60 text-[10px]">{c.prov}</span>Ventas: ${money0(c.usd)}<br />{c.n} venta(s) · {c.cli.size} cliente(s){c.prev ? <><br />vs anterior: {c.usd >= c.prev ? '▲ ' : '▼ '}{Math.abs(Math.round(((c.usd - c.prev) / c.prev) * 100))}%</> : null}</>)} />)}</g>}
+          {burb && ciudades.slice(0, 5).map(([n, c]) => { const rr = radio(c.usd), right = (c.x ?? 0) < EC.w * 0.55; return <text key={n} className="lbl" x={(c.x ?? 0) + (right ? rr + 60 : -(rr + 60))} y={(c.y ?? 0) + 50} textAnchor={right ? 'start' : 'end'}>{n} <tspan className="v">${money0(c.usd)}</tspan></text> })}
+        </svg>
+        <div id="mapTip" style={{ left: tip?.x ?? 0, top: tip?.y ?? 0, opacity: tip ? 1 : 0 }}>{tip?.h}</div>
+      </div>
+      <div className="flex items-center gap-2 mt-2 text-[10px] text-slate-500">
+        <span>{m === 'crec' ? '−100%' : fmtGeo(minV, m)}</span>
+        <span className="h-2 flex-1 max-w-[240px] rounded-full" style={{ background: m === 'crec' ? `linear-gradient(90deg,${escalaDiv(-100)},${escalaDiv(0)},${escalaDiv(100)})` : `linear-gradient(90deg,${[0, 0.25, 0.5, 0.75, 1].map(escalaSeq).join(',')})` }} />
+        <span>{m === 'crec' ? '+100%' : fmtGeo(maxV, m)}</span>
+        <span className="ml-auto">{sin.n ? `${sin.n} venta(s) sin ciudad reconocida ($${money0(sin.usd)})` : 'Todas las ventas ubicadas'}</span>
+      </div>
+    </>
+  )
+}
+
 function SecClientes({ c }: { c: Ctx }) {
   const { d: ventas, err } = useDataset('ventas', c.hasta, c.version, cargarVentas)
   const { d: nuevos } = useDataset('nuevos', c.hasta, c.version, cargarClientesNuevos)
   const { en, prev: pp } = usePeriodo(c)
-  const [modo, setModo] = useState('ciudad')
-  const { g, ranking, total } = useMemo(() => {
-    if (!ventas) return { g: null, ranking: [] as { k: string; ing: number; n: number; prev: number }[], total: 0 }
+  const [modo, setModo] = useState('provincia')
+  const { g, geo, rk, total, regOut } = useMemo(() => {
+    if (!ventas) return { g: null, geo: null as GeoAgg | null, rk: [] as { n: string; o: Agg; sub: string }[], total: 0, regOut: null as ChartConfiguration | null }
     const V = ventas.filter((v) => en(v.f)), tot = V.reduce((s, v) => s + v.base, 0), out: Record<string, ChartConfiguration> = {}
-    const prevV = pp ? ventas.filter((v) => v.f >= pp.from && v.f <= pp.to) : []
-    const key = (v: Venta) => (modo === 'provincia' ? v.provincia : v.ciudad) || 'Sin ubicar'
-    const rk = Object.entries(sumBy(V, key, (v) => v.base)).sort((a, b) => b[1] - a[1]).map(([k, ing]) => ({ k, ing, n: V.filter((v) => key(v) === k).length, prev: prevV.filter((v) => key(v) === k).reduce((s, v) => s + v.base, 0) }))
-    const reg = sumBy(V, (v) => REGION[normalize(v.provincia)] || 'Sin ubicar', (v) => v.base)
-    out.region = { type: 'doughnut', data: { labels: Object.keys(reg), datasets: [{ data: Object.values(reg).map(Math.round), backgroundColor: ['#04896f', '#055c9d', '#7c3aed', '#c98a1f', '#cbd5e1'], borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, cutout: '60%', plugins: { legend: { position: 'bottom', labels: { font: { size: 9 }, boxWidth: 8 } }, tooltip: { callbacks: { label: (x: any) => x.label + ': $' + money0(x.raw) } } } } as never } // eslint-disable-line @typescript-eslint/no-explicit-any
+    const Vp = pp ? ventas.filter((v) => v.f >= pp.from && v.f <= pp.to) : []
+    const P: Record<string, Agg> = {}, C: Record<string, Agg> = {}, sin = { n: 0, usd: 0, nombres: {} as Record<string, number> }
+    const nuevoAgg = (): Agg => ({ n: 0, usd: 0, cli: new Set<string>(), prev: 0, ciud: {} })
+    V.forEach((v) => {
+      const gg = geoDe(v.ciudad)
+      if (!gg.prov) { sin.n++; sin.usd += v.base; const nm = v.ciudad || '(vacía)'; sin.nombres[nm] = (sin.nombres[nm] || 0) + 1; return }
+      const pr = (P[gg.prov] ??= nuevoAgg()); pr.n++; pr.usd += v.base; pr.cli.add(v.ident || v.cliente); pr.ciud[gg.ciudad!] = (pr.ciud[gg.ciudad!] || 0) + v.base
+      if (!gg.soloProv) { const ci = (C[gg.ciudad!] ??= { ...nuevoAgg(), prov: gg.prov, x: gg.x, y: gg.y }); ci.n++; ci.usd += v.base; ci.cli.add(v.ident || v.cliente) }
+    })
+    Vp.forEach((v) => { const gg = geoDe(v.ciudad); if (!gg.prov) return; (P[gg.prov] ??= nuevoAgg()).prev += v.base; if (C[gg.ciudad!]) C[gg.ciudad!].prev += v.base })
+    const geoAgg: GeoAgg = { P, C, sin, totalUsd: tot }
+    const lista = modo === 'provincia' ? Object.entries(P).filter(([, o]) => o.usd > 0).sort((a, b) => b[1].usd - a[1].usd).map(([n, o]) => ({ n, o, sub: REGION[normalize(n)] || '' })) : Object.entries(C).filter(([, o]) => o.usd > 0).sort((a, b) => b[1].usd - a[1].usd).map(([n, o]) => ({ n, o, sub: o.prov || '' }))
+    const reg: Record<string, number> = {}; Object.entries(P).forEach(([n, o]) => { const r = REGION[normalize(n)] || 'Sin ubicar'; reg[r] = (reg[r] || 0) + o.usd }); if (sin.usd) reg['Sin ubicar'] = (reg['Sin ubicar'] || 0) + sin.usd
+    const regK = ['Sierra', 'Costa', 'Amazonía', 'Insular', 'Sin ubicar'].filter((k) => reg[k])
+    const regCfg: ChartConfiguration = { type: 'doughnut', data: { labels: regK, datasets: [{ data: regK.map((k) => Math.round(reg[k])), backgroundColor: regK.map((k) => REG_COL[k]), borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, cutout: '60%', plugins: { legend: { position: 'bottom', labels: { font: { size: 9 }, boxWidth: 8 } }, tooltip: { callbacks: { label: (x: any) => x.label + ': $' + money0(x.raw) + ' (' + (tot ? Math.round((x.raw / tot) * 100) : 0) + '%)' } } } } as never } // eslint-disable-line @typescript-eslint/no-explicit-any
     const pc = Object.entries(sumBy(V, (v) => v.cliente || 'Sin nombre', (v) => v.base)).sort((a, b) => b[1] - a[1]).slice(0, 8)
     out.cli = { type: 'bar', data: { labels: pc.map((x) => corto(x[0], 24)), datasets: [{ data: pc.map((x) => Math.round(x[1])), backgroundColor: pc.map((x) => (c.filtro.cliente && c.filtro.cliente !== x[0] ? '#cbd5e1' : '#0b2545')), borderRadius: 6 }] },
       options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, onClick: (_e: unknown, els: { index: number }[]) => { if (els.length) c.setFiltro('cliente', pc[els[0].index][0]) }, plugins: { legend: { display: false }, tooltip: { callbacks: { title: (it: any[]) => pc[it[0].dataIndex][0], label: (x: any) => '$' + money0(x.raw) + ' · ' + V.filter((v) => (v.cliente || 'Sin nombre') === pc[x.dataIndex][0]).length + ' compra(s)' } } }, scales: { x: { beginAtZero: true, ticks: usdTick, grid: { color: '#f1f5f9' } }, y: { grid: { display: false }, ticks: { font: { size: 9 } } } } } as never } // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -411,20 +500,33 @@ function SecClientes({ c }: { c: Ctx }) {
       { type: 'bar', label: 'Clientes nuevos', data: months.map((m) => (nuevos ?? []).filter((f) => f.slice(0, 7) === m).length), backgroundColor: '#7c3aed', borderRadius: 6, yAxisID: 'y' },
       { type: 'line', label: 'Clientes con compra', data: months.map((m) => new Set(ventas.filter((v) => v.f.slice(0, 7) === m).map((v) => v.ident || v.cliente)).size), borderColor: '#04896f', backgroundColor: '#04896f', tension: 0.35, pointRadius: 2, yAxisID: 'y' }] as never },
       options: baseOpts({ plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } }) as never }
-    return { g: out, ranking: rk, total: tot }
+    return { g: out, geo: geoAgg, rk: lista, total: tot, regOut: regCfg }
   }, [ventas, nuevos, modo, c.desde, c.hasta, c.filtro.cliente]) // eslint-disable-line react-hooks/exhaustive-deps
   if (err) return <Error_ t={err} />
-  if (!g) return <div className="grid grid-cols-1 lg:grid-cols-3 gap-4"><Cargando n={3} alto={300} /></div>
+  if (!g || !geo) return <div className="grid grid-cols-1 lg:grid-cols-3 gap-4"><Cargando n={3} alto={300} /></div>
+  const conVentas = EC.prov.filter((p) => geo.P[p.n]?.usd > 0), provOrd = Object.entries(geo.P).filter(([, o]) => o.usd > 0).sort((a, b) => b[1].usd - a[1].usd)
+  const top2 = provOrd.slice(0, 2).reduce((s, x) => s + x[1].usd, 0), maxR = Math.max(1, ...rk.map((x) => x.o.usd))
+  const sinV = EC.prov.filter((p) => !geo.P[p.n]?.usd).map((p) => p.n), nomSU = Object.entries(geo.sin.nombres).sort((a, b) => b[1] - a[1]).slice(0, 4)
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-      <Tarjeta icono={MapIcon} color="var(--red)" titulo="Mapa comercial del Ecuador" sub="Período · provincias coloreadas y ciudades en burbujas" span="lg:col-span-2"><p className="text-xs text-slate-400 py-24 text-center">El mapa interactivo se está migrando. Mientras tanto, usa el ranking territorial y las ventas por región.</p></Tarjeta>
-      <Tarjeta icono={Trophy} color="var(--amber)" titulo="Ranking territorial" sub="Período · participación y variación" extra={<Seg valor={modo} set={setModo} ops={[['ciudad', 'Ciudad'], ['provincia', 'Provincia']]} />}>
-        <div className="max-h-64 overflow-y-auto space-y-1.5">{ranking.length ? ranking.slice(0, 20).map((r, i) => { const d = r.prev ? Math.round(((r.ing - r.prev) / r.prev) * 100) : null; return (
-          <button type="button" key={r.k} onClick={() => c.setFiltro('ciudad', r.k)} className="w-full text-left rounded-lg border border-slate-100 px-2.5 py-1.5 hover:bg-slate-50">
-            <div className="flex items-center justify-between gap-2"><span className="text-[12px] font-bold text-slate-700 truncate">{i + 1}. {r.k}</span><b className="text-[12px] text-slate-800">${money0(r.ing)}</b></div>
-            <div className="flex items-center justify-between text-[10px] text-slate-400"><span>{r.n} venta{r.n === 1 ? '' : 's'} · {total ? Math.round((r.ing / total) * 100) : 0}%</span>{d != null && <span style={{ color: d >= 0 ? '#04896f' : '#c0392b' }}>{d >= 0 ? '▲' : '▼'} {Math.abs(d)}%</span>}</div></button>) }) : <p className="text-xs text-slate-400">Sin ventas con ubicación en el período.</p>}</div>
+      <Tarjeta icono={MapIcon} color="var(--red)" titulo="Mapa comercial del Ecuador" sub={`Período · ${Object.keys(geo.C).length} ciudades · ${conVentas.length} provincias · toca una provincia para filtrar`} span="lg:col-span-2"><Mapa g={geo} filtro={c.filtro} setFiltro={c.setFiltro} /></Tarjeta>
+      <Tarjeta icono={Trophy} color="var(--amber)" titulo="Ranking territorial" sub="Período · participación y variación" extra={<Seg valor={modo} set={setModo} ops={[['provincia', 'Provincias'], ['ciudad', 'Ciudades']]} />}>
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <div className="mini !p-2.5"><span>Cobertura</span><b className="!text-base">{conVentas.length} / {EC.prov.length}</b><small>provincias con ventas</small></div>
+          <div className="mini !p-2.5"><span>Concentración</span><b className="!text-base">{total ? Math.round((top2 / total) * 100) : 0}%</b><small>{provOrd.slice(0, 2).map((x) => x[0]).join(' + ') || '—'}</small></div>
+        </div>
+        <div className="max-h-[330px] overflow-y-auto -mx-1">{rk.length ? rk.slice(0, 24).map((x, i) => { const cr = x.o.prev ? Math.round(((x.o.usd - x.o.prev) / x.o.prev) * 100) : null, sel = modo === 'provincia' ? c.filtro.provincia === x.n : c.filtro.ciudad === x.n; return (
+          <div key={x.n} className={'rk' + (sel ? ' sel' : '')} onClick={() => c.setFiltro(modo === 'provincia' ? 'provincia' : 'ciudad', x.n)}>
+            <span className="n" style={{ background: i < 3 ? ['#c98a1f', '#94a3b8', '#b45309'][i] : '#cbd5e1' }}>{i + 1}</span>
+            <div className="min-w-0"><p className="text-[12px] font-semibold text-slate-700 truncate">{x.n} <span className="text-[10px] font-normal text-slate-400">{x.sub}</span></p><div className="bar-in mt-1"><i style={{ width: (x.o.usd / maxR) * 100 + '%', background: REG_COL[REGION[normalize(modo === 'provincia' ? x.n : x.o.prov || '')]] || '#055c9d' }} /></div></div>
+            <div className="text-right"><p className="text-[12px] font-bold text-slate-800">${money0(x.o.usd)}</p><p className="text-[10px] text-slate-400">{total ? ((x.o.usd / total) * 100).toFixed(1) : 0}% {cr == null ? '· nuevo' : <span style={{ color: cr >= 0 ? '#04896f' : '#c0392b' }}>{cr >= 0 ? '▲' : '▼'} {Math.abs(cr)}%</span>}</p></div>
+          </div>) }) : <p className="text-xs text-slate-400 p-2">Sin ventas con ubicación en el período.</p>}</div>
+        {(sinV.length > 0 || nomSU.length > 0) && <div className="mt-2">
+          {sinV.length > 0 && <><p className="text-[10px] font-mono-spec uppercase text-slate-400 font-semibold mb-1">Sin ventas · oportunidad</p><div className="flex flex-wrap gap-1">{sinV.map((n) => <span key={n} className="cuad" style={{ background: '#f1f5f9', color: '#64748b' }}>{n}</span>)}</div></>}
+          {nomSU.length > 0 && <p className="text-[10px] text-slate-400 mt-2">Ciudades por corregir: {nomSU.map((x) => x[0] + ' (' + x[1] + ')').join(', ')}</p>}
+        </div>}
       </Tarjeta>
-      <Tarjeta icono={Mountain} color="var(--teal)" titulo="Ventas por región" sub="Costa, Sierra, Amazonía e Insular"><Alto cfg={g.region} /></Tarjeta>
+      <Tarjeta icono={Mountain} color="var(--teal)" titulo="Ventas por región" sub="Costa, Sierra, Amazonía e Insular"><Alto cfg={regOut} /></Tarjeta>
       <Tarjeta icono={Building2} color="var(--primary)" titulo="Top clientes" sub="Período · USD antes de IVA · toca para filtrar"><Alto cfg={g.cli} /></Tarjeta>
       <Tarjeta icono={UserPlus} color="var(--cyan)" titulo="Clientes nuevos" sub="Últimos 12 meses · registros en Clientes"><Alto cfg={g.nuevos} /></Tarjeta>
     </div>
@@ -569,7 +671,7 @@ function SecTabla({ c }: { c: Ctx }) {
   const V = useMemo(() => (ventas ?? []).filter((v) => en(v.f)), [ventas, c.desde, c.hasta]) // eslint-disable-line react-hooks/exhaustive-deps
   const lista = useMemo(() => {
     const n = normalize(q), f = c.filtro
-    return V.filter((v) => (!asesor || (v.asesor || 'Sin asesor') === asesor) && (!estado || (estado === 'Facturado') === (v.estado === 'Facturado')) && (!f.asesor || (v.asesor || 'Sin asesor') === f.asesor) && (!f.cliente || (v.cliente || 'Sin nombre') === f.cliente) && (!f.ciudad || (v.ciudad || 'Sin ciudad') === f.ciudad) && (!f.medio || cleanMedio(v.medio) === f.medio) && (!f.tipo || v.tipo === f.tipo) && (!n || normalize([v.id, v.cliente, v.asesor, v.numero, v.medio, v.ciudad].join(' ')).includes(n)))
+    return V.filter((v) => (!asesor || (v.asesor || 'Sin asesor') === asesor) && (!estado || (estado === 'Facturado') === (v.estado === 'Facturado')) && (!f.asesor || (v.asesor || 'Sin asesor') === f.asesor) && (!f.cliente || (v.cliente || 'Sin nombre') === f.cliente) && (!f.ciudad || (geoDe(v.ciudad).ciudad || v.ciudad || 'Sin ubicar') === f.ciudad) && (!f.provincia || geoDe(v.ciudad).prov === f.provincia) && (!f.medio || cleanMedio(v.medio) === f.medio) && (!f.tipo || v.tipo === f.tipo) && (!n || normalize([v.id, v.cliente, v.asesor, v.numero, v.medio, v.ciudad].join(' ')).includes(n)))
   }, [V, asesor, estado, q, c.filtro])
   if (err) return <Error_ t={err} />
   if (!ventas) return <Cargando alto={320} />
@@ -612,7 +714,7 @@ export default function Dashboard({ perfil }: { perfil: Perfil; aviso: (t: strin
   const [desde, setDesde] = useState(hoy.slice(0, 7) + '-01')
   const [hasta, setHasta] = useState(hoy)
   const [version, setVersion] = useState(0)
-  const [filtro, setFiltroEst] = useState<Filtro>({ asesor: '', cliente: '', ciudad: '', medio: '', tipo: '' })
+  const [filtro, setFiltroEst] = useState<Filtro>({ asesor: '', cliente: '', ciudad: '', provincia: '', medio: '', tipo: '' })
   const [activa, setActiva] = useState('sec-resumen')
   const setFiltro = (k: keyof Filtro, v: string) => setFiltroEst((f) => ({ ...f, [k]: f[k] === v ? '' : v }))
   const ctx: Ctx = { desde, hasta, version, filtro, setFiltro }
