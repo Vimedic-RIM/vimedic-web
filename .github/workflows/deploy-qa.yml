@@ -1,0 +1,47 @@
+name: Publicar en qa (Cloudflare Pages)
+
+# Cada push a la rama qa compila la web y la publica sola — ya no hace falta
+# correr "wrangler pages deploy" a mano. El paso a producción (main) sigue
+# siendo manual: todavía no hay un proyecto de Cloudflare Pages para eso.
+on:
+  push:
+    branches: [qa]
+    paths: ["web/**", ".github/workflows/deploy-qa.yml"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-qa
+  cancel-in-progress: true
+
+jobs:
+  build-y-publicar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: Instalar dependencias
+        working-directory: web
+        run: npm ci
+
+      - name: Compilar
+        working-directory: web
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      - name: Publicar en Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: be54638b025a158aea91b0d3946b764e
+          command: pages deploy web/dist --project-name=vimedic-qa --branch=qa --commit-dirty=true
