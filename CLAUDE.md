@@ -77,3 +77,8 @@ docs/MAPEO_HOJAS.md    qué hoja de Sheets va a qué tabla y problemas de datos 
 - Una rama por módulo (`migracion-catalogo`, `migracion-crm`…) → merge a `qa` → probar → merge a `main`.
 - Antes de dar algo por terminado: aplicar las migraciones en el Supabase de pruebas y correr `supabase/tests/`.
 - Migrar un módulo a la vez; Google Sheets queda como respaldo hasta comparar los datos.
+- Pedidos y seguimiento: cada cambio entra como un Issue en GitHub (ver `docs/FLUJO_DE_TRABAJO.md`).
+- **Despliegue del front (web) a qa: automático.** Un push a la rama `qa` dispara
+  `.github/workflows/deploy-qa.yml`, que compila y publica solo en Cloudflare Pages
+  (proyecto `vimedic-qa`). No correr `wrangler pages deploy` a mano salvo para probar
+  algo puntual antes de subir el commit. Producción (`main`) sigue siendo manual.
