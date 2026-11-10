@@ -2,6 +2,7 @@
 .env.*
 !.env.example
 node_modules/
+.wrangler/
 .DS_Store
 *.pem
 service-account*.json
