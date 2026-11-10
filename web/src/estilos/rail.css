@@ -145,3 +145,17 @@ body.vm-cot-abierto #vmRailBtn{display:none!important}
 /* Verificación en dos pasos (MFA) */
 .vr-mfa-in{width:100%;border:1px solid var(--line);border-radius:12px;padding:10px 12px;font:14px Inter,sans-serif;background:#fff;outline:none;min-width:0}
 .vr-mfa-in:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(5,92,157,.12)}
+
+/* Configuración personal (PerfilConfig) y menú del avatar */
+.vr-f{display:flex;flex-direction:column;gap:5px;font:700 11.5px Inter,sans-serif;color:#475569}
+@keyframes spin{to{transform:rotate(360deg)}}
+.vr-pmenu{position:fixed;z-index:70;width:252px;background:#fff;border-radius:16px;box-shadow:0 20px 50px -14px rgba(11,37,69,.5);border:1px solid var(--line);overflow:hidden;animation:vrUp .16s cubic-bezier(.2,.8,.2,1)}
+.vr-pmenu-h{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line)}
+.vr-pmenu-h b{display:block;font:700 13px 'Space Grotesk',Inter,sans-serif;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vr-pmenu-h span{display:block;font-size:11px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vr-pmenu-it{display:flex;align-items:center;gap:10px;width:100%;padding:10px 16px;border:0;background:none;text-align:left;font:600 12.5px Inter,sans-serif;color:#334155;cursor:pointer}
+.vr-pmenu-it:hover{background:#f6f8fc}
+.vr-pmenu-it svg{width:16px;height:16px;color:#64748b;flex-shrink:0}
+.vr-pmenu-sep{height:1px;background:var(--line);margin:4px 0}
+.vr-pmenu-it.salir{color:#c0392b}
+.vr-pmenu-it.salir svg{color:#c0392b}

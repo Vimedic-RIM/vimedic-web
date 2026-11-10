@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlarmClock, BadgeDollarSign, CalendarPlus, ChevronDown, ChevronUp, CirclePlus, CloudUpload, FilePlus2, LayoutDashboard,
-  LayoutGrid, LogOut, MessageCircle, PackagePlus, PenLine, Pin, Search, ShieldCheck, SlidersHorizontal, UserPlus, X, type LucideIcon,
+  LayoutGrid, LogOut, MessageCircle, PackagePlus, PenLine, Pin, Search, Settings, ShieldCheck, SlidersHorizontal, UserPlus, X, type LucideIcon,
 } from 'lucide-react'
 import { supabase, type Perfil } from './supabase'
 import { puede } from './permisos'
 import { MODULOS } from './modulos'
 import MfaPanel from './MfaPanel'
+import PerfilConfig from './PerfilConfig'
 import './estilos/rail.css'
 
 // Barra lateral de acceso rápido: aparece dentro de los módulos (no en Mi Espacio), igual que en la app original.
@@ -54,6 +55,9 @@ export default function Rail({ perfil, actual, ir, accion, aviso }: Props) {
   const [paleta, setPaleta] = useState<{ q: string; sel: number } | null>(null)
   const [pers, setPers] = useState<'acciones' | 'modulos' | null>(null)
   const [mfa, setMfa] = useState(false)
+  const [config, setConfig] = useState(false)
+  const [menuPerfil, setMenuPerfil] = useState<{ left: number; bottom: number } | null>(null)
+  const [fotoOverride, setFotoOverride] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const [indic, setIndic] = useState<{ top: number; c: string } | null>(null)
   // Arrastre para ordenar dentro de la misma barra (ratón y dedo con pulsación larga).
@@ -208,6 +212,17 @@ export default function Rail({ perfil, actual, ir, accion, aviso }: Props) {
 
   const nombre = String(perfil.nombre || perfil.email || 'Usuario').trim()
   const ini = nombre.split(/\s+/).slice(0, 2).map((x) => x[0] || '').join('').toUpperCase() || 'V'
+  const foto = fotoOverride ?? perfil.foto_url
+
+  function abrirMenuPerfil(e: React.MouseEvent<HTMLElement>) {
+    e.stopPropagation()
+    if (menuPerfil) { setMenuPerfil(null); return }
+    const r = e.currentTarget.getBoundingClientRect()
+    const ancho = 252
+    let left = r.left
+    if (left + ancho > window.innerWidth - 12) left = window.innerWidth - ancho - 12
+    setMenuPerfil({ left: Math.max(12, left), bottom: Math.max(12, window.innerHeight - r.top + 8) })
+  }
 
   function itemModulo(p: string) {
     const m = MODULOS[p]
@@ -278,17 +293,10 @@ export default function Rail({ perfil, actual, ir, accion, aviso }: Props) {
         </div>
 
         <div className="vr-pie">
-          <button type="button" className="vr-item" onClick={() => { setMenuAbierto(false); setPers('acciones') }} {...verTip('Personalizar barra', 'Elige tus accesos')}>
-            <SlidersHorizontal className="ic" /><span className="vr-lbl">Personalizar</span>
-          </button>
-          <button type="button" className="vr-item" onClick={() => { setMenuAbierto(false); setMfa(true) }} {...verTip('Verificación en dos pasos', 'Protege tu cuenta')}>
-            <ShieldCheck className="ic" /><span className="vr-lbl">Verificación en dos pasos</span>
-          </button>
-          <div className="vr-item" style={{ cursor: 'default' }} {...verTip(nombre, perfil.rol || '')}>
-            <span className="vr-ava">{ini}</span>
+          <button type="button" className="vr-item" onClick={abrirMenuPerfil} {...verTip(nombre, 'Mi cuenta')}>
+            {foto ? <img src={foto} alt="" className="vr-ava" style={{ objectFit: 'cover' }} /> : <span className="vr-ava">{ini}</span>}
             <span className="vr-lbl vr-quien"><b>{nombre}</b><span>{perfil.rol || perfil.email || ''}</span></span>
-            <button type="button" className="vr-mini" title="Cerrar sesión" aria-label="Cerrar sesión" onClick={() => { if (confirm('¿Cerrar sesión?')) supabase.auth.signOut() }}><LogOut className="ic" /></button>
-          </div>
+          </button>
         </div>
       </nav>
 
@@ -336,6 +344,24 @@ export default function Rail({ perfil, actual, ir, accion, aviso }: Props) {
       {pers && <Personalizar cfg={cfg} tab={pers} setTab={setPers} guardar={guardar} accPermitidas={accPermitidas} modPermitidos={modPermitidos}
         restaurar={() => { guardar(porDefecto()); aviso('Barra restaurada.') }} cerrar={() => setPers(null)} aviso={aviso} />}
       {mfa && <MfaPanel cerrar={() => setMfa(false)} />}
+      {config && <PerfilConfig perfil={perfil} cerrar={() => setConfig(false)} aviso={aviso} alGuardar={setFotoOverride} />}
+
+      {menuPerfil && (
+        <>
+          <div style={{ position: 'fixed', inset: 0, zIndex: 65 }} onClick={() => setMenuPerfil(null)} />
+          <div className="vr-pmenu" style={{ left: menuPerfil.left, bottom: menuPerfil.bottom }}>
+            <div className="vr-pmenu-h">
+              {foto ? <img src={foto} alt="" className="vr-ava" style={{ objectFit: 'cover', marginLeft: 0 }} /> : <span className="vr-ava" style={{ marginLeft: 0 }}>{ini}</span>}
+              <div style={{ minWidth: 0 }}><b>{nombre}</b><span>{perfil.rol || perfil.email || ''}</span></div>
+            </div>
+            <button type="button" className="vr-pmenu-it" onClick={() => { setMenuPerfil(null); setPers('modulos') }}><SlidersHorizontal />Personalizar módulos</button>
+            <button type="button" className="vr-pmenu-it" onClick={() => { setMenuPerfil(null); setMfa(true) }}><ShieldCheck />Seguridad</button>
+            <button type="button" className="vr-pmenu-it" onClick={() => { setMenuPerfil(null); setConfig(true) }}><Settings />Configuración</button>
+            <div className="vr-pmenu-sep" />
+            <button type="button" className="vr-pmenu-it salir" onClick={() => { setMenuPerfil(null); if (confirm('¿Cerrar sesión?')) supabase.auth.signOut() }}><LogOut />Cerrar sesión</button>
+          </div>
+        </>
+      )}
     </>
   )
 }
