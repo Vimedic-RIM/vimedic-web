@@ -178,6 +178,22 @@ function Ficha({ perfil, emp, lista, roles, cerrar, guardado, aviso }: { perfil:
   const [error, setError] = useState('')
   const [elim, setElim] = useState(false)
   const [fotoFalla, setFotoFalla] = useState(false)
+  const [clave, setClave] = useState<{ valor: string; nuevo: boolean } | null>(null)
+  const [generando, setGenerando] = useState(false)
+  async function generarClave() {
+    if (!emp) return
+    setGenerando(true); setClave(null)
+    const { data, error } = await supabase.functions.invoke('empleados-cuenta', { body: { empleadoId: emp.id } })
+    setGenerando(false)
+    if (error || (data as { error?: string })?.error) {
+      let msg = (data as { error?: string })?.error || error?.message || 'No se pudo generar la contraseña.'
+      try { const j = await (error as unknown as { context?: Response })?.context?.json?.(); if (j?.error) msg = j.error } catch { /* sin detalle */ }
+      aviso(msg); return
+    }
+    const r = data as { clave: string; nuevo: boolean }
+    setClave({ valor: r.clave, nuevo: r.nuevo })
+    aviso(r.nuevo ? 'Cuenta de acceso creada.' : 'Contraseña actualizada.')
+  }
   const set = (k: keyof typeof f, val: string) => setF((a) => ({ ...a, [k]: val }))
   const rol = roles.find((r) => r.id === f.rolId)
   const puedeEditar = puede(perfil, 'empleados', 'editar') || (!emp && puede(perfil, 'empleados', 'crear'))
@@ -322,10 +338,21 @@ function Ficha({ perfil, emp, lista, roles, cerrar, guardado, aviso }: { perfil:
                 )}
                 <div className="mt-3 pt-3 border-t border-slate-100">
                   <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Contraseña de acceso (login sin Google)</label>
-                  <div className="flex gap-2 items-center">
-                    <button type="button" onClick={() => aviso('La contraseña se crea desde Supabase Auth (Authentication → Users) con el correo del empleado. Generarla desde aquí necesita una función del servidor que aún no está conectada.')} className="text-xs font-semibold px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50">Generar contraseña nueva</button>
+                  <div className="flex gap-2 items-center flex-wrap">
+                    <button type="button" onClick={generarClave} disabled={generando} className="text-xs font-semibold px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-60">
+                      {generando ? 'Generando…' : emp.auth_user_id ? 'Generar contraseña nueva' : 'Crear cuenta de acceso'}
+                    </button>
                     <span className="text-[10px] text-slate-400">{emp.auth_user_id ? 'Cuenta vinculada' : 'Todavía sin cuenta de acceso'}</span>
                   </div>
+                  {clave && (
+                    <div className="mt-2 flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-bold text-amber-700 uppercase">{clave.nuevo ? 'Cuenta creada' : 'Contraseña nueva'} · solo se muestra una vez</p>
+                        <code className="text-sm font-bold text-slate-800 select-all">{clave.valor}</code>
+                      </div>
+                      <button type="button" onClick={() => { navigator.clipboard?.writeText(clave.valor); aviso('Contraseña copiada.') }} className="ml-auto text-[10px] font-semibold px-2 py-1 rounded-md border border-amber-300 bg-white hover:bg-amber-100 shrink-0">Copiar</button>
+                    </div>
+                  )}
                 </div>
               </div>
 
