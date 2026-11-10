@@ -119,8 +119,9 @@ type Cuenta = { id: string; plataforma: string; nombre: string }
 export type PiezaMin = { id: string; titulo: string; tipo: string; estado: string; url: string; producto: string }
 const ESTADO_POST = (s: string) => { const t = s.toLowerCase(); return /publish|publicad/.test(t) ? ['Publicada', '#04896f', '#ecfaf5'] : /schedul|program/.test(t) ? ['Programada', '#055c9d', '#eff6ff'] : /fail|error|fall/.test(t) ? ['Falló', '#c0392b', '#fdecea'] : /draft|borrador/.test(t) ? ['Borrador', '#64748b', '#f1f5f9'] : [s || '—', '#64748b', '#f1f5f9'] }
 
-export function Planificador({ perfil, piezas, piezaInicial, limpiarPieza, irConfig, aviso, alSincronizar }: {
+export function Planificador({ perfil, piezas, piezaInicial, limpiarPieza, irConfig, aviso, alSincronizar, abrirAlEntrar, consumirAbrir }: {
   perfil: Perfil; piezas: PiezaMin[]; piezaInicial: PiezaMin | null; limpiarPieza: () => void; irConfig: () => void; aviso: (t: string) => void; alSincronizar: () => void
+  abrirAlEntrar?: boolean; consumirAbrir?: () => void
 }) {
   const [posts, setPosts] = useState<Post[] | null>(null)
   const [cuentas, setCuentas] = useState<Cuenta[]>([])
@@ -149,6 +150,7 @@ export function Planificador({ perfil, piezas, piezaInicial, limpiarPieza, irCon
   }, [alSincronizar])
   useEffect(() => { cargar() }, [cargar])
   useEffect(() => { if (piezaInicial) setNueva(true) }, [piezaInicial])
+  useEffect(() => { if (abrirAlEntrar) { setNueva(true); consumirAbrir?.() } }, [abrirAlEntrar]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function borrar(p: Post) {
     if (!confirm('¿Eliminar esta publicación de Zernio?')) return

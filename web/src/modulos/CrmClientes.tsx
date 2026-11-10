@@ -95,11 +95,13 @@ export function Papelera({ cerrar, alRestaurar, aviso, empresa }: { empresa: 'VI
 }
 
 /* ============== Gestión de Clientes (lista) ============== */
-export function ClientesLista({ perfil, asesores, cerrar, aviso, empresa }: { empresa: 'VIMEDIC' | 'FEMEDICS'; perfil: Perfil; asesores: Asesor[]; cerrar: () => void; aviso: (t: string) => void }) {
+export function ClientesLista({ perfil, asesores, cerrar, aviso, empresa, abrirNuevo, consumirAbrirNuevo }: { empresa: 'VIMEDIC' | 'FEMEDICS'; perfil: Perfil; asesores: Asesor[]; cerrar: () => void; aviso: (t: string) => void; abrirNuevo?: boolean; consumirAbrirNuevo?: () => void }) {
   const [q, setQ] = useState('')
   const [lista, setLista] = useState<Cliente[] | null>(null)
   const [total, setTotal] = useState(0)
   const [editar, setEditar] = useState<Cliente | 'nuevo' | null>(null)
+  // Acceso directo de la barra lateral: "Nuevo cliente" abre el formulario de una vez.
+  useEffect(() => { if (abrirNuevo) { setEditar('nuevo'); consumirAbrirNuevo?.() } }, [abrirNuevo]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const buscar = useCallback(() => {
     const t = q.trim().replace(/[,()%*\\]/g, ' ')

@@ -31,7 +31,7 @@ const siguienteEtapa = (c: { etapa: string; unidades: number }) => {
 const atrasada = (c: Exp) => !!c.eta && c.eta < hoy() && !['Borrador', 'Ingresado', 'En bodega'].includes(c.etapa)
 
 /* ============================ Pantalla principal ============================ */
-export default function Importaciones({ perfil, aviso }: { perfil: Perfil; aviso: (t: string) => void }) {
+export default function Importaciones({ perfil, aviso, accion, limpiarAccion }: { perfil: Perfil; aviso: (t: string) => void; accion?: string | null; limpiarAccion?: () => void }) {
   const [lista, setLista] = useState<Exp[] | null>(null)
   const [proveedores, setProveedores] = useState<{ nombre: string; pais: string | null }[]>([])
   const [error, setError] = useState('')
@@ -46,6 +46,13 @@ export default function Importaciones({ perfil, aviso }: { perfil: Perfil; aviso
   const [deshacer, setDeshacer] = useState<{ texto: string; fn: () => void } | null>(null)
   const timerDeshacer = useRef<number | undefined>(undefined)
   const puedeCrear = puede(perfil, 'importaciones', 'crear')
+
+  // Acceso directo de la barra lateral: "Nuevo ingreso" abre el formulario de una vez.
+  useEffect(() => {
+    if (accion === 'ingreso') setNueva(true)
+    if (accion) limpiarAccion?.()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accion])
 
   const cargar = useCallback(async () => {
     const [e, it, p] = await Promise.all([

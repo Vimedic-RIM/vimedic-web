@@ -80,7 +80,7 @@ const vencido = (g: Gestion) => g.estado !== 'Nuevo' && g.proximoTS > 0 && g.pro
 const conIntento = (e: string) => /seguim|contactad|sin resp|intento/i.test(e)
 
 /* ============================ Pantalla principal ============================ */
-export default function Crm({ perfil, aviso, empresa = 'VIMEDIC' }: { perfil: Perfil; aviso: (t: string) => void; empresa?: 'VIMEDIC' | 'FEMEDICS' }) {
+export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpiarAccion }: { perfil: Perfil; aviso: (t: string) => void; empresa?: 'VIMEDIC' | 'FEMEDICS'; accion?: string | null; limpiarAccion?: () => void }) {
   const mod = empresa === 'FEMEDICS' ? 'femedics' : 'crm'
   const nombreCrm = empresa === 'FEMEDICS' ? 'Femedics CRM' : 'CRM Vimedic'
   const [etapas, setEtapas] = useState<Etapa[]>(ETAPAS_POR_DEFECTO)
@@ -110,7 +110,20 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC' }: { perfil: Pe
   }) // eslint-disable-line @typescript-eslint/no-explicit-any
   const [mover, setMover] = useState<{ key: string; x: number; y: number } | null>(null)
   const [arrastrando, setArrastrando] = useState<string | null>(null)
+  const [clienteNuevo, setClienteNuevo] = useState(false)
   const peticion = useRef(0)
+
+  // Acceso directo de la barra lateral (Rail): abre de una vez el formulario pedido.
+  useEffect(() => {
+    if (!accion || empresa !== 'VIMEDIC') return
+    if (accion === 'gestion') setNueva(true)
+    else if (accion === 'cotizacion') setDocumento({ modo: 'Cotización', origen: null })
+    else if (accion === 'venta') setDocumento({ modo: 'Venta', origen: null })
+    else if (accion === 'cliente') { setClienteNuevo(true); setClientes(true) }
+    else if (accion === 'seguimientos') setPanelAlertas(true)
+    limpiarAccion?.()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accion])
 
   const crear = puede(perfil, mod, 'crear')
   const eliminar = puede(perfil, mod, 'eliminar')
@@ -493,7 +506,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC' }: { perfil: Pe
           cerrar={() => setAbierta(null)} cambiarEstado={cambiarEstado} recargar={cargar} aviso={aviso}
           mod={mod} empresa={empresa} verProforma={setProforma} editarDoc={(row) => { setAbierta(null); setDocumento({ modo: 'Cotización', origen: null, editar: row }) }} facturar={() => abrirVenta(gestiones.find((x) => x.key === abierta)!)} cotizar={() => cotizarDesde(gestiones.find((x) => x.key === abierta)!)} clientes={() => setClientes(true)} />
       )}
-      {clientes && <ClientesLista empresa={empresa} perfil={perfil} asesores={asesores} cerrar={() => setClientes(false)} aviso={aviso} />}
+      {clientes && <ClientesLista empresa={empresa} perfil={perfil} asesores={asesores} cerrar={() => setClientes(false)} aviso={aviso} abrirNuevo={clienteNuevo} consumirAbrirNuevo={() => setClienteNuevo(false)} />}
       {papelera && <Papelera empresa={empresa} cerrar={() => setPapelera(false)} alRestaurar={cargar} aviso={aviso} />}
       {documento && <CrmDocumento empresa={empresa} editar={documento.editar} itemsIniciales={documento.items} modo={documento.modo} perfil={perfil} asesores={asesores} origen={documento.origen} cerrar={() => setDocumento(null)} guardado={(m, doc) => { setDocumento(null); aviso(m); cargar(); setProforma(doc) }} />}
       {proforma && <ProformaVisor datos={proforma} cerrar={() => setProforma(null)} />}

@@ -92,7 +92,7 @@ const baseOpts = (extra: Record<string, unknown> = {}) => ({ responsive: true, m
 const usdTick = { callback: (v: string | number) => '$' + money0(Number(v)) }
 
 /* ============================ Pantalla ============================ */
-export default function Marketing({ perfil, aviso }: { perfil: Perfil; aviso: (t: string) => void }) {
+export default function Marketing({ perfil, aviso, accion, limpiarAccion }: { perfil: Perfil; aviso: (t: string) => void; accion?: string | null; limpiarAccion?: () => void }) {
   const [tab, setTabR] = useState(() => { try { const g = localStorage.getItem('vm_mkt_tab'); return g && g in TITLES ? g : 'resumen' } catch { return 'resumen' } })
   const setTab = (k: string) => { setTabR(k); try { localStorage.setItem('vm_mkt_tab', k) } catch { /* sin almacenamiento */ } }
   const hoy = ecHoy()
@@ -116,6 +116,15 @@ export default function Marketing({ perfil, aviso }: { perfil: Perfil; aviso: (t
   const [piezaProgramar, setPiezaProgramar] = useState<Av | null>(null)
   const [subir, setSubir] = useState(false)
   const [papelera, setPapelera] = useState(false)
+  const [abrirPublicacion, setAbrirPublicacion] = useState(false)
+
+  // Acceso directo de la barra lateral: lleva a la pestaña correcta y abre el formulario de una vez.
+  useEffect(() => {
+    if (accion === 'publicacion') { setTab('planificador'); setAbrirPublicacion(true) }
+    else if (accion === 'audiovisual') { setTab('audiovisual'); setSubir(true) }
+    if (accion) limpiarAccion?.()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accion])
 
   const cargarDatos = useCallback(async () => {
     setCargando(true)
@@ -382,7 +391,7 @@ export default function Marketing({ perfil, aviso }: { perfil: Perfil; aviso: (t
 
         {tab === 'audiovisual' && <Audiovisual piezas={av} cargando={cargando} puedeCrear={puedeCrear} puedeEliminar={puede(perfil, 'marketing', 'eliminar')} recargar={cargarDatos} abrirIdea={() => setNuevaIdea(true)} abrir={setPiezaAbierta} aviso={aviso} subir={() => setSubir(true)} papelera={() => setPapelera(true)} />}
 
-        {tab === 'planificador' && <Planificador perfil={perfil} piezas={(av ?? []).map((a) => ({ id: a.id, titulo: a.titulo, tipo: a.tipo, estado: a.estado, url: a.url, producto: a.producto }))} piezaInicial={piezaProgramar ? { id: piezaProgramar.id, titulo: piezaProgramar.titulo, tipo: piezaProgramar.tipo, estado: piezaProgramar.estado, url: piezaProgramar.url, producto: piezaProgramar.producto } : null} limpiarPieza={() => setPiezaProgramar(null)} irConfig={() => setTab('configuracion')} aviso={aviso} alSincronizar={cargarDatos} />}
+        {tab === 'planificador' && <Planificador perfil={perfil} piezas={(av ?? []).map((a) => ({ id: a.id, titulo: a.titulo, tipo: a.tipo, estado: a.estado, url: a.url, producto: a.producto }))} piezaInicial={piezaProgramar ? { id: piezaProgramar.id, titulo: piezaProgramar.titulo, tipo: piezaProgramar.tipo, estado: piezaProgramar.estado, url: piezaProgramar.url, producto: piezaProgramar.producto } : null} limpiarPieza={() => setPiezaProgramar(null)} irConfig={() => setTab('configuracion')} aviso={aviso} alSincronizar={cargarDatos} abrirAlEntrar={abrirPublicacion} consumirAbrir={() => setAbrirPublicacion(false)} />}
         {tab === 'biblioteca' && <Biblioteca perfil={perfil} aviso={aviso} />}
         {tab === 'revision' && <Revision perfil={perfil} aviso={aviso} />}
         {tab === 'configuracion' && puedeAdmin && <Configuracion aviso={aviso} alCambiar={() => undefined} />}

@@ -43,7 +43,7 @@ function Modal({ titulo, cerrar, children, pie, ancho }: { titulo: React.ReactNo
 const Seg = ({ ops, v, set }: { ops: string[]; v: string; set: (x: string) => void }) => <div className="seg">{ops.map((o) => <button key={o} type="button" className={o === v ? 'on' : ''} onClick={() => set(o)}>{o}</button>)}</div>
 
 /* ============================ Pantalla principal ============================ */
-export default function Agenda({ perfil, aviso }: { perfil: Perfil; aviso: (t: string) => void }) {
+export default function Agenda({ perfil, aviso, accion, limpiarAccion }: { perfil: Perfil; aviso: (t: string) => void; accion?: string | null; limpiarAccion?: () => void }) {
   const [acts, setActs] = useState<Act[] | null>(null)
   const [error, setError] = useState('')
   const [emps, setEmps] = useState<Emp[]>([])
@@ -58,6 +58,13 @@ export default function Agenda({ perfil, aviso }: { perfil: Perfil; aviso: (t: s
   const [menu, setMenu] = useState<'' | 'filtros' | 'grupo' | 'vista' | 'wallet'>('')
   const [alertas, setAlertas] = useState<'' | 'vencidas' | 'devueltas' | 'revisar'>('')
   const [modal, setModal] = useState<{ k: 'form'; act?: Act; fecha?: string } | { k: 'detalle'; id: string } | { k: 'fin'; id: string } | { k: 'dev'; id: string } | { k: 'calif'; id: string } | { k: 'proyectos' } | { k: 'tienda' } | null>(null)
+
+  // Acceso directo de la barra lateral: "Nueva actividad" abre el formulario de una vez.
+  useEffect(() => {
+    if (accion === 'actividad') setModal({ k: 'form' })
+    if (accion) limpiarAccion?.()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accion])
   const [arrastrando, setArrastrando] = useState<string | null>(null)
   const [sobre, setSobre] = useState<string | null>(null)
   const [tick, setTick] = useState(0)
