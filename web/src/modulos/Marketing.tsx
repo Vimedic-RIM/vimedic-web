@@ -2,8 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity, AlertCircle, Award, BadgePercent, BookOpen, CalendarDays, CalendarRange, CheckCircle2, ClipboardCheck, Clapperboard, DollarSign, Download, FileText, Filter, FolderUp,
   GalleryHorizontal as Gallery, Image as ImageIcon, Images, LayoutDashboard, Lightbulb, ListChecks, Megaphone, PenLine, PieChart, Receipt, RefreshCw, Search, Send, ShoppingBag, Smartphone, Palette,
-  Target, TrendingUp, Trash2, UploadCloud, UserCheck, Users, Video, X,
+  Target, TrendingUp, Trash2, UploadCloud, UserCheck, Users, Video, X, Settings,
 } from 'lucide-react'
+import { Configuracion, Planificador, Biblioteca, Revision } from './MarketingIntegraciones'
+import { Anuncios, Material, Promociones } from './MarketingExtra'
+import { SubirMaterial, PapeleraAv } from './MarketingArchivos'
 import { Chart, registerables, type ChartConfiguration } from 'chart.js'
 import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
@@ -45,10 +48,11 @@ const TITLES: Record<string, [string, string]> = {
   audiovisual: ['Audiovisual', 'Espacio de la productora: fotos y videos del día, ideas y estado de cada pieza.'], anuncios: ['Rendimiento publicitario', 'Inversión en anuncios frente a leads y ventas del CRM.'],
   biblioteca: ['Biblioteca de productos', 'Imágenes, fichas técnicas y álbumes de cada equipo.'], material: ['Material de proveedores', 'Fichas técnicas, manuales, certificaciones y videos que suben los proveedores.'],
   revision: ['Revisión del equipo', 'Aprobaciones, cambios aplicados y trabajo de cada persona.'], promociones: ['Promociones', 'Campañas de descuento: Black Friday, liquidaciones y ofertas.'],
+  configuracion: ['Configuración', 'Conecta Zernio (redes sociales) y Gemini (inteligencia artificial).'],
 }
 const NAV: [string, string, typeof LayoutDashboard][] = [
   ['resumen', 'Resumen', LayoutDashboard], ['planificador', 'Planificador', CalendarDays], ['audiovisual', 'Audiovisual', Clapperboard], ['anuncios', 'Anuncios', Megaphone],
-  ['biblioteca', 'Biblioteca', Images], ['material', 'Material de proveedores', FolderUp], ['revision', 'Revisión', ClipboardCheck], ['promociones', 'Promociones', BadgePercent],
+  ['biblioteca', 'Biblioteca', Images], ['material', 'Material de proveedores', FolderUp], ['revision', 'Revisión', ClipboardCheck], ['promociones', 'Promociones', BadgePercent], ['configuracion', 'Configuración', Settings],
 ]
 const AV_COLOR: Record<string, string> = { Idea: '#94a3b8', 'En producción': '#c98a1f', 'En edición': '#7c3aed', Listo: '#17a9ba', Programado: '#055c9d', Publicado: '#04896f' }
 const AV_ESTADOS = ['Idea', 'En producción', 'En edición', 'Listo', 'Programado', 'Publicado']
@@ -60,6 +64,19 @@ type Prof = { f: string; monto: number }
 type Lead = { f: string; medio: string; anuncio: string }
 type Av = { id: string; codigo: string; fecha: string; titulo: string; tipo: string; estado: string; campana: string; notas: string; responsable: string; responsableId: string | null; producto: string; tamano: number | null; url: string; mime: string }
 type Datos = { ventas: Venta[]; proformas: Prof[]; leads: Lead[] }
+
+/* Supabase devuelve como máximo 1.000 filas por consulta: se pide por tandas hasta traer todo. */
+type Pag = PromiseLike<{ data: unknown[] | null; error: { message: string } | null; count?: number | null }>
+async function paginar(q: (a: number, z: number) => Pag, max = 30000): Promise<{ data: unknown[]; error: { message: string } | null }> {
+  // La primera tanda trae el total; las demás se piden a la vez (mucho más rápido que una tras otra).
+  const p0 = await q(0, 999)
+  if (p0.error) return { data: [], error: p0.error }
+  const out: unknown[] = [...(p0.data ?? [])], total = Math.min(p0.count ?? out.length, max)
+  if (total <= 1000 || out.length < 1000) return { data: out, error: null }
+  const resto = await Promise.all(Array.from({ length: Math.ceil(total / 1000) - 1 }, (_, i) => q((i + 1) * 1000, (i + 1) * 1000 + 999)))
+  for (const r of resto) { if (r.error) return { data: out, error: r.error }; out.push(...(r.data ?? [])) }
+  return { data: out, error: null }
+}
 
 /* ============================ Gráfico (Chart.js) ============================ */
 function Grafico({ id, config }: { id: string; config: ChartConfiguration | null }) {
@@ -76,7 +93,8 @@ const usdTick = { callback: (v: string | number) => '$' + money0(Number(v)) }
 
 /* ============================ Pantalla ============================ */
 export default function Marketing({ perfil, aviso }: { perfil: Perfil; aviso: (t: string) => void }) {
-  const [tab, setTab] = useState('resumen')
+  const [tab, setTabR] = useState(() => { try { const g = localStorage.getItem('vm_mkt_tab'); return g && g in TITLES ? g : 'resumen' } catch { return 'resumen' } })
+  const setTab = (k: string) => { setTabR(k); try { localStorage.setItem('vm_mkt_tab', k) } catch { /* sin almacenamiento */ } }
   const hoy = ecHoy()
   const [desde, setDesde] = useState(hoy.slice(0, 7) + '-01')
   const [hasta, setHasta] = useState(hoy)
@@ -94,14 +112,18 @@ export default function Marketing({ perfil, aviso }: { perfil: Perfil; aviso: (t
   const [nuevaIdea, setNuevaIdea] = useState(false)
   const [piezaAbierta, setPiezaAbierta] = useState<Av | null>(null)
   const puedeCrear = puede(perfil, 'marketing', 'crear')
+  const puedeAdmin = puede(perfil, 'marketing', 'administrar')
+  const [piezaProgramar, setPiezaProgramar] = useState<Av | null>(null)
+  const [subir, setSubir] = useState(false)
+  const [papelera, setPapelera] = useState(false)
 
   const cargarDatos = useCallback(async () => {
     setCargando(true)
     const desde12 = keyAdd(monthKeys(hasta, 12)[0] + '-01', 0) + 'T00:00:00-05:00'
     const [f, c, l, a, cg] = await Promise.all([
-      supabase.from('facturas').select('codigo,estado,created_at,fecha_ganado,numero_contifico,medio_captacion_venta,subtotal,total,items,cliente:clientes(nombre),cotizacion:cotizaciones(nombre),asesor:empleados!asesor_id(nombre)').is('deleted_at', null).gte('created_at', desde12).limit(5000),
-      supabase.from('cotizaciones').select('fecha,total').is('deleted_at', null).gte('fecha', desde12).limit(5000),
-      supabase.from('leads').select('fecha,medio_captacion,anuncio').is('deleted_at', null).gte('fecha', desde12).limit(5000),
+      paginar((a, z) => supabase.from('facturas').select('codigo,estado,created_at,fecha_ganado,numero_contifico,medio_captacion_venta,subtotal,total,items,cliente:clientes(nombre),cotizacion:cotizaciones(nombre),asesor:empleados!asesor_id(nombre)', { count: 'exact' }).eq('empresa', 'VIMEDIC').is('deleted_at', null).or('fecha_ganado.gte.' + desde12.slice(0, 10) + ',and(fecha_ganado.is.null,created_at.gte.' + desde12 + ')').order('id').range(a, z)),
+      paginar((a, z) => supabase.from('cotizaciones').select('fecha,total', { count: 'exact' }).eq('empresa', 'VIMEDIC').is('deleted_at', null).gte('fecha', desde12).order('id').range(a, z)),
+      paginar((a, z) => supabase.from('leads').select('fecha,medio_captacion,anuncio', { count: 'exact' }).eq('empresa', 'VIMEDIC').is('deleted_at', null).gte('fecha', desde12).order('id').range(a, z)),
       supabase.from('audiovisual').select('id,codigo,fecha,titulo,tipo,estado,campana,notas,responsable_id,tamano_mb,archivo_url,mime,responsable:empleados!responsable_id(nombre),producto:productos(codigo,nombre)').is('deleted_at', null).order('fecha', { ascending: false }).limit(1000),
       supabase.from('catalogos_generados').select('fecha,cliente_texto,formato,precios,segmentos,n_productos,paginas,asesor:empleados!asesor_id(nombre)').is('deleted_at', null).gte('fecha', desde12).order('fecha', { ascending: false }).limit(1000),
     ])
@@ -146,14 +168,20 @@ export default function Marketing({ perfil, aviso }: { perfil: Perfil; aviso: (t
   const AVp = useMemo(() => (av ?? []).filter((a) => enPeriodo(ecKey(a.fecha))), [av, desde, hasta]) // eslint-disable-line react-hooks/exhaustive-deps
   const totalV = V.reduce((s, v) => s + v.base, 0), mkV = V.filter((v) => esMk(v.canal)), totalMk = mkV.reduce((s, v) => s + v.base, 0)
   const valorP = P.reduce((s, p) => s + p.monto, 0), sinMedio = V.filter((v) => v.canal === 'Sin medio').length, leadsPub = L.filter((l) => canal(l.medio) === 'Publicidad pagada').length
-  const kpis = [
-    { l: 'Ventas del período', v: '$' + money0(totalV), s: 'antes de IVA', i: DollarSign, c: 'var(--teal)' },
-    { l: 'Nº de ventas', v: V.length, s: 'Facturación', i: Receipt, c: 'var(--primary)' },
-    { l: 'Ventas marketing', v: '$' + money0(totalMk), s: `${totalV ? Math.round((totalMk / totalV) * 100) : 0}% del total · ${mkV.length} ventas`, i: Megaphone, c: 'var(--violet)' },
-    { l: 'Ticket promedio', v: '$' + money0(V.length ? totalV / V.length : 0), s: 'por venta', i: ShoppingBag, c: 'var(--navy)' },
-    { l: 'Proformas', v: P.length, s: '$' + money0(valorP) + ' proformado', i: FileText, c: 'var(--cyan)' },
+  const diasP = Math.max(1, Math.round((Date.parse(hasta) - Date.parse(desde)) / 864e5) + 1), pHasta = keyAdd(desde, -1), pDesde = keyAdd(desde, -diasP)
+  const hayPrev = pDesde >= monthKeys(hasta, 12)[0] + '-01'
+  const enPrev = (f: string) => f >= pDesde && f <= pHasta
+  const Vp = hayPrev ? (datos?.ventas ?? []).filter((v) => enPrev(v.f)) : [], Pp = hayPrev ? (datos?.proformas ?? []).filter((p) => enPrev(p.f)) : [], Lp = hayPrev ? (datos?.leads ?? []).filter((l) => enPrev(l.f)) : []
+  const totalVp = Vp.reduce((s, v) => s + v.base, 0), totalMkp = Vp.filter((v) => esMk(v.canal)).reduce((s, v) => s + v.base, 0)
+  const delta = (a: number, b: number) => (hayPrev && b > 0 ? Math.round(((a - b) / b) * 100) : null)
+  const kpis: { l: string; v: string | number; s: string; i: typeof Activity; c: string; d?: number | null }[] = [
+    { l: 'Ventas del período', v: '$' + money0(totalV), s: 'antes de IVA', i: DollarSign, c: 'var(--teal)', d: delta(totalV, totalVp) },
+    { l: 'Nº de ventas', v: V.length, s: 'Facturación', i: Receipt, c: 'var(--primary)', d: delta(V.length, Vp.length) },
+    { l: 'Ventas marketing', v: '$' + money0(totalMk), s: `${totalV ? Math.round((totalMk / totalV) * 100) : 0}% del total · ${mkV.length} ventas`, i: Megaphone, c: 'var(--violet)', d: delta(totalMk, totalMkp) },
+    { l: 'Ticket promedio', v: '$' + money0(V.length ? totalV / V.length : 0), s: 'por venta', i: ShoppingBag, c: 'var(--navy)', d: delta(V.length ? totalV / V.length : 0, Vp.length ? totalVp / Vp.length : 0) },
+    { l: 'Proformas', v: P.length, s: '$' + money0(valorP) + ' proformado', i: FileText, c: 'var(--cyan)', d: delta(P.length, Pp.length) },
     { l: 'Conversión', v: (P.length ? Math.round((V.length / P.length) * 100) : 0) + '%', s: 'ventas / proformas', i: TrendingUp, c: 'var(--teal)' },
-    { l: 'Leads', v: L.length, s: leadsPub + ' de publicidad', i: Users, c: 'var(--amber)' },
+    { l: 'Leads', v: L.length, s: leadsPub + ' de publicidad', i: Users, c: 'var(--amber)', d: delta(L.length, Lp.length) },
     { l: 'Piezas producidas', v: AVp.filter((a) => a.estado !== 'Idea').length, s: `${AVp.filter((a) => /Foto|Carrusel|Diseño/.test(a.tipo)).length} fotos · ${AVp.filter((a) => /Video|Reel|Historia/.test(a.tipo)).length} videos`, i: Clapperboard, c: '#e1306c' },
     { l: 'Piezas publicadas', v: AVp.filter((a) => a.estado === 'Publicado').length, s: `${AVp.length ? Math.round((AVp.filter((a) => a.estado === 'Publicado').length / AVp.length) * 100) : 0}% del material · ${AVp.filter((a) => a.estado === 'Listo').length} listas`, i: Send, c: 'var(--primary)' },
     { l: 'Ventas sin medio', v: sinMedio, s: 'completa el medio en el CRM', i: AlertCircle, c: 'var(--red)' },
@@ -244,9 +272,9 @@ export default function Marketing({ perfil, aviso }: { perfil: Perfil; aviso: (t
   return (
     <div className="vm-mkt">
       <nav id="sideNav" aria-label="Secciones de Marketing">
-        {NAV.map(([k, t, I]) => <button key={k} type="button" className={'nav-btn' + (tab === k ? ' active' : '')} data-tip={t} aria-label={t} onClick={() => setTab(k)}><I /></button>)}
+        {NAV.filter(([k]) => k !== 'configuracion' || puedeAdmin).map(([k, t, I]) => <button key={k} type="button" className={'nav-btn' + (tab === k ? ' active' : '')} data-tip={t} aria-label={t} onClick={() => setTab(k)}><I /></button>)}
         <div className="nav-sep" />
-        {puedeCrear && <button type="button" className="nav-btn create" data-tip="Crear publicación" aria-label="Crear publicación" onClick={() => aviso('Crear publicaciones se activa al conectar Zernio (redes sociales).')}><PenLine /></button>}
+        {puedeCrear && <button type="button" className="nav-btn create" data-tip="Crear publicación" aria-label="Crear publicación" onClick={() => setTab('planificador')}><PenLine /></button>}
         <button type="button" className="nav-btn" data-tip="Actualizar" aria-label="Actualizar" onClick={cargarDatos}><RefreshCw /></button>
       </nav>
 
@@ -276,7 +304,7 @@ export default function Marketing({ perfil, aviso }: { perfil: Perfil; aviso: (t
               {kpis.map((c) => { const I = c.i; return (
                 <div key={c.l} className="stat-card bg-white rounded-2xl border border-slate-200 p-3.5 shadow-sm">
                   <div className="w-8 h-8 rounded-lg flex items-center justify-center mb-2" style={{ background: c.c + '1A', color: c.c }}><I className="w-4 h-4" /></div>
-                  <p className="font-display font-bold text-xl text-slate-800 truncate">{c.v}</p><p className="text-[10px] font-semibold text-slate-500 uppercase font-mono-spec">{c.l}</p><p className="text-[10px] text-slate-400 mt-0.5 truncate" title={c.s}>{c.s}</p>
+                  <p className="font-display font-bold text-xl text-slate-800 truncate flex items-baseline gap-1.5">{c.v}{c.d != null && <span className="text-[10px] font-bold" style={{ color: c.d >= 0 ? '#04896f' : '#c0392b' }} title="Frente al período anterior de igual duración">{c.d >= 0 ? '▲' : '▼'} {Math.abs(c.d)}%</span>}</p><p className="text-[10px] font-semibold text-slate-500 uppercase font-mono-spec">{c.l}</p><p className="text-[10px] text-slate-400 mt-0.5 truncate" title={c.s}>{c.s}</p>
                 </div>) })}
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
@@ -352,26 +380,38 @@ export default function Marketing({ perfil, aviso }: { perfil: Perfil; aviso: (t
           </section>
         )}
 
-        {tab === 'audiovisual' && <Audiovisual piezas={av} cargando={cargando} puedeCrear={puedeCrear} puedeEliminar={puede(perfil, 'marketing', 'eliminar')} recargar={cargarDatos} abrirIdea={() => setNuevaIdea(true)} abrir={setPiezaAbierta} aviso={aviso} />}
+        {tab === 'audiovisual' && <Audiovisual piezas={av} cargando={cargando} puedeCrear={puedeCrear} puedeEliminar={puede(perfil, 'marketing', 'eliminar')} recargar={cargarDatos} abrirIdea={() => setNuevaIdea(true)} abrir={setPiezaAbierta} aviso={aviso} subir={() => setSubir(true)} papelera={() => setPapelera(true)} />}
 
-        {!['resumen', 'audiovisual'].includes(tab) && (
+        {tab === 'planificador' && <Planificador perfil={perfil} piezas={(av ?? []).map((a) => ({ id: a.id, titulo: a.titulo, tipo: a.tipo, estado: a.estado, url: a.url, producto: a.producto }))} piezaInicial={piezaProgramar ? { id: piezaProgramar.id, titulo: piezaProgramar.titulo, tipo: piezaProgramar.tipo, estado: piezaProgramar.estado, url: piezaProgramar.url, producto: piezaProgramar.producto } : null} limpiarPieza={() => setPiezaProgramar(null)} irConfig={() => setTab('configuracion')} aviso={aviso} alSincronizar={cargarDatos} />}
+        {tab === 'biblioteca' && <Biblioteca perfil={perfil} aviso={aviso} />}
+        {tab === 'revision' && <Revision perfil={perfil} aviso={aviso} />}
+        {tab === 'configuracion' && puedeAdmin && <Configuracion aviso={aviso} alCambiar={() => undefined} />}
+
+        {tab === 'anuncios' && <Anuncios perfil={perfil} desde={desde} hasta={hasta} aviso={aviso} />}
+        {tab === 'material' && <Material perfil={perfil} aviso={aviso} />}
+        {tab === 'promociones' && <Promociones perfil={perfil} aviso={aviso} />}
+
+        {false && (
           <section>
             <div className="card p-10 text-center">
               <p className="text-3xl">🛠️</p><p className="text-sm font-bold text-slate-700 mt-2">{titulo}</p>
-              <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">Esta sección se está migrando. {tab === 'planificador' || tab === 'anuncios' ? 'Necesita la conexión con Zernio (redes sociales y anuncios), que todavía no está configurada.' : 'Sigue disponible en la app actual.'}</p>
+              <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">Esta sección se está migrando. {tab === 'anuncios' ? 'Los datos de anuncios (inversión, alcance) llegarán de la API de Meta Ads; hoy el cruce de leads por anuncio está en Resumen.' : 'Sigue disponible en la app actual.'}</p>
             </div>
           </section>
         )}
       </main>
 
+      {subir && <SubirMaterial perfil={perfil} cerrar={() => setSubir(false)} hecho={() => { cargarDatos(); aviso('Material subido.') }} />}
+      {papelera && <PapeleraAv cerrar={() => setPapelera(false)} restaurado={cargarDatos} />}
       {nuevaIdea && <ModalIdea perfil={perfil} cerrar={() => setNuevaIdea(false)} guardado={() => { setNuevaIdea(false); aviso('Idea registrada.'); cargarDatos() }} />}
-      {piezaAbierta && <ModalPieza pieza={piezaAbierta} puedeEditar={puede(perfil, 'marketing', 'editar')} cerrar={() => setPiezaAbierta(null)} guardado={() => { setPiezaAbierta(null); cargarDatos() }} aviso={aviso} />}
+      {piezaAbierta && <ModalPieza programar={puedeCrear ? () => { setPiezaProgramar(piezaAbierta); setPiezaAbierta(null); setTab('planificador') } : undefined} pieza={piezaAbierta} puedeEditar={puede(perfil, 'marketing', 'editar')} cerrar={() => setPiezaAbierta(null)} guardado={() => { setPiezaAbierta(null); cargarDatos() }} aviso={aviso} />}
     </div>
   )
 }
 
 /* ============================ Audiovisual ============================ */
-function Audiovisual({ piezas, cargando, puedeCrear, puedeEliminar, recargar, abrirIdea, abrir, aviso }: {
+function Audiovisual({ piezas, cargando, puedeCrear, puedeEliminar, recargar, abrirIdea, abrir, aviso, subir, papelera }: {
+  subir: () => void; papelera: () => void
   piezas: Av[] | null; cargando: boolean; puedeCrear: boolean; puedeEliminar: boolean; recargar: () => void; abrirIdea: () => void; abrir: (a: Av) => void; aviso: (t: string) => void
 }) {
   const [q, setQ] = useState('')
@@ -438,8 +478,8 @@ function Audiovisual({ piezas, cargando, puedeCrear, puedeEliminar, recargar, ab
         <select value={resp} onChange={(e) => setResp(e.target.value)} className="inp" aria-label="Responsable"><option value="">Todo el equipo</option>{responsables.map((t) => <option key={t}>{t}</option>)}</select>
         <div className="seg ml-auto"><button type="button" className={vista === 'gallery' ? 'active' : ''} onClick={() => setVista('gallery')}>Galería</button><button type="button" className={vista === 'board' ? 'active' : ''} onClick={() => setVista('board')}>Tablero</button></div>
         {puedeCrear && <button type="button" className="btn" onClick={abrirIdea}><Lightbulb />Nueva idea</button>}
-        {puedeCrear && <button type="button" className="btn btn-primary" onClick={() => aviso('Subir archivos se activa al conectar el almacenamiento (Drive / R2).')}><UploadCloud />Subir material</button>}
-        {puedeEliminar && <button type="button" className="btn" onClick={() => aviso('La papelera de Marketing se está migrando.')} title="Piezas eliminadas"><Trash2 />Papelera</button>}
+        {puedeCrear && <button type="button" className="btn btn-primary" onClick={subir}><UploadCloud />Subir material</button>}
+        {puedeEliminar && <button type="button" className="btn" onClick={papelera} title="Piezas eliminadas"><Trash2 />Papelera</button>}
       </div>
       <p className="text-[11px] text-slate-500 mb-2" role="status">{cargando && !piezas ? 'Cargando material…' : ''}</p>
       <div className="rounded-2xl">
@@ -494,7 +534,7 @@ function ModalIdea({ perfil, cerrar, guardado }: { perfil: Perfil; cerrar: () =>
     </Ventana>
   )
 }
-function ModalPieza({ pieza, puedeEditar, cerrar, guardado, aviso }: { pieza: Av; puedeEditar: boolean; cerrar: () => void; guardado: () => void; aviso: (t: string) => void }) {
+function ModalPieza({ pieza, puedeEditar, cerrar, guardado, aviso, programar }: { programar?: () => void; pieza: Av; puedeEditar: boolean; cerrar: () => void; guardado: () => void; aviso: (t: string) => void }) {
   const [t, setT] = useState(pieza.titulo); const [tipo, setTipo] = useState(pieza.tipo || 'Foto'); const [estado, setEstado] = useState(pieza.estado); const [campana, setCampana] = useState(pieza.campana); const [notas, setNotas] = useState(pieza.notas)
   const [guardando, setGuardando] = useState(false)
   async function guardar() {
@@ -510,7 +550,7 @@ function ModalPieza({ pieza, puedeEditar, cerrar, guardado, aviso }: { pieza: Av
     aviso('Pieza enviada a la papelera.'); guardado()
   }
   return (
-    <Ventana titulo={pieza.codigo ? `Pieza · ${pieza.codigo}` : 'Pieza'} cerrar={cerrar} pie={<>{puedeEditar && <button onClick={eliminar} className="btn" style={{ color: '#b91c1c', borderColor: '#fecaca' }}><Trash2 />Eliminar</button>}<button onClick={guardar} disabled={guardando || !puedeEditar} className="btn btn-primary flex-1 justify-center">{guardando ? 'Guardando…' : 'Guardar cambios'}</button></>}>
+    <Ventana titulo={pieza.codigo ? `Pieza · ${pieza.codigo}` : 'Pieza'} cerrar={cerrar} pie={<>{programar && <button onClick={programar} className="btn"><Send />Programar</button>}{puedeEditar && <button onClick={eliminar} className="btn" style={{ color: '#b91c1c', borderColor: '#fecaca' }}><Trash2 />Eliminar</button>}<button onClick={guardar} disabled={guardando || !puedeEditar} className="btn btn-primary flex-1 justify-center">{guardando ? 'Guardando…' : 'Guardar cambios'}</button></>}>
       <label className="block text-[11px] font-bold text-slate-500">Título<input value={t} onChange={(e) => setT(e.target.value)} className="inp w-full mt-1" disabled={!puedeEditar} /></label>
       <div className="grid grid-cols-2 gap-3">
         <label className="block text-[11px] font-bold text-slate-500">Tipo<select value={tipo} onChange={(e) => setTipo(e.target.value)} className="inp w-full mt-1" disabled={!puedeEditar}>{AV_TIPOS.map((x) => <option key={x}>{x}</option>)}</select></label>

@@ -3,6 +3,7 @@ import type { Session } from '@supabase/supabase-js'
 import { supabase, type Perfil } from './supabase'
 import { puede } from './permisos'
 import Login from './Login'
+import MfaChallenge from './MfaChallenge'
 import MiEspacio from './MiEspacio'
 import Rail from './Rail'
 import { MODULOS } from './modulos'
@@ -49,7 +50,9 @@ function Cargando({ texto }: { texto: string }) {
 export default function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined)
   const [perfil, setPerfil] = useState<Perfil | null | undefined>(undefined)
-  const [vista, setVista] = useState(window.location.hash.slice(1))
+  // Verificación en dos pasos: null = comprobando, true = falta el código (aal1→aal2), false = ya está al día.
+  const [faltaMfa, setFaltaMfa] = useState<boolean | null>(null)
+  const [vistaHash, setVista] = useState(window.location.hash.slice(1))
   const [aviso, setAviso] = useState('')
   const temporizador = useRef<number | undefined>(undefined)
   const avisar = (t: string) => {
@@ -71,15 +74,24 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (!session) { setPerfil(session === null ? null : undefined); return }
-    supabase.rpc('mi_perfil').then(({ data }) => setPerfil((data as Perfil | null) ?? null))
+    if (!session) { setPerfil(session === null ? null : undefined); setFaltaMfa(null); return }
+    supabase.auth.mfa.getAuthenticatorAssuranceLevel().then(({ data }) => setFaltaMfa(!!data && data.nextLevel === 'aal2' && data.currentLevel !== data.nextLevel))
   }, [session])
+
+  useEffect(() => {
+    if (!session || faltaMfa) { if (faltaMfa) setPerfil(undefined); return }
+    supabase.rpc('mi_perfil').then(({ data }) => setPerfil((data as Perfil | null) ?? null))
+  }, [session, faltaMfa])
 
   if (session === undefined) return <Cargando texto="Cargando…" />
   if (!session) return <Login />
+  if (faltaMfa === null) return <Cargando texto="Cargando…" />
+  if (faltaMfa) return <MfaChallenge onOk={() => setFaltaMfa(false)} />
   if (perfil === undefined) return <Cargando texto="Cargando tu perfil…" />
   if (!perfil) return <SinAcceso />
 
+  // Sin módulo elegido se entra directo a Inventario (todos tienen acceso); Mi Espacio queda solo como respaldo sin permiso.
+  const vista = vistaHash || (puede(perfil, 'inventario', 'ver') ? 'inventario' : '')
   const abrir = (id: string) => { window.location.hash = id }
   const volver = () => { window.location.hash = '' }
 

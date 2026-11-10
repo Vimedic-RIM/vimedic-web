@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ArrowDownAZ, ArrowRight, BadgeCheck, CircleCheck, ClipboardList, PlusCircle, ShoppingCart, BadgeDollarSign, Barcode, Boxes, Check, ChevronDown, ChevronUp,
+  GripVertical, Move, RotateCcw, Ship, ArrowDownAZ, ArrowRight, BadgeCheck, CircleCheck, ClipboardList, PlusCircle, ShoppingCart, BadgeDollarSign, Barcode, Boxes, Check, ChevronDown, ChevronUp,
   ChevronsUpDown, ClipboardCopy, Download, Eraser, Eye, EyeOff, FileText, Hash, ImagePlus, Images, LayoutGrid,
   Package, PackagePlus, PackageX, PanelsTopLeft, Pencil, Plus, RefreshCw, Search, SlidersHorizontal, Table2, Tag,
   Trash2, TriangleAlert, X,
@@ -97,14 +97,64 @@ async function copiar(p: Fila, tipo: 'pvp' | 'dis', btn: HTMLElement | null) {
   if (btn) { btn.classList.add('inv-copied'); setTimeout(() => btn.classList.remove('inv-copied'), 1400) }
 }
 
+/* ---------- Estado del stock: en revisión / en reparación / por llegar (vmInvEstadoStock de la app original) ---------- */
+type ImpProd = { codigo: string; nombre: string; etapa: string; eta: string; llegada: string; enCamino: number; enRevision: number; enST: number }
+type Est = { revision: number; reparacion: number; porLlegar: number; eta: string; imps: ImpProd[] }
+type ImpResumen = { codigo: string; nombre: string; etapa: string; eta: string; llegada: string; productos: Record<string, number>; nuevos: number }
+const EstCtx = createContext<{ est: Record<string, Est>; verImp: (codigo: string) => void }>({ est: {}, verImp: () => undefined })
+const fechaC = (s: string) => (s ? s.slice(8, 10) + '/' + s.slice(5, 7) + '/' + s.slice(0, 4) : '')
+/** Marco del producto: ámbar si llegó algo sin verificar, azul si solo viene en camino. */
+const marcoEst = (e?: Est) => (e ? (e.revision ? 'inv-hl-rev' : e.porLlegar ? 'inv-hl-lle' : '') : '')
+
+function Banda({ p }: { p: { id: string } }) {
+  const e = useContext(EstCtx).est[p.id]
+  if (!e) return null
+  if (e.revision) return <div className="inv-hl-band rev">En revisión{e.porLlegar ? ' · +' + e.porLlegar + ' por llegar' : ''}</div>
+  if (e.porLlegar) return <div className="inv-hl-band lle">Por llegar {e.porLlegar}{e.eta ? ' · ' + fechaC(e.eta).slice(0, 5) : ''}</div>
+  return null
+}
+
+/** Próximas importaciones del producto con la nota obligatoria (sin proveedor ni costos). */
+function ImpLista({ id }: { id: string }) {
+  const { est, verImp } = useContext(EstCtx)
+  const e = est[id]
+  if (!e || !e.imps.length) return null
+  return (
+    <div className="inv-imp-box">
+      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Próximas importaciones de este producto</p>
+      <div className="inv-imp-nota"><span>⚠</span><div><b>Unidades pendientes de verificación.</b> Aún no han sido revisadas por Bodega ni por Servicio Técnico. Antes de ofrecerlas o comprometer una fecha de entrega, confirma su estado y disponibilidad con el área correspondiente.</div></div>
+      {e.imps.map((i) => {
+        const llego = i.etapa === 'En bodega'
+        const f = llego ? (i.llegada ? 'Llegó a bodega el ' + fechaC(i.llegada) : 'Ya está en bodega') : (i.eta ? 'Llegada aproximada: ' + fechaC(i.eta) : 'Fecha de llegada por confirmar')
+        return (
+          <div className="inv-imp-row" key={i.codigo}>
+            <div className="min-w-0 flex-1"><b className="text-slate-800">{f}</b><div className="text-[11px] text-slate-500">{i.codigo}{i.nombre && i.nombre !== i.codigo ? ' · ' + i.nombre : ''}</div></div>
+            <button type="button" className="inv-imp-ver" onClick={(ev) => { ev.stopPropagation(); verImp(i.codigo) }}>Ver sus productos</button>
+            <div className="text-right shrink-0">
+              {i.enCamino > 0 && <span className="inv-ub ub-lle">{i.enCamino} por llegar</span>}
+              {i.enRevision > 0 && <> <span className="inv-ub ub-rev">{i.enRevision} en revisión</span></>}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 /* ---------- Etiquetas de stock (mismas que la app original) ---------- */
-function UbicStock({ p, grande }: { p: { stock: number }; grande?: boolean }) {
+function UbicStock({ p, grande }: { p: { id: string; stock: number }; grande?: boolean }) {
   const st = Number(p.stock) || 0
+  const e = useContext(EstCtx).est[p.id]
   const c = grande ? ' inv-ub-lg' : ''
   return (
-    <span className={'inv-ub' + c + ' ' + (st > 0 ? 'ub-st' : 'ub-st0')} title={st < 0 ? 'Se facturó más de lo que hay en bodega' : undefined}>
-      {st > 0 ? `${st} en stock` : st < 0 ? `${st} en stock (facturado sin stock)` : grande ? '0 en stock' : 'Sin stock'}
-    </span>
+    <>
+      <span className={'inv-ub' + c + ' ' + (st > 0 ? 'ub-st' : 'ub-st0')} title={st < 0 ? 'Se facturó más de lo que hay en bodega' : undefined}>
+        {st > 0 ? `${st} en stock` : st < 0 ? `${st} en stock (facturado sin stock)` : grande ? '0 en stock' : 'Sin stock'}
+      </span>
+      {e?.revision ? <span className={'inv-ub' + c + ' ub-rev'}>{e.revision} en revisión</span> : null}
+      {e?.reparacion ? <span className={'inv-ub' + c + ' ub-rep'}>{e.reparacion} en reparación</span> : null}
+      {grande && e?.porLlegar ? <span className={'inv-ub' + c + ' ub-lle'}>{e.porLlegar} por llegar</span> : null}
+    </>
   )
 }
 
@@ -114,17 +164,34 @@ function Nuevo({ p, extra }: { p: Fila; extra?: string }) {
 }
 
 /* ---------- Tarjeta ---------- */
-function Tarjeta({ p, abrir, car }: { p: Fila; abrir: (id: string) => void; car: Carrito | null }) {
+type Orden_ = { arrastrar: (id: string) => void; soltar: (id: string) => void }
+function Tarjeta({ p, abrir, car, alternar, reordenar }: { p: Fila; abrir: (id: string) => void; car: Carrito | null; alternar?: (p: Fila) => void; reordenar?: Orden_ }) {
   const act = !inactivo(p)
   const n = car?.cant(p.id) ?? 0
+  const marco = marcoEst(useContext(EstCtx).est[p.id])
+  if (reordenar) {
+    return (
+      <div className="row-card relative bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col" style={{ cursor: 'grab', opacity: act ? 1 : 0.55 }} draggable
+        onDragStart={() => reordenar.arrastrar(p.id)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); reordenar.soltar(p.id) }}>
+        <div className="absolute z-10 m-1.5 flex items-center justify-center text-slate-400 bg-white/90 rounded-md p-0.5"><GripVertical className="w-3.5 h-3.5" /></div>
+        {p.imagen_url ? <img loading="lazy" decoding="async" src={imagen(p.imagen_url, 240)} className="w-full aspect-square object-cover bg-slate-50 border-b border-slate-100 pointer-events-none" alt="" /> : <div className="w-full aspect-square bg-slate-50 border-b border-slate-100" />}
+        <div className="p-2"><p className="text-[9px] font-mono-spec text-slate-400 truncate">{p.codigo}</p><p className="text-xs font-bold text-slate-800 leading-snug line-clamp-2">{p.nombre}</p></div>
+      </div>
+    )
+  }
   return (
-    <div className={'row-card inv-card relative bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col' + (n ? ' is-added' : '')} onClick={() => abrir(p.id)} title="Ver detalles" style={act ? undefined : { opacity: 0.55 }}>
+    <div className={'row-card inv-card relative bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col' + (n ? ' is-added' : '') + (marco ? ' ' + marco : '')} onClick={() => abrir(p.id)} title="Ver detalles" style={act ? undefined : { opacity: 0.55 }}>
       <div className="relative shrink-0">
         {p.imagen_url
           ? <img loading="lazy" decoding="async" src={imagen(p.imagen_url, 320)}onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} className="w-full aspect-square object-cover bg-slate-50 border-b border-slate-100" alt="" />
           : <div className="w-full aspect-square bg-slate-50 border-b border-slate-100" />}
         <span className="inv-added"><Check /><span className="inv-added-n">Agregado{n > 1 ? ' ×' + n : ''}</span></span>
         <Nuevo p={p} extra="absolute bottom-1.5 left-1.5 shadow" />
+        {alternar && (
+          <button type="button" onClick={(e) => { e.stopPropagation(); alternar(p) }} title={act ? 'Inactivar producto' : 'Activar producto'} className="absolute top-1.5 left-1.5 bg-white p-1 rounded-md shadow border border-slate-200" style={{ color: act ? '#04896f' : '#c0392b' }}>
+            {act ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+          </button>
+        )}
         <div className="absolute top-1.5 right-1.5 flex flex-col gap-1">
           {p.ficha_tecnica_url && (
             <a href={p.ficha_tecnica_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} title="Ficha Técnica" className="bg-white/90 hover:bg-white p-1.5 rounded-lg shadow-sm border border-slate-200 transition-colors" style={{ color: 'var(--primary)' }}><FileText className="w-3.5 h-3.5" /></a>
@@ -134,6 +201,7 @@ function Tarjeta({ p, abrir, car }: { p: Fila; abrir: (id: string) => void; car:
           )}
         </div>
       </div>
+      <Banda p={p} />
       <div className="p-2 flex flex-col flex-grow">
         <p className="text-[9px] font-mono-spec text-slate-400 truncate">{p.codigo}</p>
         <p className="text-xs font-bold text-slate-800 leading-snug line-clamp-2 min-h-[2.2em]">{p.nombre}</p>
@@ -166,13 +234,26 @@ function Tarjeta({ p, abrir, car }: { p: Fila; abrir: (id: string) => void; car:
 }
 
 /* ---------- Fila de tabla ---------- */
+function TablaEst({ id }: { id: string }) {
+  const e = useContext(EstCtx).est[id]
+  if (!e) return null
+  return (
+    <>
+      {e.revision > 0 && <span className="inv-ub ub-rev">{e.revision} en revisión</span>}
+      {e.reparacion > 0 && <span className="inv-ub ub-rep">{e.reparacion} en reparación</span>}
+      {e.porLlegar > 0 && <span className="inv-ub ub-lle">{e.porLlegar} por llegar</span>}
+    </>
+  )
+}
+
 function FilaTabla({ p, sel, click, car }: { p: Fila; sel: boolean; click: (id: string) => void; car: Carrito | null }) {
   const n = car?.cant(p.id) ?? 0
   const act = !inactivo(p)
   const stockNum = Number(p.stock) || 0
   const ivaTxt = p.aplica_iva === false ? 'IVA 0%' : '+ IVA'
+  const marco = marcoEst(useContext(EstCtx).est[p.id])
   return (
-    <div onClick={() => click(p.id)} className={'inv-tr ' + (n ? 'is-added ' : '') + (sel ? 'is-sel' : '')} style={act ? undefined : { opacity: 0.55 }}>
+    <div onClick={() => click(p.id)} className={'inv-tr ' + (n ? 'is-added ' : '') + (sel ? 'is-sel ' : '') + marco} style={act ? undefined : { opacity: 0.55 }}>
       <div className="inv-td-img">{p.imagen_url ? <img loading="lazy" decoding="async" src={imagen(p.imagen_url, 120)}onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} alt="" /> : <img alt="" style={{ visibility: 'hidden' }} />}</div>
       <div className="inv-lg inv-arch items-center gap-1">
         {p.ficha_tecnica_url && <a className="inv-tico" href={p.ficha_tecnica_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} title="Ficha técnica" style={{ color: 'var(--primary)' }}><FileText /></a>}
@@ -193,7 +274,7 @@ function FilaTabla({ p, sel, click, car }: { p: Fila; sel: boolean; click: (id: 
         </div>
       </div>
       <div className="inv-lg inv-xl min-w-0"><span className="block w-full text-[11px] text-slate-600 truncate">{p.codigo_unico || '—'}</span></div>
-      <div className="inv-lg flex-col items-start gap-0.5"><span className={'inv-pill ' + (stockNum > 0 ? 'ok' : 'no')}>{p.stock ?? '—'}</span></div>
+      <div className="inv-lg flex-col items-start gap-0.5"><span className={'inv-pill ' + (stockNum > 0 ? 'ok' : 'no')}>{p.stock ?? '—'}</span><TablaEst id={p.id} /></div>
       <div className="inv-lg inv-xl min-w-0"><span className="block w-full text-[11px] font-semibold text-slate-600 truncate">{p.marca || '—'}</span></div>
       <div className="inv-lg flex-col items-start leading-tight"><b className="text-xs" style={{ color: 'var(--primary)' }}>{dinero(p.pvp)}</b><small className="text-[9px] text-slate-400 font-semibold">{ivaTxt}</small></div>
       <div className="inv-cot-col">
@@ -282,6 +363,7 @@ function Panel({ p, editar, abrirEditar, car }: { p: Fila; editar: boolean; abri
           <div className="inv-kv"><span className="k"><Boxes /></span><div className="min-w-0"><small>Stock</small><div className="flex flex-wrap gap-1 mt-0.5"><UbicStock p={p} grande /></div></div></div>
           <div className="inv-kv"><span className="k"><Tag /></span><div className="min-w-0"><small>Categoría</small><b>{p.categoria?.nombre || '—'}</b></div></div>
         </div>
+        <ImpLista id={p.id} />
         <div className="bg-white border border-slate-200 rounded-2xl p-3">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Descripción</p>
           <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-line">{descripcion === null ? 'Cargando…' : descripcion || '—'}</p>
@@ -292,7 +374,7 @@ function Panel({ p, editar, abrirEditar, car }: { p: Fila; editar: boolean; abri
 }
 
 /* ---------- Pantalla principal ---------- */
-export default function Inventario({ perfil, volver }: { perfil: Perfil; volver: () => void }) {
+export default function Inventario({ perfil }: { perfil: Perfil; volver?: () => void }) {
   const [items, setItems] = useState<Fila[]>([])
   const [total, setTotal] = useState(0)
   const [cargando, setCargando] = useState(true)
@@ -316,6 +398,14 @@ export default function Inventario({ perfil, volver }: { perfil: Perfil; volver:
   const [carrito, setCarrito] = useState<Linea[]>(() => { try { return JSON.parse(sessionStorage.getItem(CLAVE_CARRITO) || '[]') } catch { return [] } })
   const [drawer, setDrawer] = useState(false)
   const [estadoCot, setEstadoCot] = useState('')
+  const [est, setEst] = useState<Record<string, Est>>(() => { try { return JSON.parse(localStorage.getItem('vimedic_inv_estado') || 'null')?.productos ?? {} } catch { return {} } })
+  const [imps, setImps] = useState<ImpResumen[]>(() => { try { return JSON.parse(localStorage.getItem('vimedic_inv_estado') || 'null')?.importaciones ?? [] } catch { return [] } })
+  const [impFiltro, setImpFiltro] = useState('')
+  const [reordenando, setReordenando] = useState(false)
+  const [guardandoOrden, setGuardandoOrden] = useState(false)
+  const [papelera, setPapelera] = useState(false)
+  const reordRef = useRef(false)
+  const arrastrando = useRef<string | null>(null)
   const fabRef = useRef<HTMLButtonElement>(null)
   const conCrm = puede(perfil, 'crm', 'crear')
   useEffect(() => { try { sessionStorage.setItem(CLAVE_CARRITO, JSON.stringify(carrito)) } catch { /* sin almacenamiento */ } }, [carrito])
@@ -372,8 +462,21 @@ export default function Inventario({ perfil, volver }: { perfil: Perfil; volver:
   }, [])
   useEffect(() => { cargarCategorias() }, [cargarCategorias])
 
+  const cargarEstado = useCallback(() => {
+    supabase.rpc('inv_estado_stock').then(({ data }) => {
+      const r = data as { productos?: Record<string, Est>; importaciones?: ImpResumen[] } | null
+      if (!r) return
+      setEst(r.productos ?? {}); setImps(r.importaciones ?? [])
+      try { localStorage.setItem('vimedic_inv_estado', JSON.stringify(r)) } catch { /* sin almacenamiento */ }
+    })
+  }, [])
+  useEffect(() => { const t = setTimeout(cargarEstado, 300); return () => clearTimeout(t) }, [cargarEstado])
+  const impSel = impFiltro ? imps.find((i) => i.codigo === impFiltro) ?? null : null
+  const idsImp = useMemo(() => (impSel ? Object.keys(impSel.productos) : null), [impSel])
+
   const consulta = useCallback(() => {
     let q = supabase.from('productos').select(COLUMNAS, { count: 'exact' }).is('deleted_at', null)
+    if (idsImp) q = q.in('id', idsImp.length ? idsImp : ['00000000-0000-0000-0000-000000000000'])
     // Cada palabra debe aparecer en alguno de los campos (igual que la búsqueda de la app original).
     for (const palabra of busqueda.split(/\s+/).filter(Boolean)) {
       q = q.or(`nombre.ilike.%${palabra}%,codigo.ilike.%${palabra}%,codigo_unico.ilike.%${palabra}%,marca.ilike.%${palabra}%`)
@@ -383,10 +486,11 @@ export default function Inventario({ perfil, volver }: { perfil: Perfil; volver:
     if (orden) q = q.order(CAMPO_BD[orden.campo], { ascending: orden.dir === 'asc', nullsFirst: false })
     else q = q.order('orden', { ascending: true, nullsFirst: false })
     return q.order('nombre', { ascending: true })
-  }, [busqueda, categoria, mostrarInactivos, orden])
+  }, [busqueda, categoria, mostrarInactivos, orden, idsImp])
 
   // Carga desde cero cuando cambia la búsqueda, el filtro o el orden.
   const cargar = useCallback(async (hasta = LOTE) => {
+    if (reordRef.current) return
     const n = ++peticion.current
     setCargando(true)
     const { data, count, error } = await consulta().range(0, hasta - 1)
@@ -399,7 +503,7 @@ export default function Inventario({ perfil, volver }: { perfil: Perfil; volver:
   useEffect(() => { cargar() }, [cargar])
 
   const cargarMas = useCallback(async () => {
-    if (cargando || cargandoMas || itemsRef.current.length >= total) return
+    if (reordRef.current || cargando || cargandoMas || itemsRef.current.length >= total) return
     const n = peticion.current
     setCargandoMas(true)
     const desde = itemsRef.current.length
@@ -437,7 +541,7 @@ export default function Inventario({ perfil, volver }: { perfil: Perfil; volver:
   }, [])
 
   const categoriasLista = useMemo(() => categorias, [categorias])
-  const hayFiltros = !!categoria || !!orden
+  const hayFiltros = !!categoria || !!orden || !!impFiltro
 
   function abrirMenu(e: React.MouseEvent<HTMLButtonElement>, cual: 'filtros' | 'vista') {
     e.stopPropagation()
@@ -457,7 +561,53 @@ export default function Inventario({ perfil, volver }: { perfil: Perfil; volver:
     })
   }
 
-  function restablecer() { setTexto(''); setCategoria(''); setOrden(null); setMostrarInactivos(false) }
+  function restablecer() { setTexto(''); setCategoria(''); setOrden(null); setMostrarInactivos(false); setImpFiltro('') }
+
+  /** Muestra todos los productos de una importación (o quita el filtro). */
+  function filtrarImp(codigo: string, desdeDetalle?: boolean) {
+    setImpFiltro((a) => (a === codigo && !desdeDetalle ? '' : codigo))
+    if (desdeDetalle) { setCajon(null); setTexto(''); setCategoria('') }
+    setMenu(null); window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  async function alternarEstado(p: Fila) {
+    const nuevo = inactivo(p) ? 'Activo' : 'Inactivo'
+    setItems((a) => a.map((x) => (x.id === p.id ? { ...x, estado: nuevo } : x)))
+    const { error } = await supabase.from('productos').update({ estado: nuevo }).eq('id', p.id)
+    if (error) { alert('No se pudo cambiar el estado: ' + error.message); cargar(Math.max(LOTE, itemsRef.current.length)) }
+  }
+
+  /* Reordenar: trae todos los productos del catálogo, agrupados por categoría, y se arrastran las tarjetas. */
+  async function iniciarOrden() {
+    setVista('tarjetas'); setMenu(null); setCargando(true)
+    reordRef.current = true; peticion.current++
+    let q = supabase.from('productos').select(COLUMNAS).is('deleted_at', null)
+    if (!mostrarInactivos) q = q.or('estado.is.null,estado.not.ilike.inactivo')
+    const { data, error } = await q.order('orden', { ascending: true, nullsFirst: false }).order('nombre').limit(3000)
+    setCargando(false)
+    if (error) { reordRef.current = false; alert('No se pudo cargar el catálogo: ' + error.message); return }
+    const lista = ((data as unknown as Fila[]) ?? []).slice().sort((a, b) => (a.categoria?.nombre ?? '').localeCompare(b.categoria?.nombre ?? '', 'es'))
+    setTexto(''); setCategoria(''); setOrden(null); setImpFiltro('')
+    setItems(lista); setTotal(lista.length); setReordenando(true)
+    window.scrollTo({ top: 0 })
+  }
+  function cancelarOrden() { reordRef.current = false; setReordenando(false); cargar() }
+  function soltar(destino: string) {
+    const origen = arrastrando.current; arrastrando.current = null
+    if (!origen || origen === destino) return
+    setItems((a) => {
+      const i = a.findIndex((x) => x.id === origen), j = a.findIndex((x) => x.id === destino)
+      if (i < 0 || j < 0) return a
+      const c = a.slice(); const [m] = c.splice(i, 1); c.splice(j, 0, m); return c
+    })
+  }
+  async function guardarOrden() {
+    setGuardandoOrden(true)
+    const { error } = await supabase.rpc('inv_guardar_orden', { p_ids: items.map((x) => x.id) })
+    setGuardandoOrden(false)
+    if (error) { alert('No se pudo guardar el orden: ' + error.message); return }
+    reordRef.current = false; setReordenando(false); cargar()
+  }
 
   function cambiarVista(v: 'tarjetas' | 'tabla') {
     setVista(v); setMenu(null)
@@ -482,16 +632,18 @@ export default function Inventario({ perfil, volver }: { perfil: Perfil; volver:
   const clickProducto = (id: string) => { if (esPc && vista === 'tabla') setSelId(id); else setCajon(id) }
 
   return (
+    <EstCtx.Provider value={{ est, verImp: (c) => filtrarImp(c, true) }}>
     <div className="min-h-screen antialiased" style={{ background: 'var(--bg)' }}>
       <header className="sticky top-0 z-30 border-b border-slate-200" style={{ background: 'linear-gradient(135deg, var(--navy), var(--primary))' }}>
-        <div className="inv-head relative px-3 sm:px-5 py-2 min-h-14 flex items-center gap-2 flex-wrap lg:flex-nowrap overflow-visible">
-          <div className="min-w-0 flex-1 lg:flex-none lg:max-w-[240px] order-1 lg:mr-1 flex flex-col justify-center min-h-10">
+        {/* Barra superior compacta: TODO en una sola línea */}
+        <div className="inv-head relative px-3 sm:px-5 py-2 min-h-14 flex items-center gap-2 flex-nowrap overflow-visible">
+          <div className="hidden sm:flex min-w-0 shrink-0 max-w-[200px] lg:max-w-[240px] lg:mr-1 flex-col justify-center min-h-10">
             <h1 className="font-display font-bold text-white text-[15px] sm:text-base leading-tight whitespace-nowrap truncate">Inventario Vimedic</h1>
           </div>
 
-          <div className="order-3 lg:order-2 w-full lg:w-auto flex items-center gap-2 pb-1 lg:pb-0">
-            <div className="relative flex-1 lg:flex-none">
-              <input type="text" value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Buscar por código, nombre, marca o categoría…"
+          <div className="flex items-center gap-2 min-w-0 flex-1 lg:flex-none">
+            <div className="relative flex-1 min-w-0 lg:flex-none">
+              <input type="text" value={texto} disabled={reordenando} onChange={(e) => setTexto(e.target.value)} placeholder="Buscar por código, nombre, marca o categoría…"
                 className="w-full lg:w-64 xl:w-80 pl-8 pr-3 py-2 rounded-lg bg-white/10 text-white placeholder:text-white/55 text-xs focus:outline-none focus:ring-2 focus:ring-white/40" />
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-white/60" />
             </div>
@@ -501,7 +653,7 @@ export default function Inventario({ perfil, volver }: { perfil: Perfil; volver:
               {menu === 'filtros' && (
                 <div data-menu className="fixed z-[90] w-[300px] max-w-[calc(100vw-24px)] bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden" style={{ left: pos.left, top: pos.top }}>
                   <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-                    <div><p className="text-xs font-bold text-slate-800">Filtros</p><p className="text-[10px] text-slate-400 mt-0.5">Categoría y orden</p></div>
+                    <div><p className="text-xs font-bold text-slate-800">Filtros</p><p className="text-[10px] text-slate-400 mt-0.5">Categoría, importación y orden</p></div>
                     <SlidersHorizontal className="w-4 h-4 text-slate-400" />
                   </div>
                   <div className="py-2">
@@ -519,6 +671,23 @@ export default function Inventario({ perfil, volver }: { perfil: Perfil; volver:
                           {categoria === c.id && <Check className="w-4 h-4 shrink-0" style={{ color: 'var(--primary)' }} />}
                         </button>
                       ))}
+                    </div>
+                  </div>
+                  <div className="border-t border-slate-100 py-2">
+                    <p className="px-4 pt-1 pb-2 text-[9px] font-bold uppercase tracking-wider text-slate-400">Importación</p>
+                    <div className="max-h-56 overflow-y-auto">
+                      {!imps.length && <p className="px-4 pb-2 text-[11px] text-slate-400">No hay importaciones en curso ni recientes.</p>}
+                      {imps.map((i) => {
+                        const n = Object.keys(i.productos).length + (i.nuevos || 0), on = i.codigo === impFiltro
+                        const f = i.etapa === 'Ingresado' ? (i.llegada ? 'llegó ' + fechaC(i.llegada).slice(0, 5) : 'ingresada') : (i.eta ? 'llega ' + fechaC(i.eta).slice(0, 5) : 'sin fecha')
+                        return (
+                          <button key={i.codigo} type="button" className="inv-impm" onClick={() => filtrarImp(i.codigo)} style={on ? { background: '#eff6ff' } : undefined}>
+                            <span className={'w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ' + (on ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600')}><Ship className="w-4 h-4" /></span>
+                            <span className="min-w-0 flex-1"><b className="block text-xs text-slate-700 truncate">{i.nombre || i.codigo}</b><small className="block text-[10px] text-slate-400 truncate">{i.codigo} · {i.etapa === 'Ingresado' ? 'Ingresada' : i.etapa} · {f} · {n} producto{n === 1 ? '' : 's'}</small></span>
+                            {on && <Check className="w-4 h-4 text-blue-600" />}
+                          </button>
+                        )
+                      })}
                     </div>
                   </div>
                   <div className="border-t border-slate-100 py-2">
@@ -540,10 +709,10 @@ export default function Inventario({ perfil, volver }: { perfil: Perfil; volver:
                 </div>
               )}
             </div>
-            <span className="shrink-0 whitespace-nowrap text-[11px] font-semibold text-white/75 bg-white/10 rounded-lg px-2.5 py-2" title="Productos encontrados"><b className="text-white">{total}</b> productos</span>
+            <span className="hidden md:inline-block shrink-0 whitespace-nowrap text-[11px] font-semibold text-white/75 bg-white/10 rounded-lg px-2.5 py-2" title="Productos encontrados"><b className="text-white">{total}</b> productos</span>
           </div>
 
-          <div className="order-2 lg:order-3 flex items-center gap-1 shrink-0 lg:ml-auto">
+          <div className="flex items-center gap-1 shrink-0 ml-auto">
             <div className="relative" data-menu>
               <button type="button" onClick={(e) => abrirMenu(e, 'vista')} className="w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors" title="Cambiar vista">
                 {vista === 'tabla' ? <Table2 className="w-4 h-4" /> : <LayoutGrid className="w-4 h-4" />}
@@ -567,16 +736,42 @@ export default function Inventario({ perfil, volver }: { perfil: Perfil; volver:
               )}
             </div>
             {crear && <button onClick={() => setForm('nuevo')} className="flex w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white items-center justify-center transition-colors" title="Agregar producto"><Plus className="w-4 h-4" /></button>}
+            {puede(perfil, 'inventario', 'eliminar') && <button onClick={() => setPapelera(true)} className="flex w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white items-center justify-center transition-colors" title="Papelera (productos eliminados)"><Trash2 className="w-4 h-4" /></button>}
             {editar && (
               <button onClick={() => setMostrarInactivos((v) => !v)} className={'flex w-9 h-9 rounded-lg hover:bg-white/20 text-white items-center justify-center transition-colors ' + (mostrarInactivos ? 'bg-white/30' : 'bg-white/10')} title="Mostrar productos inactivos"><EyeOff className="w-4 h-4" /></button>
             )}
-            <button onClick={() => cargar(Math.max(LOTE, items.length))} className="w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors" title="Actualizar inventario"><RefreshCw className={'w-4 h-4 ' + (cargando ? 'animate-spin' : '')} /></button>
+            {editar && <button onClick={iniciarOrden} disabled={reordenando} className="flex w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white items-center justify-center transition-colors" title="Reordenar productos"><Move className="w-4 h-4" /></button>}
+            <button onClick={() => { cargarEstado(); cargar(Math.max(LOTE, items.length)) }} className="w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors" title="Actualizar inventario"><RefreshCw className={'w-4 h-4 ' + (cargando ? 'animate-spin' : '')} /></button>
           </div>
         </div>
       </header>
 
+      {reordenando && (
+        <div className="bg-amber-50 border-b border-amber-200 px-4 sm:px-6 py-2 flex items-center justify-between gap-2 flex-wrap">
+          <p className="text-[11px] font-semibold text-amber-800">🔀 Modo reordenar: arrastra las tarjetas para cambiar su posición en el catálogo público.</p>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={cancelarOrden} className="text-[11px] font-bold px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600">Cancelar</button>
+            <button type="button" onClick={guardarOrden} disabled={guardandoOrden} className="text-[11px] font-bold px-3 py-1.5 rounded-lg text-white" style={{ background: 'var(--amber, #c98a1f)' }}>{guardandoOrden ? 'Guardando...' : 'Guardar Orden'}</button>
+          </div>
+        </div>
+      )}
+
       <main className="w-full px-4 sm:px-6 py-5">
-        {error && <div className="mb-3 text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{error}</div>}
+        {impSel && (
+          <div className="mb-3 inv-impf">
+            <span className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0"><Ship className="w-4 h-4" /></span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px] font-bold text-slate-800 truncate">{impSel.nombre || impSel.codigo}</p>
+              <p className="text-[11.5px] text-slate-500">
+                <b className="cod">{impSel.codigo}</b> · <span className={'et' + (impSel.etapa === 'Ingresado' ? ' ok' : '')}>{impSel.etapa === 'Ingresado' ? 'Ingresada' : impSel.etapa}</span> · {impSel.etapa === 'Ingresado' ? (impSel.llegada ? 'Llegó el ' + fechaC(impSel.llegada) : 'Ya ingresó al inventario') : (impSel.eta ? 'Llegada aproximada ' + fechaC(impSel.eta) : 'Fecha por confirmar')} ·{' '}
+                <b className="text-slate-700">{Object.keys(impSel.productos).length} producto{Object.keys(impSel.productos).length === 1 ? '' : 's'}, {Object.values(impSel.productos).reduce((a, x) => a + (Number(x) || 0), 0)} unidades</b>
+                {impSel.nuevos ? <span className="text-amber-700 font-semibold"> · +{impSel.nuevos} equipo{impSel.nuevos === 1 ? '' : 's'} nuevo{impSel.nuevos === 1 ? '' : 's'} aún sin código</span> : null}
+              </p>
+            </div>
+            <button type="button" onClick={() => setImpFiltro('')} className="text-[11px] font-bold px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 bg-white hover:bg-slate-50 flex items-center gap-1"><X className="w-3.5 h-3.5" />Quitar filtro</button>
+          </div>
+        )}
+        {error &&<div className="mb-3 text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{error}</div>}
 
         {cargando && items.length === 0 && (
           <div className="col-span-full flex flex-col items-center justify-center py-16 gap-2 text-slate-400">
@@ -587,7 +782,7 @@ export default function Inventario({ perfil, volver }: { perfil: Perfil; volver:
 
         {vista === 'tarjetas' && items.length > 0 && (
           <div className="inv-grid">
-            {items.map((p) => <Tarjeta key={p.id} p={p} abrir={clickProducto} car={car} />)}
+            {items.map((p) => <Tarjeta key={p.id} p={p} abrir={clickProducto} car={car} alternar={editar ? alternarEstado : undefined} reordenar={reordenando ? { arrastrar: (id) => { arrastrando.current = id }, soltar } : undefined} />)}
           </div>
         )}
 
@@ -700,6 +895,45 @@ export default function Inventario({ perfil, volver }: { perfil: Perfil; volver:
           guardado={() => { setForm(null); cargarCategorias(); cargar(Math.max(LOTE, items.length)) }}
         />
       )}
+      {papelera && <PapeleraProductos cerrar={() => setPapelera(false)} restaurado={() => cargar(Math.max(LOTE, items.length))} />}
+    </div>
+    </EstCtx.Provider>
+  )
+}
+
+/* ---------- Papelera: productos eliminados (borrado lógico), se pueden devolver ---------- */
+function PapeleraProductos({ cerrar, restaurado }: { cerrar: () => void; restaurado: () => void }) {
+  const [lista, setLista] = useState<{ id: string; codigo: string; nombre: string; deleted_at: string }[] | null>(null)
+  const [error, setError] = useState('')
+  const cargarLista = useCallback(() => {
+    supabase.from('productos').select('id,codigo,nombre,deleted_at').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }).limit(200)
+      .then(({ data, error }) => { if (error) setError(error.message); else setLista((data as { id: string; codigo: string; nombre: string; deleted_at: string }[]) ?? []) })
+  }, [])
+  useEffect(() => { cargarLista() }, [cargarLista])
+  async function restaurar(id: string) {
+    const { error } = await supabase.from('productos').update({ deleted_at: null }).eq('id', id)
+    if (error) { alert('No se pudo restaurar: ' + error.message); return }
+    setLista((a) => (a ?? []).filter((x) => x.id !== id)); restaurado()
+  }
+  return (
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-[2px] z-[70] flex items-center justify-center p-4" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[86vh] flex flex-col overflow-hidden">
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100">
+          <div className="flex-1 min-w-0"><b className="block text-base text-slate-800">Papelera · Inventario</b><small className="text-xs text-slate-500">Lo eliminado no se borra de la base: aquí puedes devolverlo.</small></div>
+          <button type="button" onClick={cerrar} className="w-9 h-9 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center" aria-label="Cerrar"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="overflow-y-auto px-4 py-2">
+          {error && <p className="text-xs text-red-600 py-3">{error}</p>}
+          {!lista && !error && <p className="text-xs text-slate-400 py-6 text-center">Cargando…</p>}
+          {lista && !lista.length && <p className="text-xs text-slate-400 py-6 text-center">La papelera está vacía.</p>}
+          {lista?.map((x) => (
+            <div key={x.id} className="flex items-center gap-3 py-2.5 border-b border-dashed border-slate-200 last:border-0">
+              <div className="min-w-0 flex-1"><p className="text-xs font-bold text-slate-800 truncate">{x.nombre}</p><p className="text-[11px] text-slate-500">{x.codigo} · eliminado {new Date(x.deleted_at).toLocaleDateString('es-EC')}</p></div>
+              <button type="button" onClick={() => restaurar(x.id)} className="text-[11px] font-bold px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 flex items-center gap-1"><RotateCcw className="w-3.5 h-3.5" />Restaurar</button>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
@@ -810,6 +1044,7 @@ function DetalleProducto({ p, editar, eliminar, cerrar, abrirEditar, eliminado, 
             <div className="grid grid-cols-1 gap-2">
               <div className="inv-stat"><small>Stock</small><b style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}><UbicStock p={p} grande /></b></div>
             </div>
+            <ImpLista id={p.id} />
 
             <div className="bg-white border border-slate-200 rounded-2xl p-4">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Descripción</p>

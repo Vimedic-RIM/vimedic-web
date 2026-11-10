@@ -1,0 +1,128 @@
+// Edge Function: puente seguro con Google Drive (cuenta de servicio + unidad compartida "VIMEDIC Sistema").
+// El JSON de la cuenta de servicio vive cifrado en Supabase Vault; solo se descifra aquí, con service_role.
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
+
+const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' }
+const MODULOS = ['crm', 'clientes', 'femedics', 'facturacion', 'inventario', 'marketing', 'bodega', 'logistica', 'servicio_tecnico', 'importaciones', 'talento_humano', 'financiero', 'empleados', 'documentos_tecnicos', 'catalogos', 'ofertas', 'agenda']
+const MAX_BYTES = 20 * 1024 * 1024
+const responder = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { ...CORS, 'Content-Type': 'application/json' } })
+class Falla extends Error { constructor(m: string, public status = 400) { super(m) } }
+
+const b64u = (b: ArrayBuffer | Uint8Array | string) => {
+  const bytes = typeof b === 'string' ? new TextEncoder().encode(b) : b instanceof Uint8Array ? b : new Uint8Array(b)
+  let s = ''; for (const x of bytes) s += String.fromCharCode(x)
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+let cache: { token: string; hasta: number; clave: string } | null = null
+
+async function tokenGoogle(sa: { client_email: string; private_key: string }) {
+  if (cache && cache.clave === sa.client_email && cache.hasta > Date.now() + 60000) return cache.token
+  const ahora = Math.floor(Date.now() / 1000)
+  const cab = b64u(JSON.stringify({ alg: 'RS256', typ: 'JWT' }))
+  const cuerpo = b64u(JSON.stringify({ iss: sa.client_email, scope: 'https://www.googleapis.com/auth/drive', aud: 'https://oauth2.googleapis.com/token', iat: ahora, exp: ahora + 3600 }))
+  const pem = sa.private_key.replace(/-----[A-Z ]+-----/g, '').replace(/\s+/g, '')
+  const der = Uint8Array.from(atob(pem), (c) => c.charCodeAt(0))
+  const llave = await crypto.subtle.importKey('pkcs8', der, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign'])
+  const firma = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', llave, new TextEncoder().encode(cab + '.' + cuerpo))
+  const r = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: `${cab}.${cuerpo}.${b64u(firma)}` }) })
+  const j = await r.json()
+  if (!r.ok) throw new Falla('Google rechazó la cuenta de servicio: ' + (j.error_description || j.error || r.status))
+  cache = { token: j.access_token, hasta: Date.now() + (j.expires_in ?? 3600) * 1000, clave: sa.client_email }
+  return cache.token
+}
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS })
+  try {
+    const url = Deno.env.get('SUPABASE_URL')!, anon = Deno.env.get('SUPABASE_ANON_KEY')!, srv = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    const usuario = createClient(url, anon, { global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } } })
+    const { data: u } = await usuario.auth.getUser()
+    if (!u?.user) throw new Falla('Sesión no válida.', 401)
+    const admin = createClient(url, srv)
+    const b = await req.json().catch(() => ({}))
+    const accion = String(b.accion || '')
+    const puede = async (m: string, a: string) => (await usuario.rpc('app_puede', { p_modulo: m, p_accion: a })).data === true
+
+    const [{ data: cfg }, { data: secreto }] = await Promise.all([
+      admin.from('integraciones').select('config').eq('proveedor', 'drive').is('deleted_at', null).maybeSingle(),
+      admin.rpc('integracion_secreto', { p_proveedor: 'drive' }),
+    ])
+    if (!secreto) throw new Falla('Google Drive no está conectado. Ve a Marketing › Configuración.')
+    let sa: { client_email: string; private_key: string }
+    try { sa = JSON.parse(secreto as string) } catch { throw new Falla('El JSON de la cuenta de servicio guardado no es válido. Vuelve a pegarlo.') }
+    const driveId = String((cfg.config as Record<string, unknown>)?.driveId || '').trim()
+    if (!driveId) throw new Falla('Falta el ID de la unidad compartida o carpeta en la configuración.')
+    // 'unidad' = unidad compartida; 'carpeta' = carpeta de Mi unidad compartida con la cuenta de servicio (se detecta al probar)
+    let tipo = String((cfg.config as Record<string, unknown>)?.tipo || 'unidad')
+    const alcance = () => (tipo === 'unidad' ? `&corpora=drive&driveId=${driveId}` : '')
+    const tk = await tokenGoogle(sa)
+    const g = async (ruta: string, init: RequestInit = {}) => {
+      const r = await fetch('https://www.googleapis.com' + ruta, { ...init, headers: { Authorization: 'Bearer ' + tk, ...(init.headers ?? {}) } })
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Falla('Drive respondió: ' + (j?.error?.message || r.status))
+      return j
+    }
+    const esc = (s: string) => s.split('\\').join('\\\\').split("'").join("\\'")
+    const carpeta = async (padre: string, nombre: string) => {
+      const q = `name='${esc(nombre)}' and '${padre}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`
+      const l = await g(`/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id)&supportsAllDrives=true&includeItemsFromAllDrives=true${alcance()}`)
+      if (l.files?.[0]?.id) return l.files[0].id as string
+      const c = await g('/drive/v3/files?supportsAllDrives=true&fields=id', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: nombre, mimeType: 'application/vnd.google-apps.folder', parents: [padre] }) })
+      return c.id as string
+    }
+    const ruta = async (r: string) => {
+      let padre = driveId
+      for (const seg of String(r || '').split('/').map((s) => s.replace(/[\\<>:"|?*]/g, '').trim()).filter(Boolean).slice(0, 5)) padre = await carpeta(padre, seg)
+      return padre
+    }
+
+    if (accion === 'probar') {
+      if (!(await puede('marketing', 'administrar'))) throw new Falla('Solo quien administra puede probar la conexión.', 403)
+      let d: { name: string }
+      try { d = await g(`/drive/v3/drives/${driveId}?fields=id,name`); tipo = 'unidad' } catch {
+        d = await g(`/drive/v3/files/${driveId}?fields=id,name,mimeType&supportsAllDrives=true`); tipo = 'carpeta'
+      }
+      await admin.from('integraciones').update({ config: { ...(cfg.config as Record<string, unknown>), tipo } }).eq('proveedor', 'drive')
+      let archivoPrueba = ''
+      if (b.escribir) {
+        const padre = await ruta('_pruebas')
+        const meta = JSON.stringify({ name: 'conexion-vimedic-' + new Date().toISOString().slice(0, 10) + '.txt', parents: [padre] })
+        const cuerpo = `--x\r\nContent-Type: application/json\r\n\r\n${meta}\r\n--x\r\nContent-Type: text/plain\r\n\r\nPrueba de conexión VIMEDIC ${new Date().toISOString()}\r\n--x--`
+        const f = await g('/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,webViewLink', { method: 'POST', headers: { 'Content-Type': 'multipart/related; boundary=x' }, body: cuerpo })
+        archivoPrueba = f.webViewLink || f.name
+      }
+      const mensaje = `Conexión correcta · ${tipo === 'unidad' ? 'unidad' : 'carpeta'} «${d.name}»${archivoPrueba ? ' · archivo de prueba creado en la carpeta _pruebas' : ''}.`
+      await admin.from('integraciones').update({ estado_prueba: 'ok: ' + mensaje, probado_en: new Date().toISOString() }).eq('proveedor', 'drive')
+      return responder({ ok: true, mensaje, cuenta: sa.client_email, archivo: archivoPrueba })
+    }
+
+    const modulo = String(b.modulo || '')
+    if (!MODULOS.includes(modulo)) throw new Falla('Módulo no válido.')
+    if (accion === 'listar') {
+      if (!(await puede(modulo, 'ver'))) throw new Falla('Sin acceso a ese módulo.', 403)
+      const padre = await ruta(String(b.carpeta || ''))
+      const q = `'${padre}' in parents and trashed=false`
+      const l = await g(`/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType,size,modifiedTime,webViewLink)&orderBy=modifiedTime desc&pageSize=100&supportsAllDrives=true&includeItemsFromAllDrives=true${alcance()}`)
+      return responder({ archivos: l.files ?? [] })
+    }
+    if (accion === 'subir') {
+      if (!(await puede(modulo, 'crear')) && !(await puede(modulo, 'editar'))) throw new Falla('No tienes permiso para subir archivos en ese módulo.', 403)
+      const nombre = String(b.nombre || '').replace(/[\\/<>:"|?*]/g, '_').trim().slice(0, 150)
+      if (!nombre || !b.base64) throw new Falla('Falta el archivo.')
+      const bytes = Uint8Array.from(atob(String(b.base64)), (c) => c.charCodeAt(0))
+      if (bytes.length > MAX_BYTES) throw new Falla('El archivo supera los 20 MB.')
+      const padre = await ruta(String(b.carpeta || modulo))
+      const mime = String(b.mime || 'application/octet-stream')
+      const enc = new TextEncoder()
+      const partes = [enc.encode(`--x\r\nContent-Type: application/json\r\n\r\n${JSON.stringify({ name: nombre, parents: [padre] })}\r\n--x\r\nContent-Type: ${mime}\r\n\r\n`), bytes, enc.encode('\r\n--x--')]
+      const cuerpo = new Uint8Array(partes.reduce((a, p) => a + p.length, 0)); let o = 0
+      for (const p of partes) { cuerpo.set(p, o); o += p.length }
+      const f = await g('/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,webViewLink,size', { method: 'POST', headers: { 'Content-Type': 'multipart/related; boundary=x' }, body: cuerpo })
+      return responder({ ok: true, id: f.id, nombre: f.name, enlace: f.webViewLink })
+    }
+    throw new Falla('Acción no reconocida.')
+  } catch (e) {
+    const f = e as Falla
+    return responder({ error: f.message || 'Error inesperado.' }, f.status && f.status >= 400 ? f.status : 500)
+  }
+})

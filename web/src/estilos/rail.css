@@ -141,3 +141,7 @@ body.vm-rail-fijo .vr-pinbtn{color:var(--cyan);background:rgba(23,169,186,.18)}
 .vr-item.arrastrando{background:rgba(23,169,186,.25)!important;color:#fff;box-shadow:0 0 0 1px rgba(23,169,186,.7),0 10px 24px -10px rgba(0,0,0,.6);transform:scale(1.03);z-index:2}
 
 body.vm-cot-abierto #vmRailBtn{display:none!important}
+
+/* Verificación en dos pasos (MFA) */
+.vr-mfa-in{width:100%;border:1px solid var(--line);border-radius:12px;padding:10px 12px;font:14px Inter,sans-serif;background:#fff;outline:none;min-width:0}
+.vr-mfa-in:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(5,92,157,.12)}

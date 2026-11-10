@@ -1,0 +1,8 @@
+project_id = "qwkziqjozfeemvjshvsp"
+
+# Cierra el registro público: las cuentas de empleados se crean desde Seguridad (Supabase Auth admin),
+# no por auto-registro. El trigger de vinculo por correo (app.tg_vincular_auth_usuario) sigue funcionando
+# para cuentas creadas así. Solo se declara esta propiedad: el resto de la configuración de Auth
+# en el proyecto (URLs, proveedores, expiración de sesión, etc.) no se toca.
+[auth]
+enable_signup = false

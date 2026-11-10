@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlarmClock, BadgeDollarSign, CalendarPlus, ChevronDown, ChevronUp, CirclePlus, CloudUpload, FilePlus2, LayoutDashboard,
-  LayoutGrid, LogOut, MessageCircle, PackagePlus, PenLine, Pin, Search, SlidersHorizontal, UserPlus, X, type LucideIcon,
+  LayoutGrid, LogOut, MessageCircle, PackagePlus, PenLine, Pin, Search, ShieldCheck, SlidersHorizontal, UserPlus, X, type LucideIcon,
 } from 'lucide-react'
 import { supabase, type Perfil } from './supabase'
 import { puede } from './permisos'
 import { MODULOS } from './modulos'
+import MfaPanel from './MfaPanel'
 import './estilos/rail.css'
 
 // Barra lateral de acceso rápido: aparece dentro de los módulos (no en Mi Espacio), igual que en la app original.
@@ -52,6 +53,7 @@ export default function Rail({ perfil, actual, ir, accion, aviso }: Props) {
   const [tip, setTip] = useState<{ t: string; s: string; top: number; left: number } | null>(null)
   const [paleta, setPaleta] = useState<{ q: string; sel: number } | null>(null)
   const [pers, setPers] = useState<'acciones' | 'modulos' | null>(null)
+  const [mfa, setMfa] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const [indic, setIndic] = useState<{ top: number; c: string } | null>(null)
   // Arrastre para ordenar dentro de la misma barra (ratón y dedo con pulsación larga).
@@ -244,9 +246,9 @@ export default function Rail({ perfil, actual, ir, accion, aviso }: Props) {
       </button>
 
       <nav id="vmRail" aria-label="Acceso rápido" className={(ancho ? 'ancho' : '') + (arr ? ' ordenando' : '')} onMouseLeave={() => setTip(null)}>
-        <button type="button" className="vr-item vr-home" onClick={() => irA('espacio')} {...verTip('Mi Espacio', 'Volver al inicio')}>
+        <button type="button" className="vr-item vr-home" onClick={() => irA(modPermitidos.includes('inventario') ? 'inventario' : 'espacio')} {...verTip('Inicio', 'Inventario')}>
           <span className="vr-logo"><LayoutDashboard className="ic" /></span>
-          <span className="vr-lbl"><b>Mi Espacio</b><small>Volver al inicio</small></span>
+          <span className="vr-lbl"><b>Inicio</b><small>Inventario</small></span>
         </button>
         <button type="button" className="vr-pinbtn" title={cfg.fijo ? 'Barra angosta' : 'Mostrar nombres'} onClick={() => { guardar({ ...cfg, fijo: !cfg.fijo }); aviso(!cfg.fijo ? 'Barra con nombres.' : 'Barra angosta: los nombres salen al pasar el cursor.') }}><Pin className="ic" /></button>
         <button type="button" className="vr-buscar" onClick={() => { setMenuAbierto(false); setPaleta({ q: '', sel: 0 }) }} {...verTip('Buscar', 'Ctrl + K')}>
@@ -278,6 +280,9 @@ export default function Rail({ perfil, actual, ir, accion, aviso }: Props) {
         <div className="vr-pie">
           <button type="button" className="vr-item" onClick={() => { setMenuAbierto(false); setPers('acciones') }} {...verTip('Personalizar barra', 'Elige tus accesos')}>
             <SlidersHorizontal className="ic" /><span className="vr-lbl">Personalizar</span>
+          </button>
+          <button type="button" className="vr-item" onClick={() => { setMenuAbierto(false); setMfa(true) }} {...verTip('Verificación en dos pasos', 'Protege tu cuenta')}>
+            <ShieldCheck className="ic" /><span className="vr-lbl">Verificación en dos pasos</span>
           </button>
           <div className="vr-item" style={{ cursor: 'default' }} {...verTip(nombre, perfil.rol || '')}>
             <span className="vr-ava">{ini}</span>
@@ -330,6 +335,7 @@ export default function Rail({ perfil, actual, ir, accion, aviso }: Props) {
 
       {pers && <Personalizar cfg={cfg} tab={pers} setTab={setPers} guardar={guardar} accPermitidas={accPermitidas} modPermitidos={modPermitidos}
         restaurar={() => { guardar(porDefecto()); aviso('Barra restaurada.') }} cerrar={() => setPers(null)} aviso={aviso} />}
+      {mfa && <MfaPanel cerrar={() => setMfa(false)} />}
     </>
   )
 }
