@@ -149,7 +149,7 @@ body.vm-cot-abierto #vmRailBtn{display:none!important}
 /* Configuración personal (PerfilConfig) y menú del avatar */
 .vr-f{display:flex;flex-direction:column;gap:5px;font:700 11.5px Inter,sans-serif;color:#475569}
 @keyframes spin{to{transform:rotate(360deg)}}
-.vr-pmenu{position:fixed;z-index:70;width:252px;background:#fff;border-radius:16px;box-shadow:0 20px 50px -14px rgba(11,37,69,.5);border:1px solid var(--line);overflow:hidden;animation:vrUp .16s cubic-bezier(.2,.8,.2,1)}
+.vr-pmenu{position:fixed;z-index:155;width:252px;background:#fff;border-radius:16px;box-shadow:0 20px 50px -14px rgba(11,37,69,.5);border:1px solid var(--line);overflow:hidden;animation:vrUp .16s cubic-bezier(.2,.8,.2,1)}
 .vr-pmenu-h{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line)}
 .vr-pmenu-h b{display:block;font:700 13px 'Space Grotesk',Inter,sans-serif;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .vr-pmenu-h span{display:block;font-size:11px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

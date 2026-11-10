@@ -218,9 +218,11 @@ export default function Rail({ perfil, actual, ir, accion, aviso }: Props) {
     e.stopPropagation()
     if (menuPerfil) { setMenuPerfil(null); return }
     const r = e.currentTarget.getBoundingClientRect()
-    const ancho = 252
-    let left = r.left
-    if (left + ancho > window.innerWidth - 12) left = window.innerWidth - ancho - 12
+    const anchoMenu = 252
+    // Sale a un lado del botón (no encima): a la derecha si cabe, si no a la izquierda.
+    let left = r.right + 10
+    if (left + anchoMenu > window.innerWidth - 12) left = r.left - anchoMenu - 10
+    if (left < 12) left = Math.min(r.left, window.innerWidth - anchoMenu - 12)
     setMenuPerfil({ left: Math.max(12, left), bottom: Math.max(12, window.innerHeight - r.top + 8) })
   }
 
@@ -348,7 +350,7 @@ export default function Rail({ perfil, actual, ir, accion, aviso }: Props) {
 
       {menuPerfil && (
         <>
-          <div style={{ position: 'fixed', inset: 0, zIndex: 65 }} onClick={() => setMenuPerfil(null)} />
+          <div style={{ position: 'fixed', inset: 0, zIndex: 154 }} onClick={() => setMenuPerfil(null)} />
           <div className="vr-pmenu" style={{ left: menuPerfil.left, bottom: menuPerfil.bottom }}>
             <div className="vr-pmenu-h">
               {foto ? <img src={foto} alt="" className="vr-ava" style={{ objectFit: 'cover', marginLeft: 0 }} /> : <span className="vr-ava" style={{ marginLeft: 0 }}>{ini}</span>}
