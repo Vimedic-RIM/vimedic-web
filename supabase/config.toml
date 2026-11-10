@@ -6,3 +6,13 @@ project_id = "qwkziqjozfeemvjshvsp"
 # en el proyecto (URLs, proveedores, expiración de sesión, etc.) no se toca.
 [auth]
 enable_signup = false
+# El proyecto seguía con site_url de ejemplo (localhost:3000): Google habría rechazado la vuelta a la app.
+site_url = "https://vimedic-qa.pages.dev"
+additional_redirect_urls = ["https://vimedic-qa.pages.dev", "https://qa.vimedic.com.ec", "http://localhost:5199"]
+
+# Login con Google (vimedic-crm en Google Cloud). El client_id no es secreto; el client_secret
+# se pasa por variable de entorno al desplegar (GOOGLE_CLIENT_SECRET) y nunca se guarda en el repo.
+[auth.external.google]
+enabled = true
+client_id = "984059782625-khhkbk6cbig0tfo89vv21i2i3k52c7i5.apps.googleusercontent.com"
+secret = "env(GOOGLE_CLIENT_SECRET)"
