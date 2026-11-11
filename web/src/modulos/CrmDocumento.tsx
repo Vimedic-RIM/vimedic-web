@@ -91,6 +91,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     // Sin texto: los primeros productos activos en el orden del Inventario. Con texto: coincidencias. Siempre por lotes (no se carga todo).
     let c = supabase.from('productos').select('id,codigo,nombre,pvp,precio_dis,aplica_iva,stock,imagen_url,reservaciones,descripcion,ficha_tecnica_url,drive_carpeta_url,categoria:categorias(nombre)').is('deleted_at', null).or('estado.is.null,estado.not.ilike.inactivo')
     for (const p of q.split(/\s+/).filter(Boolean)) c = c.or(`nombre.ilike.%${p}%,codigo.ilike.%${p}%,codigo_unico.ilike.%${p}%,marca.ilike.%${p}%`)
+    c = c.order('en_vista_publica', { ascending: false })
     if (!q) c = c.order('orden', { ascending: true, nullsFirst: false })
     return c.order('nombre').range(desde, desde + LOTE_PRODS - 1)
   }

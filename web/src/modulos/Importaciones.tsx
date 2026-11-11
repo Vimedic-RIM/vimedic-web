@@ -426,7 +426,7 @@ function BarraAgregar({ agregar, aviso }: { agregar: (p: Prod, n: number) => voi
     const h = setTimeout(() => {
       let c = supabase.from('productos').select('id,codigo,codigo_unico,nombre,marca,stock,imagen_url').is('deleted_at', null)
       for (const p of t.split(/\s+/).filter(Boolean)) c = c.or(`nombre.ilike.%${p}%,codigo.ilike.%${p}%,codigo_unico.ilike.%${p}%,marca.ilike.%${p}%`)
-      c.order('nombre').limit(40).then(({ data }) => setRes((data as Prod[]) ?? []))
+      c.order('en_vista_publica', { ascending: false }).order('nombre').limit(40).then(({ data }) => setRes((data as Prod[]) ?? []))
     }, 150)
     return () => clearTimeout(h)
   }, [q, elegido])

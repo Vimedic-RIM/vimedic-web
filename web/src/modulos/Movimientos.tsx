@@ -193,7 +193,7 @@ function SelectorProducto({ prod, elegir }: { prod: Prod | null; elegir: (p: Pro
     const t = setTimeout(() => {
       let c = supabase.from('productos').select('id,codigo,nombre,stock,imagen_url').is('deleted_at', null)
       for (const w of limpiar(txt === prod?.codigo ? '' : txt).split(/\s+/).filter(Boolean)) c = c.or(`nombre.ilike.%${w}%,codigo.ilike.%${w}%,codigo_unico.ilike.%${w}%`)
-      c.order('nombre').limit(30).then(({ data }) => { setLista((data as Prod[]) ?? []); setSel(-1) })
+      c.order('en_vista_publica', { ascending: false }).order('nombre').limit(30).then(({ data }) => { setLista((data as Prod[]) ?? []); setSel(-1) })
     }, 150)
     return () => clearTimeout(t)
   }, [txt, abierto, prod])

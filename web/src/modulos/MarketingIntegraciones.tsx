@@ -261,7 +261,7 @@ export function Biblioteca({ perfil, aviso }: { perfil: Perfil; aviso: (t: strin
     const h = setTimeout(() => {
       let c = supabase.from('productos').select('id,codigo,nombre,descripcion,imagen_url,categoria:categorias(nombre)').is('deleted_at', null).or('estado.is.null,estado.not.ilike.inactivo')
       for (const w of t.replace(/[,()%*\\"']/g, ' ').split(/\s+/).filter(Boolean)) c = c.or(`nombre.ilike.%${w}%,codigo.ilike.%${w}%,marca.ilike.%${w}%`)
-      c.order('orden', { ascending: true, nullsFirst: false }).order('nombre').limit(24).then(({ data }) => { if (vivo) setLista((data as unknown as Prod[]) ?? []) })
+      c.order('en_vista_publica', { ascending: false }).order('orden', { ascending: true, nullsFirst: false }).order('nombre').limit(24).then(({ data }) => { if (vivo) setLista((data as unknown as Prod[]) ?? []) })
     }, t ? 250 : 0)
     return () => { vivo = false; clearTimeout(h) }
   }, [q])

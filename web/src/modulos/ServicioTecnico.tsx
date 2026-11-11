@@ -563,7 +563,7 @@ function PanelOrden({ id, perfil, externo, editar, tecnicos, aviso, cerrar, abri
   }
   async function buscarProductos() {
     if (productos) return
-    const { data } = await supabase.from('productos').select('codigo,nombre,stock').is('deleted_at', null).order('nombre').limit(3000)
+    const { data } = await supabase.from('productos').select('codigo,nombre,stock').is('deleted_at', null).order('en_vista_publica', { ascending: false }).order('nombre').limit(3000)
     setProductos(((data ?? []) as { codigo: string; nombre: string; stock: number }[]).map((p) => ({ id: p.codigo, nombre: p.nombre, stock: p.stock })))
   }
   async function descargar(variante: 'informe' | 'recepcion') {

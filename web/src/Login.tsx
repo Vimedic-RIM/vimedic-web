@@ -21,7 +21,7 @@ export default function Login() {
   // El login lo valida Google; el acceso real lo decide la base de datos según el correo del empleado.
   async function entrarConGoogle() {
     setError(''); setCargando(true)
-    const { error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { queryParams: { hd: 'vimedic.com.ec' } } })
+    const { error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin, queryParams: { hd: 'vimedic.com.ec' } } })
     if (error) { setError('No se pudo abrir el acceso con Google: ' + error.message); setCargando(false) }
     // si no hay error, el navegador ya está yendo hacia Google
   }

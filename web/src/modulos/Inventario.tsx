@@ -484,7 +484,7 @@ export default function Inventario({ perfil }: { perfil: Perfil; volver?: () => 
     if (categoria) q = q.eq('categoria_id', categoria)
     if (!mostrarInactivos) q = q.or('estado.is.null,estado.not.ilike.inactivo')
     if (orden) q = q.order(CAMPO_BD[orden.campo], { ascending: orden.dir === 'asc', nullsFirst: false })
-    else q = q.order('orden', { ascending: true, nullsFirst: false })
+    else q = q.order('en_vista_publica', { ascending: false }).order('orden', { ascending: true, nullsFirst: false })
     return q.order('nombre', { ascending: true })
   }, [busqueda, categoria, mostrarInactivos, orden, idsImp])
 
@@ -583,7 +583,7 @@ export default function Inventario({ perfil }: { perfil: Perfil; volver?: () => 
     reordRef.current = true; peticion.current++
     let q = supabase.from('productos').select(COLUMNAS).is('deleted_at', null)
     if (!mostrarInactivos) q = q.or('estado.is.null,estado.not.ilike.inactivo')
-    const { data, error } = await q.order('orden', { ascending: true, nullsFirst: false }).order('nombre').limit(3000)
+    const { data, error } = await q.order('en_vista_publica', { ascending: false }).order('orden', { ascending: true, nullsFirst: false }).order('nombre').limit(3000)
     setCargando(false)
     if (error) { reordRef.current = false; alert('No se pudo cargar el catálogo: ' + error.message); return }
     const lista = ((data as unknown as Fila[]) ?? []).slice().sort((a, b) => (a.categoria?.nombre ?? '').localeCompare(b.categoria?.nombre ?? '', 'es'))
