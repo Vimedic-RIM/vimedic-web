@@ -344,3 +344,12 @@
 .inv-grid{display:grid;gap:8px;grid-template-columns:repeat(2,minmax(0,1fr))}
 @media(min-width:560px){.inv-grid{grid-template-columns:repeat(auto-fill,minmax(168px,1fr))}}
 @media(min-width:1440px){.inv-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}}
+
+/* Faltaban en el volcado de Tailwind precompilado (el proyecto no corre Tailwind en el build:
+   una clase nueva con valores entre corchetes no existe hasta que se agrega aquí a mano).
+   Ficha de producto: galería + ventana más compacta (2026-11-11). */
+.bg-\[\#f6f9fc\]{background-color:#f6f9fc}
+.max-w-\[220px\]{max-width:220px}
+.pr-2\.5{padding-right:.625rem}
+.text-\[10\.5px\]{font-size:10.5px}
+@media (min-width:640px){.sm\:w-\[280px\]{width:280px}.sm\:max-w-6xl{max-width:72rem}}

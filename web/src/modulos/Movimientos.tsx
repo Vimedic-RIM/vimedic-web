@@ -20,7 +20,9 @@ const Miniatura = ({ url, grande }: { url?: string | null; grande?: boolean }) =
 )
 
 /* ============================ Pantalla principal ============================ */
-export default function Movimientos({ perfil, aviso }: { perfil: Perfil; aviso: (t: string) => void }) {
+export default function Movimientos({ perfil, aviso, productoInicial, limpiarProductoInicial }: {
+  perfil: Perfil; aviso: (t: string) => void; productoInicial?: string | null; limpiarProductoInicial?: () => void
+}) {
   const [filas, setFilas] = useState<Mov[] | null>(null)
   const [total, setTotal] = useState(0)
   const [kpis, setKpis] = useState<Kpis | null>(null)
@@ -41,6 +43,14 @@ export default function Movimientos({ perfil, aviso }: { perfil: Perfil; aviso: 
   const [cargando, setCargando] = useState(false)
   const peticion = useRef(0)
   const puedeEditar = puede(perfil, 'movimientos', 'editar')
+
+  // "Ver movimientos" desde la ficha de un producto en Inventario: llega con el código y filtra directo.
+  useEffect(() => {
+    if (!productoInicial) return
+    supabase.from('productos').select('id,codigo,nombre,stock,imagen_url').eq('codigo', productoInicial).maybeSingle()
+      .then(({ data }) => { if (data) { setProd(data as Prod); setPagina(1) } limpiarProductoInicial?.() })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productoInicial])
 
   useEffect(() => { const t = setTimeout(() => { setQDeb(q); setPagina(1) }, 200); return () => clearTimeout(t) }, [q])
   useEffect(() => { supabase.from('v_movimientos').select('responsable').not('responsable', 'is', null).limit(5000).then(({ data }) => setResponsables([...new Set(((data ?? []) as { responsable: string }[]).map((x) => x.responsable).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es')))) }, [])

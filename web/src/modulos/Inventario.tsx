@@ -374,7 +374,7 @@ function Panel({ p, editar, abrirEditar, car }: { p: Fila; editar: boolean; abri
 }
 
 /* ---------- Pantalla principal ---------- */
-export default function Inventario({ perfil }: { perfil: Perfil; volver?: () => void }) {
+export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil; volver?: () => void; irAMovimientos?: (codigo: string) => void }) {
   const [items, setItems] = useState<Fila[]>([])
   const [total, setTotal] = useState(0)
   const [cargando, setCargando] = useState(true)
@@ -830,6 +830,8 @@ export default function Inventario({ perfil }: { perfil: Perfil; volver?: () => 
           p={enCajon}
           editar={editar}
           eliminar={puede(perfil, 'inventario', 'eliminar')}
+          verMovimientos={puede(perfil, 'movimientos', 'ver')}
+          irAMovimientos={irAMovimientos}
           car={car}
           cerrar={() => setCajon(null)}
           abrirEditar={(id) => { setCajon(null); setForm(id) }}
@@ -950,8 +952,9 @@ function urlVideoEmbed(url: string): string | null {
   return null
 }
 
-function DetalleProducto({ p, editar, eliminar, cerrar, abrirEditar, eliminado, car }: {
-  p: Fila; editar: boolean; eliminar: boolean; cerrar: () => void; abrirEditar: (id: string) => void; eliminado: () => void; car: Carrito | null
+function DetalleProducto({ p, editar, eliminar, verMovimientos, irAMovimientos, cerrar, abrirEditar, eliminado, car }: {
+  p: Fila; editar: boolean; eliminar: boolean; verMovimientos?: boolean; irAMovimientos?: (codigo: string) => void
+  cerrar: () => void; abrirEditar: (id: string) => void; eliminado: () => void; car: Carrito | null
 }) {
   const nCot = car?.cant(p.id) ?? 0
   const [info, setInfo] = useState<InfoExtra | null>(null)
@@ -997,18 +1000,18 @@ function DetalleProducto({ p, editar, eliminar, cerrar, abrirEditar, eliminado, 
     <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-[2px] z-[60] flex items-center justify-center p-0 sm:p-4" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
       <div className="bg-[#f6f9fc] sm:rounded-3xl shadow-2xl w-full h-full sm:h-auto sm:max-w-6xl sm:max-h-[92vh] flex flex-col overflow-hidden">
         {/* Encabezado */}
-        <div className="inv-dhead shrink-0 px-5 pt-4 pb-4 text-white" style={{ background: 'linear-gradient(135deg,var(--navy),var(--primary))' }}>
+        <div className="inv-dhead shrink-0 px-4 pt-3 pb-3 text-white" style={{ background: 'linear-gradient(135deg,var(--navy),var(--primary))' }}>
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
-              <span className="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center shrink-0"><Package className="w-4 h-4" /></span>
+              <span className="w-7 h-7 rounded-lg bg-white/15 flex items-center justify-center shrink-0"><Package className="w-3.5 h-3.5" /></span>
               <p className="text-[11px] font-mono-spec text-white/75 truncate">{p.codigo}{p.codigo_unico ? ' - ' + p.codigo_unico : ''}</p>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
-              <button onClick={cerrar} className="w-9 h-9 rounded-xl bg-white/15 hover:bg-white/25 flex items-center justify-center transition-colors" title="Cerrar"><X className="w-4 h-4" /></button>
+              <button onClick={cerrar} className="w-8 h-8 rounded-lg bg-white/15 hover:bg-white/25 flex items-center justify-center transition-colors" title="Cerrar"><X className="w-4 h-4" /></button>
             </div>
           </div>
-          <h2 className="font-display font-bold text-lg sm:text-xl leading-snug mt-2">{p.nombre}</h2>
-          <div className="flex items-center gap-1.5 flex-wrap mt-2">
+          <h2 className="font-display font-bold text-base sm:text-lg leading-snug mt-1.5">{p.nombre}</h2>
+          <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
             <span className="inv-chip" style={{ background: 'rgba(255,255,255,.14)', borderColor: 'rgba(255,255,255,.2)', color: '#fff' }}><Tag /><span>{p.categoria?.nombre || '—'}</span></span>
             <span className="inv-chip" style={stockN > 0 ? { background: '#e7f6f2', borderColor: '#bfe6da', color: '#04896f' } : { background: '#fdecea', borderColor: '#f5c6c0', color: '#c0392b' }}>
               {stockN > 0 ? 'Stock: ' + stockN : stockN < 0 ? `Stock: ${stockN} (facturado sin stock)` : 'Sin stock'}
@@ -1018,34 +1021,34 @@ function DetalleProducto({ p, editar, eliminar, cerrar, abrirEditar, eliminado, 
 
         <div className="flex flex-col sm:flex-row flex-1 min-h-0 overflow-y-auto sm:overflow-hidden">
           {/* IZQUIERDA — galería del producto (igual que en la vista pública) */}
-          <div className="contents sm:flex sm:w-[400px] shrink-0 flex-col sm:overflow-y-auto sm:border-r border-slate-200/70">
-            <div className="order-1 sm:order-none p-4 pb-0 shrink-0">
-              <div className="bg-white rounded-2xl border border-slate-200 p-2 shadow-sm max-w-[320px] mx-auto sm:max-w-none">
+          <div className="contents sm:flex sm:w-[280px] shrink-0 flex-col sm:overflow-y-auto sm:border-r border-slate-200/70">
+            <div className="order-1 sm:order-none p-3 pb-0 shrink-0">
+              <div className="bg-white rounded-xl border border-slate-200 p-1.5 shadow-sm max-w-[220px] mx-auto sm:max-w-none">
                 <div className="relative">
                   {actual && actual.tipo === 'video'
                     ? (urlVideoEmbed(actual.archivo_url)
-                        ? <iframe src={urlVideoEmbed(actual.archivo_url)!} className="w-full aspect-square rounded-xl bg-black" allow="autoplay; fullscreen; picture-in-picture" title="Video del producto" />
-                        : <video src={actual.archivo_url} controls className="w-full aspect-square rounded-xl bg-black object-contain" />)
+                        ? <iframe src={urlVideoEmbed(actual.archivo_url)!} className="w-full aspect-square rounded-lg bg-black" allow="autoplay; fullscreen; picture-in-picture" title="Video del producto" />
+                        : <video src={actual.archivo_url} controls className="w-full aspect-square rounded-lg bg-black object-contain" />)
                     : actual
-                      ? <img decoding="async" src={imagen(actual.archivo_url, 800)} onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} className="w-full aspect-square object-contain p-2 rounded-xl bg-white" alt="" />
-                      : <div className="w-full aspect-square rounded-xl bg-white" />}
+                      ? <img decoding="async" src={imagen(actual.archivo_url, 600)} onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} className="w-full aspect-square object-contain p-1.5 rounded-lg bg-white" alt="" />
+                      : <div className="w-full aspect-square rounded-lg bg-white" />}
                   {actual && actual.tipo === 'imagen' && (
                     <div className="inv-hero-tools">
                       <a href={imagen(actual.archivo_url, 1600)} target="_blank" rel="noopener noreferrer" title="Descargar imagen"><Download /></a>
                     </div>
                   )}
                 </div>
-                {actual?.descripcion && <p className="text-[10px] text-slate-500 mt-1.5 px-1 leading-snug">{actual.descripcion}</p>}
+                {actual?.descripcion && <p className="text-[10px] text-slate-500 mt-1 px-1 leading-snug">{actual.descripcion}</p>}
               </div>
               {media.length > 1 && (
-                <div className="flex gap-1.5 overflow-x-auto mt-2.5 pb-1 max-w-[320px] mx-auto sm:max-w-none">
+                <div className="flex gap-1.5 overflow-x-auto mt-2 pb-1 max-w-[220px] mx-auto sm:max-w-none">
                   {media.map((m, i) => (
                     <button key={i} type="button" onClick={() => setImgSel(i)}
-                      className="shrink-0 w-14 h-14 rounded-lg border-2 overflow-hidden bg-white grid place-items-center"
+                      className="shrink-0 w-10 h-10 rounded-md border-2 overflow-hidden bg-white grid place-items-center"
                       style={{ borderColor: i === imgSel ? 'var(--primary)' : '#e2e8f0' }}>
                       {m.tipo === 'video'
-                        ? <span className="text-slate-400"><Video className="w-4 h-4" /></span>
-                        : <img decoding="async" loading="lazy" src={imagen(m.archivo_url, 120)} className="w-full h-full object-cover" alt="" />}
+                        ? <span className="text-slate-400"><Video className="w-3.5 h-3.5" /></span>
+                        : <img decoding="async" loading="lazy" src={imagen(m.archivo_url, 100)} className="w-full h-full object-cover" alt="" />}
                     </button>
                   ))}
                 </div>
@@ -1054,27 +1057,27 @@ function DetalleProducto({ p, editar, eliminar, cerrar, abrirEditar, eliminado, 
           </div>
 
           {/* DERECHA — detalles */}
-          <div className="order-2 sm:order-none flex-1 p-4 sm:p-5 sm:overflow-y-auto space-y-4">
+          <div className="order-2 sm:order-none flex-1 p-3 sm:p-3.5 sm:overflow-y-auto space-y-2.5">
             {p.reservaciones && (
-              <div className="flex items-start gap-2 text-xs font-bold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
-                <TriangleAlert className="w-4 h-4 shrink-0 mt-0.5" /><span>{p.reservaciones}</span>
+              <div className="flex items-start gap-2 text-xs font-bold text-red-700 bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5">
+                <TriangleAlert className="w-3.5 h-3.5 shrink-0 mt-0.5" /><span>{p.reservaciones}</span>
               </div>
             )}
 
             {/* Precio + DIS oculto */}
             <div className="inv-price">
-              <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3 items-stretch">
+              <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-2.5 items-stretch">
                 <div>
                   <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Precio PVP</p>
-                  <p className="font-display font-bold text-2xl leading-tight" style={{ color: 'var(--primary)' }}><span>${pvp.toFixed(2)}</span> <span className="text-[11px] font-semibold text-slate-500">{conIva ? '+ IVA' : 'IVA 0%'}</span></p>
-                  <p className="text-[11px] text-slate-500 mt-0.5">{conIva ? '$' + (pvp * 1.15).toFixed(2) + ' IVA incluido' : 'No aplica IVA'}</p>
+                  <p className="font-display font-bold text-xl leading-tight" style={{ color: 'var(--primary)' }}><span>${pvp.toFixed(2)}</span> <span className="text-[11px] font-semibold text-slate-500">{conIva ? '+ IVA' : 'IVA 0%'}</span></p>
+                  <p className="text-[10.5px] text-slate-500 mt-0.5">{conIva ? '$' + (pvp * 1.15).toFixed(2) + ' IVA incluido' : 'No aplica IVA'}</p>
                 </div>
                 {dis > 0 && (
                   <div className={'inv-dis' + (verDis ? ' show' : '')}>
                     <div className="inv-dis-val" onClick={() => setVerDis(false)} title="Ocultar precio DIS">
                       <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Precio DIS</p>
                       <p className="flex items-baseline gap-2 flex-wrap">
-                        <span className="font-display font-bold text-xl" style={{ color: 'var(--teal)' }}>${dis.toFixed(2)}</span>
+                        <span className="font-display font-bold text-lg" style={{ color: 'var(--teal)' }}>${dis.toFixed(2)}</span>
                         {pct > 0 && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: '#7c3aed1A', color: '#7c3aed' }}>DIS:{String(pct).replace('.', ',')}%</span>}
                       </p>
                     </div>
@@ -1084,13 +1087,18 @@ function DetalleProducto({ p, editar, eliminar, cerrar, abrirEditar, eliminado, 
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-2">
-              <div className="inv-stat"><small>Stock</small><b style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}><UbicStock p={p} grande /></b></div>
+            <div className="flex items-center justify-between gap-2 bg-slate-50 rounded-lg px-2.5 py-1.5">
+              <div className="inv-stat !p-0 !bg-transparent"><small>Stock</small><b style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}><UbicStock p={p} grande /></b></div>
+              {verMovimientos && (
+                <button type="button" onClick={() => irAMovimientos?.(p.codigo)} className="text-[10.5px] font-bold px-2.5 py-1.5 rounded-lg border bg-white flex items-center gap-1.5 shrink-0" style={{ borderColor: '#cfe0ef', color: 'var(--primary)' }}>
+                  <ClipboardList className="w-3.5 h-3.5" /> Ver movimientos
+                </button>
+              )}
             </div>
             <ImpLista id={p.id} />
 
-            <div className="bg-white border border-slate-200 rounded-2xl p-4">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Descripción</p>
+            <div className="bg-white border border-slate-200 rounded-xl p-3">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Descripción</p>
               <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-line">{descripcion === null ? 'Cargando…' : descripcion || '—'}</p>
             </div>
 
@@ -1100,32 +1108,30 @@ function DetalleProducto({ p, editar, eliminar, cerrar, abrirEditar, eliminado, 
               ['Accesorios', info?.accesorios],
               ['Certificaciones', info?.certificaciones],
             ] as [string, string | null | undefined][]).filter(([, v]) => v && v.trim()).map(([t, v]) => (
-              <div key={t} className="bg-white border border-slate-200 rounded-2xl p-4">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">{t}</p>
+              <div key={t} className="bg-white border border-slate-200 rounded-xl p-3">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{t}</p>
                 <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-line">{v}</p>
               </div>
             ))}
 
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="flex flex-col gap-2">
-                {p.ficha_tecnica_url && (
-                  <a href={p.ficha_tecnica_url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold px-3 py-2 rounded-xl border bg-white flex items-center gap-1.5" style={{ borderColor: '#cfe0ef', color: 'var(--primary)' }}>
-                    <FileText className="w-3.5 h-3.5" /> Ficha Técnica
-                  </a>
-                )}
-                {p.drive_carpeta_url && (
-                  <a href={p.drive_carpeta_url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold px-3 py-2 rounded-xl border bg-white flex items-center gap-1.5" style={{ borderColor: '#cdebe4', color: 'var(--teal)' }}>
-                    <Images className="w-3.5 h-3.5" /> Multimedia
-                  </a>
-                )}
-              </div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {p.ficha_tecnica_url && (
+                <a href={p.ficha_tecnica_url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg border bg-white flex items-center gap-1.5" style={{ borderColor: '#cfe0ef', color: 'var(--primary)' }}>
+                  <FileText className="w-3.5 h-3.5" /> Ficha Técnica
+                </a>
+              )}
+              {p.drive_carpeta_url && (
+                <a href={p.drive_carpeta_url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg border bg-white flex items-center gap-1.5" style={{ borderColor: '#cdebe4', color: 'var(--teal)' }}>
+                  <Images className="w-3.5 h-3.5" /> Multimedia
+                </a>
+              )}
               {editar && (
-                <button type="button" onClick={() => abrirEditar(p.id)} className="text-[11px] font-bold px-3 py-2 rounded-xl border bg-white flex items-center gap-1.5" style={{ borderColor: '#f1dfbf', color: '#a86d10' }}>
+                <button type="button" onClick={() => abrirEditar(p.id)} className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg border bg-white flex items-center gap-1.5" style={{ borderColor: '#f1dfbf', color: '#a86d10' }}>
                   <Pencil className="w-3.5 h-3.5" /> Editar producto
                 </button>
               )}
               {eliminar && (
-                <button type="button" onClick={eliminarProducto} className="text-[11px] font-bold px-3 py-2 rounded-xl border flex items-center gap-1.5" style={{ borderColor: '#fecaca', color: '#b91c1c', background: '#fff5f5' }}>
+                <button type="button" onClick={eliminarProducto} className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg border flex items-center gap-1.5" style={{ borderColor: '#fecaca', color: '#b91c1c', background: '#fff5f5' }}>
                   <Trash2 className="w-3.5 h-3.5" /> Eliminar
                 </button>
               )}
