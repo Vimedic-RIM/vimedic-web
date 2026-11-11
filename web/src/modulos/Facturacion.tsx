@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowDown, ArrowUp, BadgeCheck, Boxes, Building2, Clock, CreditCard, Download, Eye, FileCheck2, FilePenLine, FilePlus2, FileUp, Folder, Hash, History, Inbox,
-  Layers, Link2, List, Megaphone, Package, Pencil, Receipt, ReceiptText, RefreshCw, Search, SlidersHorizontal, Truck, TriangleAlert, Upload, X,
+  Layers, Link2, List, Megaphone, Package, Receipt, ReceiptText, RefreshCw, Search, SlidersHorizontal, Truck, TriangleAlert, Upload, X,
 } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
@@ -212,8 +212,9 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
           <td style="padding:6px;border-bottom:1px solid #e2e8f0;font-size:10.5px;color:#64748b">${esc(it.observacion || '')}</td>
         </tr>`).join('')
       const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Guía de despacho ${esc(desp.numero_guia)}</title>
-        <style>@page{size:A4;margin:14mm}body{font-family:Arial,sans-serif;color:#0b2545;font-size:13px;margin:0;padding:14px}</style></head>
-        <body>
+        <style>@page{size:A4;margin:14mm}html{background:#e2e8f0}body{font-family:Arial,sans-serif;color:#0b2545;font-size:13px;margin:0 auto;padding:14mm;width:210mm;min-height:297mm;box-sizing:border-box;background:#fff;box-shadow:0 0 0 1px #cbd5e1}.vm-aviso{background:#fffbeb;border:1px dashed #d4a017;color:#92610b;font-size:11px;padding:6px 10px;border-radius:8px;margin-bottom:12px}@media print{html{background:#fff}body{width:auto;min-height:0;margin:0;padding:0;box-shadow:none}.vm-aviso{display:none}}[contenteditable]:focus{outline:1px dashed #94a3b8}</style></head>
+        <body contenteditable="true">
+          <p class="vm-aviso">✏️ Puedes corregir cualquier dato haciendo clic aquí mismo antes de imprimir o guardar como PDF.</p>
           <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #055c9d;padding-bottom:10px;margin-bottom:14px">
             <div><b style="font-size:22px;color:#055c9d">${marca}</b><br><span style="font-size:13px;font-weight:bold">GUÍA DE DESPACHO ${esc(desp.numero_guia)}</span></div>
             <img src="${qrImg}" width="110" height="110">
@@ -435,15 +436,12 @@ function PanelLateral(r: Fila | null, accion: (qa: string, r: Fila) => void, gen
   acts.push(r.estado === 'Pendiente' ? act('factura', Upload, '#055c9d', 'Subir factura', !r.datosCompletos) : act('verFactura', Receipt, '#055c9d', 'Ver factura', !r.facturaUrl))
   if (r.estado === 'Facturado' || r.actaUrl) {
     acts.push(r.actaUrl ? act('verActa', FileCheck2, '#04896f', 'Ver acta .pdf') : act('acta', FilePlus2, '#04896f', 'Generar acta'))
-    if (r.actaUrl) acts.push(act('acta', Pencil, '#0f766e', 'Editar acta'))
   }
   if (r.estado === 'Facturado' || r.guiaDespachoUrl) {
     acts.push(r.guiaDespachoUrl ? act('verGuiaDespacho', Boxes, '#c98a1f', 'Ver guía despacho') : act('guiaDespacho', Boxes, '#c0392b', generandoGuia === r.uuid ? 'Generando…' : 'Generar guía despacho', generandoGuia === r.uuid))
-    if (r.guiaDespachoUrl) acts.push(act('guiaDespacho', Pencil, '#b7791f', generandoGuia === r.uuid ? 'Generando…' : 'Rehacer guía despacho', generandoGuia === r.uuid))
   }
   if (r.esEnvio || r.guiaEnvioUrl) {
     acts.push(r.guiaEnvioUrl ? act('verGuiaEnvio', Truck, '#c98a1f', 'Ver etiqueta envío') : act('guiaEnvio', Truck, '#64748b', 'Generar etiqueta envío'))
-    if (r.guiaEnvioUrl) acts.push(act('guiaEnvio', Pencil, '#475569', 'Editar etiqueta envío'))
   }
   if (r.actaConformidadUrl) acts.push(act('conformidad', BadgeCheck, '#17a9ba', 'Conformidad'))
   if (r.numeroFactura) acts.push(act('nc', ReceiptText, '#7c3aed', 'Notas crédito'))
@@ -897,8 +895,9 @@ function ModalGuiaEnvio({ r, cerrar, guardado }: { r: Fila; cerrar: () => void; 
       const NAVY = '#0b2545'
       const dato = (et: string, v: string) => (v ? `<p style="margin:0 0 4px"><b style="color:${NAVY}">${et ? et + ': ' : ''}</b>${esc(v)}</p>` : '')
       const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Guía de envío ${esc(r.id)}</title>
-        <style>@page{size:A4;margin:14mm}body{font-family:Arial,sans-serif;color:#1e293b;font-size:13px;margin:0;padding:14px}</style></head>
-        <body>
+        <style>@page{size:A4;margin:14mm}html{background:#e2e8f0}body{font-family:Arial,sans-serif;color:#1e293b;font-size:13px;margin:0 auto;padding:14mm;width:210mm;min-height:297mm;box-sizing:border-box;background:#fff;box-shadow:0 0 0 1px #cbd5e1}.vm-aviso{background:#fffbeb;border:1px dashed #d4a017;color:#92610b;font-size:11px;padding:6px 10px;border-radius:8px;margin-bottom:12px}@media print{html{background:#fff}body{width:auto;min-height:0;margin:0;padding:0;box-shadow:none}.vm-aviso{display:none}}[contenteditable]:focus{outline:1px dashed #94a3b8}</style></head>
+        <body contenteditable="true">
+        <p class="vm-aviso">✏️ Puedes corregir cualquier dato haciendo clic aquí mismo antes de imprimir o guardar como PDF.</p>
         <table style="width:100%;border-collapse:collapse;margin-bottom:8px"><tr>
           <td><b style="font-size:26px;color:${NAVY}">VIMEDIC</b></td>
           <td style="text-align:right"><span style="display:inline-block;border:2.5px solid ${NAVY};color:${NAVY};font-size:16px;font-weight:bold;letter-spacing:2px;padding:5px 14px;border-radius:8px">GUÍA DE ENVÍO</span></td>
