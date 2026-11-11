@@ -59,7 +59,13 @@ const MODS_ACC: [string, string][] = [
   ['logistica', 'Logística'], ['importaciones', 'Importaciones'], ['servicio_tecnico', 'Servicio Técnico'], ['documentos_tecnicos', 'Documentos técnicos'],
   ['talento_humano', 'Talento Humano'], ['financiero', 'Financiero'],
 ]
-const LETRAS: [string, string, string][] = [['crear', 'Crear', 'c'], ['editar', 'Editar', 'e'], ['eliminar', 'Eliminar', 'x']]
+/* Tabla unificada de permisos: un interruptor de "Acceso al módulo" (TOGGLES) se combina en la
+   misma fila con sus acciones (crear/editar/eliminar/aprobar) en vez de mostrarse por separado. */
+const VER_TOGGLE: Record<string, Tog> = Object.fromEntries(TOGGLES.filter((t) => t.mod && !t.col && !t.flag && (!t.acc || t.acc === 'ver')).map((t) => [t.mod!, t]))
+const APROBAR_EXTRA: Record<string, Tog> = Object.fromEntries(TOGGLES.filter((t) => t.acc === 'aprobar' && t.mod).map((t) => [t.mod!, t]))
+const MODS_ACC_SET = new Set(MODS_ACC.map(([m]) => m))
+/* El resto de TOGGLES (leads, flags, dashboard) va en "Otros accesos", compacto y aparte de la tabla de módulos. */
+const OTROS_ACCESOS: Tog[] = TOGGLES.filter((t) => t.acc !== 'aprobar' && (t.col || t.flag || (t.mod && !MODS_ACC_SET.has(t.mod)))).filter((t) => t.k !== 'marketingindicadores')
 
 const titulo = (s: string) => s.replace(/(^|\s)([a-záéíóúñ])/g, (_m, a, b) => a + b.toUpperCase())
 const iniciales = (n: string) => { const p = n.trim().split(' ').filter(Boolean); return p.length ? (p[0][0] + (p[1]?.[0] ?? '')).toUpperCase() : '?' }
@@ -161,6 +167,44 @@ function Avatar({ e }: { e: Emp }) {
   return <div className="w-14 h-14 rounded-full flex items-center justify-center text-white font-display font-bold text-base shrink-0" style={{ background: 'var(--primary)' }}>{iniciales(e.nombre)}</div>
 }
 
+/* Una sola fila por módulo: interruptor de acceso (o "según su rol" si no tiene uno dedicado)
+   + chips compactos de Crear/Editar/Eliminar/Aprobar — reemplaza las dos listas separadas de antes. */
+function FilaModulo({ mod, nombre, tiene, delRol, cambiar, cambiarAcc }: {
+  mod: string; nombre: string; tiene: (mod: string, acc: string) => boolean; delRol: (mod: string, acc: string) => boolean
+  cambiar: (t: Tog) => void; cambiarAcc: (mod: string, acc: string) => void
+}) {
+  const entra = tiene(mod, 'ver')
+  const bloqueadoVer = delRol(mod, 'ver')
+  const t = VER_TOGGLE[mod]
+  const puedeVer = !!t || mod === 'inventario'
+  const aprobar = APROBAR_EXTRA[mod]
+  const toggleVer = () => { if (bloqueadoVer) return; if (t) cambiar(t); else if (mod === 'inventario') cambiar({ k: 'inventarioModulo', t: '', mod: 'inventario' }) }
+  const chip = (acc: string, letra: string, titulo: string, color: string) => {
+    const on = tiene(mod, acc), bloqueado = delRol(mod, acc), dis = !entra || bloqueado
+    return (
+      <button key={acc} type="button" disabled={dis} title={!entra ? 'Primero dale acceso al módulo' : bloqueado ? 'Lo da su rol' : titulo} onClick={() => cambiarAcc(mod, acc)}
+        className="w-[22px] h-[22px] text-[9.5px] font-bold rounded-full border transition-colors grid place-items-center shrink-0"
+        style={{ ...(on ? { background: color, borderColor: color, color: '#fff' } : { background: '#fff', borderColor: '#cbd5e1', color: '#64748b' }), ...(dis ? { opacity: 0.4, cursor: 'not-allowed' } : {}) }}>{letra}</button>
+    )
+  }
+  return (
+    <div className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-slate-50">
+      {puedeVer
+        ? <span title={bloqueadoVer ? 'Lo da su rol' : undefined} className={bloqueadoVer ? 'opacity-60' : ''}><Interruptor chico on={entra} onClick={toggleVer} /></span>
+        : <span className="w-10 h-5 shrink-0" />}
+      <span className={'text-[11.5px] font-semibold min-w-0 flex-1 truncate ' + (entra ? 'text-slate-700' : 'text-slate-400')}>
+        {nombre}{!puedeVer && <span className="font-normal text-slate-400"> · según su rol</span>}
+      </span>
+      <div className="flex gap-1 shrink-0">
+        {chip('crear', 'C', 'Crear', 'var(--teal)')}
+        {chip('editar', 'E', 'Editar', 'var(--teal)')}
+        {chip('eliminar', 'X', 'Eliminar', '#dc2626')}
+        {aprobar && chip('aprobar', 'A', 'Aprobar', '#7c3aed')}
+      </div>
+    </div>
+  )
+}
+
 /* ============================ Nuevo / Editar empleado ============================ */
 function Ficha({ perfil, emp, lista, roles, cerrar, guardado, aviso }: { perfil: Perfil; emp: Emp | null; lista: Emp[]; roles: Rol[]; cerrar: () => void; guardado: () => void; aviso: (t: string) => void }) {
   const v = (x: string | null | undefined) => x ?? ''
@@ -180,6 +224,11 @@ function Ficha({ perfil, emp, lista, roles, cerrar, guardado, aviso }: { perfil:
   const [fotoFalla, setFotoFalla] = useState(false)
   const [clave, setClave] = useState<{ valor: string; nuevo: boolean } | null>(null)
   const [generando, setGenerando] = useState(false)
+  const [permBusq, setPermBusq] = useState('')
+  const modsFiltrados = useMemo(() => {
+    const t = permBusq.trim().toLowerCase()
+    return t ? MODS_ACC.filter(([, nombre]) => nombre.toLowerCase().includes(t)) : MODS_ACC
+  }, [permBusq])
   async function generarClave() {
     if (!emp) return
     setGenerando(true); setClave(null)
@@ -270,7 +319,7 @@ function Ficha({ perfil, emp, lista, roles, cerrar, guardado, aviso }: { perfil:
 
   return (
     <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-[2px] z-[70] flex items-center justify-center p-0 sm:p-4" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
-      <div className="modal-panel bg-white sm:rounded-2xl shadow-2xl w-full h-full sm:h-auto sm:max-h-[90vh] sm:max-w-2xl flex flex-col overflow-hidden">
+      <div className={'modal-panel bg-white sm:rounded-2xl shadow-2xl w-full h-full sm:h-auto sm:max-h-[92vh] flex flex-col overflow-hidden ' + (emp ? 'sm:max-w-6xl' : 'sm:max-w-2xl')}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
           <h3 className="font-display font-bold text-sm text-slate-800">{emp ? 'Editar Empleado' : 'Nuevo Empleado'}</h3>
           <button onClick={cerrar} className="text-slate-400 hover:text-slate-600" aria-label="Cerrar"><X className="w-4 h-4" /></button>
@@ -288,7 +337,7 @@ function Ficha({ perfil, emp, lista, roles, cerrar, guardado, aviso }: { perfil:
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div className={'grid grid-cols-1 sm:grid-cols-2 gap-2.5 ' + (emp ? 'lg:grid-cols-4' : '')}>
             <input type="email" value={f.email} onChange={(e) => set('email', e.target.value.toLowerCase())} placeholder="Correo institucional (obligatorio) *" className={campo + ' sm:col-span-2'} style={ring} />
             <input type="text" value={f.nombre} onChange={(e) => set('nombre', titulo(e.target.value))} placeholder="Nombre completo *" className={campo + ' sm:col-span-2'} style={ring} />
             <input type="text" inputMode="numeric" value={f.cedula} onChange={(e) => set('cedula', e.target.value.replace(/\D/g, ''))} placeholder="Cédula" className={campo} style={ring} />
@@ -320,88 +369,84 @@ function Ficha({ perfil, emp, lista, roles, cerrar, guardado, aviso }: { perfil:
           </div>
 
           {emp && (
-            <>
-              <div className="mt-5 pt-4 border-t border-slate-100">
-                <p className="text-[11px] font-bold text-slate-500 uppercase mb-2">Acceso al CRM</p>
-                <div className="flex items-center justify-between bg-slate-50 rounded-lg p-3 mb-2.5">
-                  <span className="text-xs font-semibold text-slate-700">¿Puede entrar al CRM?</span>
-                  <Interruptor on={accesoCrm} onClick={() => setAccesoCrm((a) => !a)} />
-                </div>
-                {accesoCrm && (
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Rol en el CRM</label>
-                    <select value={f.rolId} onChange={(e) => set('rolId', e.target.value)} className={campo} style={ring}>
+            <div className="mt-5 pt-4 border-t border-slate-100 grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-5">
+              {/* Columna izquierda: cuenta + accesos secundarios (más corta, no crece con la lista de módulos) */}
+              <div className="space-y-4">
+                <div>
+                  <p className="text-[11px] font-bold text-slate-500 uppercase mb-2">Acceso al CRM</p>
+                  <div className="flex items-center justify-between bg-slate-50 rounded-lg p-2.5 mb-2">
+                    <span className="text-xs font-semibold text-slate-700">¿Puede entrar al CRM?</span>
+                    <Interruptor chico on={accesoCrm} onClick={() => setAccesoCrm((a) => !a)} />
+                  </div>
+                  {accesoCrm && (
+                    <select value={f.rolId} onChange={(e) => set('rolId', e.target.value)} className={campo + ' bg-white mb-2'} style={ring}>
                       <option value="">Selecciona un rol</option>
                       {roles.map((r) => <option key={r.id} value={r.id}>{r.nombre}{r.rol_crm ? ' · ' + r.rol_crm : ''}</option>)}
                     </select>
-                  </div>
-                )}
-                <div className="mt-3 pt-3 border-t border-slate-100">
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Contraseña de acceso (login sin Google)</label>
-                  <div className="flex gap-2 items-center flex-wrap">
-                    <button type="button" onClick={generarClave} disabled={generando} className="text-xs font-semibold px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-60">
-                      {generando ? 'Generando…' : emp.auth_user_id ? 'Generar contraseña nueva' : 'Crear cuenta de acceso'}
-                    </button>
-                    <span className="text-[10px] text-slate-400">{emp.auth_user_id ? 'Cuenta vinculada' : 'Todavía sin cuenta de acceso'}</span>
-                  </div>
+                  )}
+                  <button type="button" onClick={generarClave} disabled={generando} className="w-full text-xs font-semibold px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-60">
+                    {generando ? 'Generando…' : emp.auth_user_id ? 'Generar contraseña nueva' : 'Crear cuenta de acceso'}
+                  </button>
+                  <p className="text-[10px] text-slate-400 mt-1">{emp.auth_user_id ? 'Cuenta vinculada' : 'Todavía sin cuenta de acceso'}</p>
                   {clave && (
-                    <div className="mt-2 flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    <div className="mt-2 flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
                       <div className="min-w-0">
-                        <p className="text-[10px] font-bold text-amber-700 uppercase">{clave.nuevo ? 'Cuenta creada' : 'Contraseña nueva'} · solo se muestra una vez</p>
-                        <code className="text-sm font-bold text-slate-800 select-all">{clave.valor}</code>
+                        <p className="text-[9px] font-bold text-amber-700 uppercase">{clave.nuevo ? 'Cuenta creada' : 'Contraseña nueva'} · una vez</p>
+                        <code className="text-xs font-bold text-slate-800 select-all">{clave.valor}</code>
                       </div>
-                      <button type="button" onClick={() => { navigator.clipboard?.writeText(clave.valor); aviso('Contraseña copiada.') }} className="ml-auto text-[10px] font-semibold px-2 py-1 rounded-md border border-amber-300 bg-white hover:bg-amber-100 shrink-0">Copiar</button>
+                      <button type="button" onClick={() => { navigator.clipboard?.writeText(clave.valor); aviso('Contraseña copiada.') }} className="ml-auto text-[9px] font-semibold px-2 py-1 rounded-md border border-amber-300 bg-white hover:bg-amber-100 shrink-0">Copiar</button>
                     </div>
                   )}
                 </div>
-              </div>
 
-              <div className="mt-5 pt-4 border-t border-slate-100">
-                <p className="text-[11px] font-bold text-slate-500 uppercase mb-2">Permisos por Módulo</p>
-                {TOGGLES.filter((t) => t.k !== 'marketing' && t.k !== 'marketingindicadores' && t.k !== 'femedics' && t.k !== 'preciosFemedics').map((t) => fila(t))}
-                {TOGGLES.filter((t) => t.k === 'femedics' || t.k === 'preciosFemedics').map((t) => fila(t))}
-                {fila(TOGGLES.find((t) => t.k === 'marketing')!)}
-                {fila(TOGGLES.find((t) => t.k === 'marketingindicadores')!)}
-                <div className="bg-slate-50 rounded-lg p-3 mb-2.5 space-y-2">
-                  <label className="block"><span className="block text-xs font-semibold text-slate-700">Rol en Marketing</span>
-                    <span className="block text-[10px] text-slate-500 leading-snug mt-0.5">Coordinación aprueba; Asistente y Audiovisual envían a aprobación lo importante (nombre, especificaciones, visible al público y publicaciones).</span>
-                    <select value={mk.rol} onChange={(e) => setMk({ ...mk, rol: e.target.value })} className="mt-1.5 w-full border border-slate-200 rounded-lg px-2.5 py-2 text-xs bg-white">
-                      <option value="">Sin rol (cuenta como Asistente)</option><option>Coordinación</option><option>Asistente</option><option>Audiovisual</option>
+                <div>
+                  <p className="text-[11px] font-bold text-slate-500 uppercase mb-2">Otros accesos</p>
+                  <div className="space-y-1.5">{OTROS_ACCESOS.map((t) => fila(t, true))}</div>
+                </div>
+
+                <div className="bg-slate-50 rounded-lg p-2.5 space-y-2">
+                  <label className="block"><span className="block text-[11px] font-semibold text-slate-700" title="Coordinación aprueba; Asistente y Audiovisual envían a aprobación lo importante (nombre, especificaciones, visible al público y publicaciones).">Rol en Marketing</span>
+                    <select value={mk.rol} onChange={(e) => setMk({ ...mk, rol: e.target.value })} className="mt-1 w-full border border-slate-200 rounded-lg px-2 py-1.5 text-[11px] bg-white">
+                      <option value="">Sin rol (Asistente)</option><option>Coordinación</option><option>Asistente</option><option>Audiovisual</option>
                     </select></label>
-                  <label className="flex items-center gap-2 text-[11px] font-semibold text-slate-600"><input type="checkbox" checked={mk.directa} onChange={(e) => setMk({ ...mk, directa: e.target.checked })} className="w-4 h-4" />Publicación directa <span className="font-normal text-slate-400">(sus cambios salen sin esperar; Coordinación los revisa después)</span></label>
-                  <label className="flex items-center gap-2 text-[11px] font-semibold text-slate-600"><input type="checkbox" checked={mk.aprueba} onChange={(e) => setMk({ ...mk, aprueba: e.target.checked })} className="w-4 h-4" />Aprueba promociones <span className="font-normal text-slate-400">(ve márgenes, edita porcentajes y aprueba campañas como Black Friday)</span></label>
+                  <label className="flex items-center gap-2 text-[10.5px] font-semibold text-slate-600" title="Sus cambios salen sin esperar; Coordinación los revisa después"><input type="checkbox" checked={mk.directa} onChange={(e) => setMk({ ...mk, directa: e.target.checked })} className="w-3.5 h-3.5" />Publicación directa</label>
+                  <label className="flex items-center gap-2 text-[10.5px] font-semibold text-slate-600" title="Ve márgenes, edita porcentajes y aprueba campañas como Black Friday"><input type="checkbox" checked={mk.aprueba} onChange={(e) => setMk({ ...mk, aprueba: e.target.checked })} className="w-3.5 h-3.5" />Aprueba promociones</label>
                 </div>
-                <div className="flex items-center justify-between bg-slate-50 rounded-lg p-3 mb-2">
-                  <span className="text-xs font-semibold text-slate-700">Módulo Inventario</span>
-                  <Interruptor on={inv} onClick={() => !delRol('inventario', 'ver') && cambiar({ k: 'inventarioModulo', t: '', mod: 'inventario' })} />
-                </div>
-                {inv && <div className="pl-3 border-l-2 border-slate-100 space-y-2 mb-1">{INV_SUB.map((t) => fila(t, true))}</div>}
+
+                {fila(TOGGLES.find((t) => t.k === 'marketingindicadores')!, true)}
               </div>
 
-              <div className="mt-5 pt-4 border-t border-slate-100">
-                <div className="flex items-center justify-between mb-1"><p className="text-[11px] font-bold text-slate-500 uppercase">Qué puede hacer en cada módulo</p></div>
-                <p className="text-[11px] text-slate-500 mb-2.5 leading-snug">Ver depende del acceso al módulo (arriba). Eliminar no borra nada de la base: lo quita de la app y queda en la Papelera para restaurarlo.</p>
-                <div className="space-y-1.5">
-                  {MODS_ACC.map(([mod, nombre]) => {
-                    const entra = tiene(mod, 'ver')
-                    return (
-                      <div key={mod} className={'flex items-center justify-between gap-2 rounded-lg p-2 ' + (entra ? 'bg-slate-50' : 'bg-white border border-dashed border-slate-200')}>
-                        <span className={'text-[11.5px] font-semibold min-w-0 ' + (entra ? 'text-slate-700' : 'text-slate-400')}>{nombre}{!entra && <span className="font-normal"> · sin acceso</span>}</span>
-                        <div className="flex gap-1 shrink-0">
-                          {LETRAS.map(([acc, et]) => {
-                            const on = tiene(mod, acc), bloqueado = delRol(mod, acc), dis = !entra || bloqueado
-                            const color = acc === 'eliminar' ? '#dc2626' : 'var(--teal)'
-                            return <button key={acc} type="button" disabled={dis} title={!entra ? 'Primero dale acceso al módulo' : bloqueado ? 'Lo da su rol' : ''} onClick={() => cambiarAcc(mod, acc)}
-                              className="text-[10.5px] font-bold px-2.5 py-1 rounded-full border transition-colors"
-                              style={{ ...(on ? { background: color, borderColor: color, color: '#fff' } : { background: '#fff', borderColor: '#cbd5e1', color: '#64748b' }), ...(dis ? { opacity: 0.45, cursor: 'not-allowed' } : {}) }}>{et}</button>
-                          })}
-                        </div>
+              {/* Columna derecha: tabla única de módulos — acceso + qué puede hacer, en una sola fila cada uno */}
+              <div className="min-w-0">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <p className="text-[11px] font-bold text-slate-500 uppercase">Permisos por módulo</p>
+                  <span className="text-[10px] font-bold text-slate-400 shrink-0">{modsFiltrados.filter(([mod]) => tiene(mod, 'ver')).length}/{MODS_ACC.length} con acceso</span>
+                </div>
+                <div className="relative mb-2">
+                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-300" />
+                  <input type="text" value={permBusq} onChange={(e) => setPermBusq(e.target.value)} placeholder="Buscar módulo…" className="w-full border border-slate-200 rounded-lg pl-8 pr-2.5 py-1.5 text-xs focus:outline-none focus:ring-2" style={ring} />
+                </div>
+                <p className="text-[10px] text-slate-400 mb-2 leading-snug">Ver se activa con el interruptor (o lo da el rol). Eliminar no borra de la base: queda en la Papelera.</p>
+                <div className="rounded-xl border border-slate-200 overflow-hidden">
+                  <div className="grid grid-cols-[1fr_auto] items-center gap-2 px-2.5 py-1.5 bg-slate-50 border-b border-slate-200 text-[9.5px] font-bold text-slate-400 uppercase">
+                    <span>Módulo</span><span>Crear · Editar · Eliminar{Object.keys(APROBAR_EXTRA).length ? ' · Aprobar' : ''}</span>
+                  </div>
+                  <div className="max-h-[52vh] overflow-y-auto divide-y divide-slate-100">
+                    {modsFiltrados.map(([mod, nombre]) => (
+                      <div key={mod}>
+                        <FilaModulo mod={mod} nombre={nombre} tiene={tiene} delRol={delRol} cambiar={cambiar} cambiarAcc={cambiarAcc} />
+                        {mod === 'inventario' && inv && (
+                          <div className="pl-9 pr-2.5 pb-1.5 space-y-1">
+                            {INV_SUB.filter((t) => t.k === 'inventarioVerMovimientos' || t.k === 'inventarioMultimedia').map((t) => fila(t, true))}
+                          </div>
+                        )}
                       </div>
-                    )
-                  })}
+                    ))}
+                    {modsFiltrados.length === 0 && <p className="text-center text-xs text-slate-400 py-6">Sin módulos que coincidan.</p>}
+                  </div>
                 </div>
               </div>
-            </>
+            </div>
           )}
         </div>
 
