@@ -3,7 +3,7 @@ import {
   GripVertical, Move, RotateCcw, Ship, ArrowDownAZ, ArrowRight, BadgeCheck, CircleCheck, ClipboardList, PlusCircle, ShoppingCart, BadgeDollarSign, Barcode, Boxes, Check, ChevronDown, ChevronUp,
   ChevronsUpDown, ClipboardCopy, Download, Eraser, Eye, EyeOff, FileText, Hash, ImagePlus, Images, LayoutGrid,
   Package, PackagePlus, PackageX, PanelsTopLeft, Pencil, Plus, RefreshCw, Search, SlidersHorizontal, Table2, Tag,
-  Trash2, TriangleAlert, X,
+  Trash2, TriangleAlert, Video, X,
 } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
@@ -939,16 +939,41 @@ function PapeleraProductos({ cerrar, restaurado }: { cerrar: () => void; restaur
 }
 
 /* ---------- Ficha completa del producto (copia de #detailOverlay de Inventario.html) ---------- */
+type InfoExtra = { descripcion: string | null; caracteristicas: string | null; especificaciones: string | null; accesorios: string | null; certificaciones: string | null }
+type GaleriaItem = { tipo: 'imagen' | 'video'; archivo_url: string; descripcion: string | null }
+
+function urlVideoEmbed(url: string): string | null {
+  const yt = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([a-zA-Z0-9_-]{6,})/)
+  if (yt) return 'https://www.youtube.com/embed/' + yt[1]
+  const vm = url.match(/vimeo\.com\/(\d+)/)
+  if (vm) return 'https://player.vimeo.com/video/' + vm[1]
+  return null
+}
+
 function DetalleProducto({ p, editar, eliminar, cerrar, abrirEditar, eliminado, car }: {
   p: Fila; editar: boolean; eliminar: boolean; cerrar: () => void; abrirEditar: (id: string) => void; eliminado: () => void; car: Carrito | null
 }) {
   const nCot = car?.cant(p.id) ?? 0
-  const [descripcion, setDescripcion] = useState<string | null>(null)
+  const [info, setInfo] = useState<InfoExtra | null>(null)
+  const [galeria, setGaleria] = useState<GaleriaItem[]>([])
   const [verDis, setVerDis] = useState(false)
+  const [imgSel, setImgSel] = useState(0)
+  const descripcion = info?.descripcion ?? null
   useEffect(() => {
-    supabase.from('productos').select('descripcion').eq('id', p.id).single()
-      .then(({ data }) => setDescripcion((data as { descripcion: string | null } | null)?.descripcion ?? ''))
+    setImgSel(0)
+    Promise.all([
+      supabase.from('productos').select('descripcion,caracteristicas,especificaciones,accesorios,certificaciones').eq('id', p.id).single(),
+      supabase.from('producto_galeria').select('tipo,archivo_url,descripcion').eq('producto_id', p.id).is('deleted_at', null).order('orden'),
+    ]).then(([prod, gal]) => {
+      setInfo((prod.data as InfoExtra | null) ?? { descripcion: '', caracteristicas: null, especificaciones: null, accesorios: null, certificaciones: null })
+      setGaleria((gal.data as GaleriaItem[]) ?? [])
+    })
   }, [p.id])
+  const media = useMemo(() => {
+    const m: GaleriaItem[] = p.imagen_url ? [{ tipo: 'imagen', archivo_url: p.imagen_url, descripcion: null }] : []
+    return m.concat(galeria)
+  }, [p.imagen_url, galeria])
+  const actual = media[imgSel] ?? null
   useEffect(() => {
     const f = (e: KeyboardEvent) => { if (e.key === 'Escape') cerrar() }
     document.addEventListener('keydown', f)
@@ -970,7 +995,7 @@ function DetalleProducto({ p, editar, eliminar, cerrar, abrirEditar, eliminado, 
 
   return (
     <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-[2px] z-[60] flex items-center justify-center p-0 sm:p-4" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
-      <div className="bg-[#f6f9fc] sm:rounded-3xl shadow-2xl w-full h-full sm:h-auto sm:max-w-4xl sm:max-h-[92vh] flex flex-col overflow-hidden">
+      <div className="bg-[#f6f9fc] sm:rounded-3xl shadow-2xl w-full h-full sm:h-auto sm:max-w-6xl sm:max-h-[92vh] flex flex-col overflow-hidden">
         {/* Encabezado */}
         <div className="inv-dhead shrink-0 px-5 pt-4 pb-4 text-white" style={{ background: 'linear-gradient(135deg,var(--navy),var(--primary))' }}>
           <div className="flex items-center justify-between gap-2">
@@ -992,21 +1017,39 @@ function DetalleProducto({ p, editar, eliminar, cerrar, abrirEditar, eliminado, 
         </div>
 
         <div className="flex flex-col sm:flex-row flex-1 min-h-0 overflow-y-auto sm:overflow-hidden">
-          {/* IZQUIERDA — imagen del producto */}
-          <div className="contents sm:flex sm:w-[320px] shrink-0 flex-col sm:overflow-hidden sm:border-r border-slate-200/70">
+          {/* IZQUIERDA — galería del producto (igual que en la vista pública) */}
+          <div className="contents sm:flex sm:w-[400px] shrink-0 flex-col sm:overflow-y-auto sm:border-r border-slate-200/70">
             <div className="order-1 sm:order-none p-4 pb-0 shrink-0">
-              <div className="bg-white rounded-2xl border border-slate-200 p-2 shadow-sm max-w-[260px] mx-auto sm:max-w-none">
+              <div className="bg-white rounded-2xl border border-slate-200 p-2 shadow-sm max-w-[320px] mx-auto sm:max-w-none">
                 <div className="relative">
-                  {p.imagen_url
-                    ? <img decoding="async" src={imagen(p.imagen_url, 800)} onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} className="w-full aspect-square object-contain p-2 rounded-xl bg-white" alt="" />
-                    : <div className="w-full aspect-square rounded-xl bg-white" />}
-                  {p.imagen_url && (
+                  {actual && actual.tipo === 'video'
+                    ? (urlVideoEmbed(actual.archivo_url)
+                        ? <iframe src={urlVideoEmbed(actual.archivo_url)!} className="w-full aspect-square rounded-xl bg-black" allow="autoplay; fullscreen; picture-in-picture" title="Video del producto" />
+                        : <video src={actual.archivo_url} controls className="w-full aspect-square rounded-xl bg-black object-contain" />)
+                    : actual
+                      ? <img decoding="async" src={imagen(actual.archivo_url, 800)} onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} className="w-full aspect-square object-contain p-2 rounded-xl bg-white" alt="" />
+                      : <div className="w-full aspect-square rounded-xl bg-white" />}
+                  {actual && actual.tipo === 'imagen' && (
                     <div className="inv-hero-tools">
-                      <a href={imagen(p.imagen_url, 1600)} target="_blank" rel="noopener noreferrer" title="Descargar imagen"><Download /></a>
+                      <a href={imagen(actual.archivo_url, 1600)} target="_blank" rel="noopener noreferrer" title="Descargar imagen"><Download /></a>
                     </div>
                   )}
                 </div>
+                {actual?.descripcion && <p className="text-[10px] text-slate-500 mt-1.5 px-1 leading-snug">{actual.descripcion}</p>}
               </div>
+              {media.length > 1 && (
+                <div className="flex gap-1.5 overflow-x-auto mt-2.5 pb-1 max-w-[320px] mx-auto sm:max-w-none">
+                  {media.map((m, i) => (
+                    <button key={i} type="button" onClick={() => setImgSel(i)}
+                      className="shrink-0 w-14 h-14 rounded-lg border-2 overflow-hidden bg-white grid place-items-center"
+                      style={{ borderColor: i === imgSel ? 'var(--primary)' : '#e2e8f0' }}>
+                      {m.tipo === 'video'
+                        ? <span className="text-slate-400"><Video className="w-4 h-4" /></span>
+                        : <img decoding="async" loading="lazy" src={imagen(m.archivo_url, 120)} className="w-full h-full object-cover" alt="" />}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -1050,6 +1093,18 @@ function DetalleProducto({ p, editar, eliminar, cerrar, abrirEditar, eliminado, 
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Descripción</p>
               <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-line">{descripcion === null ? 'Cargando…' : descripcion || '—'}</p>
             </div>
+
+            {([
+              ['Especificaciones', info?.especificaciones],
+              ['Características', info?.caracteristicas],
+              ['Accesorios', info?.accesorios],
+              ['Certificaciones', info?.certificaciones],
+            ] as [string, string | null | undefined][]).filter(([, v]) => v && v.trim()).map(([t, v]) => (
+              <div key={t} className="bg-white border border-slate-200 rounded-2xl p-4">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">{t}</p>
+                <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-line">{v}</p>
+              </div>
+            ))}
 
             <div className="flex items-center gap-2 flex-wrap">
               <div className="flex flex-col gap-2">
