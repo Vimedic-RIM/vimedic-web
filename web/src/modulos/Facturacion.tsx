@@ -88,7 +88,7 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
     const base = () => supabase.from('facturas').select('id', { count: 'exact', head: true }).is('deleted_at', null)
     const [facturados, pendientes, guias, actas, notas] = await Promise.all([
       cuenta(base().eq('estado', 'Facturado')), cuenta(base().eq('estado', 'Pendiente')),
-      cuenta(base().eq('pago_entrega->>entrega', 'Envío').is('guia_envio_url', null)), cuenta(base().eq('estado', 'Facturado').is('acta_garantia_url', null)),
+      cuenta(base().eq('estado', 'Facturado').is('guia_envio_url', null)), cuenta(base().eq('estado', 'Facturado').is('acta_garantia_url', null)),
       cuenta(supabase.from('notas_credito').select('id', { count: 'exact', head: true }).is('deleted_at', null)),
     ])
     setStats({ facturados, pendientes, guias, actas, notas })
@@ -118,7 +118,7 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
       if (h && ts > h) return false
       if (f.chips.sinPdf && r.facturaUrl) return false
       if (f.chips.sinActa && (r.actaUrl || r.estado !== 'Facturado')) return false
-      if (f.chips.guia && !(r.esEnvio && !r.guiaEnvioUrl)) return false
+      if (f.chips.guia && r.guiaEnvioUrl) return false
       if (f.chips.incompleto && r.datosCompletos) return false
       if (palabras.length) { const c = norm([r.id, r.cliente, r.asesor, r.identificacion, r.numeroFactura, r.email, r.telefono, r.empresa].join(' ')); if (!palabras.every((p) => c.includes(p))) return false }
       return true
@@ -277,7 +277,7 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
 
   const fila = (r: Fila) => {
     const ts = fechaTs(r), monto = totalFila(r)
-    const alerta = !r.datosCompletos || (r.esEnvio && !r.guiaEnvioUrl), esFm = r.empresa === 'FEMEDICS'
+    const alerta = !r.datosCompletos || (r.estado === 'Facturado' && !r.guiaEnvioUrl), esFm = r.empresa === 'FEMEDICS'
     let acc: React.ReactNode
     if (r.estado === 'Pendiente') acc = !r.datosCompletos
       ? <span className="text-[10px] font-bold text-red-600" title="Faltan datos de pago/entrega"><TriangleAlert className="w-4 h-4" /></span>
@@ -300,7 +300,7 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
         <div className="fx-lg fx-xl fx-docs">
           <span className={'fx-doc ' + (r.facturaUrl ? 'ok' : '')} title="Factura PDF"><Receipt /></span>
           <span className={'fx-doc ' + (r.actaUrl ? 'ok' : '')} title="Acta de garantía"><FileCheck2 /></span>
-          {(r.esEnvio || r.guiaEnvioUrl) && <span className={'fx-doc ' + (r.guiaEnvioUrl ? 'ok' : 'warn')} title="Guía de envío"><Truck /></span>}
+          <span className={'fx-doc ' + (r.guiaEnvioUrl ? 'ok' : 'warn')} title="Guía de despacho"><Truck /></span>
         </div>
         <div className="flex justify-end lg:justify-start"><span className={'fx-st ' + (r.estado === 'Facturado' ? 'f' : 'p')}>{r.estado || '—'}</span></div>
         <div className="fx-lg justify-end">{acc}</div>
@@ -435,7 +435,7 @@ function PanelLateral(r: Fila | null, accion: (qa: string, r: Fila) => void, gen
     acts.push(r.actaUrl ? act('verActa', FileCheck2, '#04896f', 'Ver acta .pdf') : act('acta', FilePlus2, '#04896f', 'Generar acta'))
     if (r.actaUrl) acts.push(act('acta', Pencil, '#0f766e', 'Editar acta'))
   }
-  if (r.esEnvio || r.guiaEnvioUrl) {
+  if (r.estado === 'Facturado' || r.guiaEnvioUrl) {
     acts.push(r.guiaEnvioUrl ? act('verGuia', Truck, '#c98a1f', 'Ver guía') : act('guia', Truck, '#c0392b', generandoGuia === r.uuid ? 'Generando…' : 'Generar guía', generandoGuia === r.uuid))
     if (r.guiaEnvioUrl) acts.push(act('guia', Pencil, '#b7791f', generandoGuia === r.uuid ? 'Generando…' : 'Editar guía', generandoGuia === r.uuid))
   }
@@ -459,7 +459,7 @@ function PanelLateral(r: Fila | null, accion: (qa: string, r: Fila) => void, gen
       <div className="fx-acts">{acts}</div>
       <div className="px-4 pb-4 space-y-3">
         {!r.datosCompletos && <div className="flex items-start gap-2 text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2"><TriangleAlert className="w-4 h-4 shrink-0" /><span>Faltan datos de pago/entrega. Debe regularizarse desde el CRM antes de facturar.</span></div>}
-        {r.esEnvio && !r.guiaEnvioUrl && <div className="flex items-start gap-2 text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2"><Truck className="w-4 h-4 shrink-0" /><span>Venta por envío: falta generar la guía (obligatoria).</span></div>}
+        {r.estado === 'Facturado' && !r.guiaEnvioUrl && <div className="flex items-start gap-2 text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2"><Truck className="w-4 h-4 shrink-0" /><span>Falta generar la guía de despacho (obligatoria).</span></div>}
         {r.nota && <div className="text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2" style={{ whiteSpace: 'pre-line' }}><b>Nota interna:</b> {r.nota}</div>}
         <div className="bg-white border border-slate-200 rounded-2xl px-3 py-2">
           <div className="flex items-center justify-between mb-0.5"><p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Productos de la venta</p>{lineas?.length ? <span className="text-[10px] font-bold text-slate-400">{lineas.length} ítem{lineas.length === 1 ? '' : 's'}</span> : null}</div>
@@ -585,9 +585,9 @@ function Detalle({ r, perfil, puedeEditar, cerrar, accion, facturar, aviso, reca
                 <div className="pm-doc"><p className="pm-doc-h"><span className="ic" style={{ ['--c' as string]: '#04896f' }}><FileCheck2 /></span>Acta de entrega / garantía</p>
                   {full.actaUrl ? <button type="button" className="pm-btn ok w-full" onClick={() => accion('verActa', full)}>Ver acta .pdf</button> : <button type="button" className="pm-btn solid w-full" style={{ background: '#04896f' }} onClick={() => accion('acta', full)}>Generar acta</button>}</div>
               )}
-              {(full.esEnvio || full.guiaEnvioUrl) && (
-                <div className="pm-doc"><p className="pm-doc-h"><span className="ic" style={{ ['--c' as string]: '#c0392b' }}><Truck /></span>Guía de envío <span className="text-red-600">*</span></p>
-                  {full.guiaEnvioUrl ? <button type="button" className="pm-btn warn w-full" onClick={() => accion('verGuia', full)}>Ver guía</button> : <button type="button" disabled={generandoGuia === full.uuid} className="pm-btn solid w-full" style={{ background: '#c0392b' }} onClick={() => accion('guia', full)}>{generandoGuia === full.uuid ? 'Generando…' : 'Generar guía de envío'}</button>}</div>
+              {(full.estado === 'Facturado' || full.guiaEnvioUrl) && (
+                <div className="pm-doc"><p className="pm-doc-h"><span className="ic" style={{ ['--c' as string]: '#c0392b' }}><Truck /></span>Guía de despacho <span className="text-red-600">*</span></p>
+                  {full.guiaEnvioUrl ? <button type="button" className="pm-btn warn w-full" onClick={() => accion('verGuia', full)}>Ver guía</button> : <button type="button" disabled={generandoGuia === full.uuid} className="pm-btn solid w-full" style={{ background: '#c0392b' }} onClick={() => accion('guia', full)}>{generandoGuia === full.uuid ? 'Generando…' : 'Generar guía de despacho'}</button>}</div>
               )}
               {tiene(full.numeroFactura) && (
                 <div className="pm-doc"><p className="pm-doc-h"><span className="ic" style={{ ['--c' as string]: '#7c3aed' }}><ReceiptText /></span>Notas de crédito</p>
