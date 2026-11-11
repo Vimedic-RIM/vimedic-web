@@ -171,6 +171,9 @@
 .vm-fact .fi-or{display:flex;align-items:center;gap:8px;margin:10px 0 8px;font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.08em}
 .vm-fact .fi-or:before, .vm-fact .fi-or:after{content:'';flex:1;height:1px;background:#e2e8f0}
 .vm-fact .fi-in.lk-ok{border-color:#04896f;background:#f3fbf8}
+.vm-fact .fi-ro{background:#f1f5f9;border:1px solid #e2e8f0;border-radius:12px;padding:7px 10px;min-width:0}
+.vm-fact .fi-ro small{display:block;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#94a3b8}
+.vm-fact .fi-ro b{display:block;font-size:12px;font-weight:700;color:#475569;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .vm-fact .fi-drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:130px;border:2px dashed #cbd5e1;border-radius:16px;background:#fbfdff;cursor:pointer;padding:14px;transition:all .12s}
 .vm-fact .fi-drop:hover, .vm-fact .fi-drop.drag{border-color:var(--primary);background:#eef6fd}
 .vm-fact .fi-drop.has{border-style:solid;border-color:#04896f;background:#f3fbf8}
