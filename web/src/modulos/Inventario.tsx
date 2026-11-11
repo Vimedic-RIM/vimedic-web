@@ -343,7 +343,7 @@ function Panel({ p, editar, abrirEditar, car }: { p: Fila; editar: boolean; abri
       </div>
       <div className="px-4 pb-4 space-y-3">
         {p.reservaciones && (
-          <div className="flex items-start gap-2 text-[11px] font-bold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2"><TriangleAlert className="w-4 h-4 shrink-0" /><span>{p.reservaciones}</span></div>
+          <div title={p.reservaciones} className="flex items-center gap-1.5 text-[11px] font-bold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2 cursor-help"><TriangleAlert className="w-4 h-4 shrink-0" /><span>Observaciones · pasa el cursor para verlas</span></div>
         )}
         <div className="inv-price">
           <div className="grid grid-cols-2 gap-3 items-stretch">
@@ -1064,49 +1064,75 @@ function DetalleProducto({ p, editar, eliminar, verMovimientos, irAMovimientos, 
                 </div>
               )}
             </div>
-          </div>
 
-          {/* DERECHA — detalles */}
-          <div className="order-2 sm:order-none flex-1 p-3 sm:p-3.5 sm:overflow-y-auto space-y-2.5">
-            {p.reservaciones && (
-              <div className="flex items-start gap-2 text-xs font-bold text-red-700 bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5">
-                <TriangleAlert className="w-3.5 h-3.5 shrink-0 mt-0.5" /><span>{p.reservaciones}</span>
-              </div>
-            )}
-
-            {/* Precio + DIS oculto */}
-            <div className="inv-price">
-              <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-2.5 items-stretch">
-                <div>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Precio PVP</p>
-                  <p className="font-display font-bold text-xl leading-tight" style={{ color: 'var(--primary)' }}><span>${pvp.toFixed(2)}</span> <span className="text-[11px] font-semibold text-slate-500">{conIva ? '+ IVA' : 'IVA 0%'}</span></p>
-                  <p className="text-[10.5px] text-slate-500 mt-0.5">{conIva ? '$' + (pvp * 1.15).toFixed(2) + ' IVA incluido' : 'No aplica IVA'}</p>
+            {/* Debajo de la galería: precio, stock y acciones del producto */}
+            <div className="order-2 sm:order-none p-3 space-y-2.5">
+              {p.reservaciones && (
+                <div title={p.reservaciones} className="flex items-center gap-1.5 text-[11px] font-bold text-red-700 bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5 cursor-help">
+                  <TriangleAlert className="w-3.5 h-3.5 shrink-0" /><span>Observaciones · pasa el cursor para verlas</span>
                 </div>
-                {dis > 0 && (
-                  <div className={'inv-dis' + (verDis ? ' show' : '')}>
-                    <div className="inv-dis-val" onClick={() => setVerDis(false)} title="Ocultar precio DIS">
-                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Precio DIS</p>
-                      <p className="flex items-baseline gap-2 flex-wrap">
-                        <span className="font-display font-bold text-lg" style={{ color: 'var(--teal)' }}>${dis.toFixed(2)}</span>
-                        {pct > 0 && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: '#7c3aed1A', color: '#7c3aed' }}>DIS:{String(pct).replace('.', ',')}%</span>}
-                      </p>
-                    </div>
-                    <button type="button" className="inv-dis-cover" onClick={() => setVerDis(true)}><Eye /> Mostrar DIS</button>
+              )}
+
+              {/* Precio + DIS oculto */}
+              <div className="inv-price">
+                <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-2.5 items-stretch">
+                  <div>
+                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Precio PVP</p>
+                    <p className="font-display font-bold text-xl leading-tight" style={{ color: 'var(--primary)' }}><span>${pvp.toFixed(2)}</span> <span className="text-[11px] font-semibold text-slate-500">{conIva ? '+ IVA' : 'IVA 0%'}</span></p>
+                    <p className="text-[10.5px] text-slate-500 mt-0.5">{conIva ? '$' + (pvp * 1.15).toFixed(2) + ' IVA incluido' : 'No aplica IVA'}</p>
                   </div>
+                  {dis > 0 && (
+                    <div className={'inv-dis' + (verDis ? ' show' : '')}>
+                      <div className="inv-dis-val" onClick={() => setVerDis(false)} title="Ocultar precio DIS">
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Precio DIS</p>
+                        <p className="flex items-baseline gap-2 flex-wrap">
+                          <span className="font-display font-bold text-lg" style={{ color: 'var(--teal)' }}>${dis.toFixed(2)}</span>
+                          {pct > 0 && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: '#7c3aed1A', color: '#7c3aed' }}>DIS:{String(pct).replace('.', ',')}%</span>}
+                        </p>
+                      </div>
+                      <button type="button" className="inv-dis-cover" onClick={() => setVerDis(true)}><Eye /> Mostrar DIS</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 bg-slate-50 rounded-lg px-2.5 py-1.5">
+                <div className="inv-stat !p-0 !bg-transparent"><small>Stock</small><b style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}><UbicStock p={p} grande /></b></div>
+                {verMovimientos && (
+                  <button type="button" onClick={() => irAMovimientos?.(p.codigo)} className="text-[10.5px] font-bold px-2.5 py-1.5 rounded-lg border bg-white flex items-center gap-1.5 shrink-0" style={{ borderColor: '#cfe0ef', color: 'var(--primary)' }}>
+                    <ClipboardList className="w-3.5 h-3.5" /> Ver movimientos
+                  </button>
+                )}
+              </div>
+              <ImpLista id={p.id} />
+
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {p.ficha_tecnica_url && (
+                  <a href={p.ficha_tecnica_url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg border bg-white flex items-center gap-1.5" style={{ borderColor: '#cfe0ef', color: 'var(--primary)' }}>
+                    <FileText className="w-3.5 h-3.5" /> Ficha Técnica
+                  </a>
+                )}
+                {p.drive_carpeta_url && (
+                  <a href={p.drive_carpeta_url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg border bg-white flex items-center gap-1.5" style={{ borderColor: '#cdebe4', color: 'var(--teal)' }}>
+                    <Images className="w-3.5 h-3.5" /> Multimedia
+                  </a>
+                )}
+                {editar && (
+                  <button type="button" onClick={() => abrirEditar(p.id)} className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg border bg-white flex items-center gap-1.5" style={{ borderColor: '#f1dfbf', color: '#a86d10' }}>
+                    <Pencil className="w-3.5 h-3.5" /> Editar producto
+                  </button>
+                )}
+                {eliminar && (
+                  <button type="button" onClick={eliminarProducto} className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg border flex items-center gap-1.5" style={{ borderColor: '#fecaca', color: '#b91c1c', background: '#fff5f5' }}>
+                    <Trash2 className="w-3.5 h-3.5" /> Eliminar
+                  </button>
                 )}
               </div>
             </div>
+          </div>
 
-            <div className="flex items-center justify-between gap-2 bg-slate-50 rounded-lg px-2.5 py-1.5">
-              <div className="inv-stat !p-0 !bg-transparent"><small>Stock</small><b style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}><UbicStock p={p} grande /></b></div>
-              {verMovimientos && (
-                <button type="button" onClick={() => irAMovimientos?.(p.codigo)} className="text-[10.5px] font-bold px-2.5 py-1.5 rounded-lg border bg-white flex items-center gap-1.5 shrink-0" style={{ borderColor: '#cfe0ef', color: 'var(--primary)' }}>
-                  <ClipboardList className="w-3.5 h-3.5" /> Ver movimientos
-                </button>
-              )}
-            </div>
-            <ImpLista id={p.id} />
-
+          {/* DERECHA — detalles del producto (descripción, especificaciones...) */}
+          <div className="order-3 sm:order-none flex-1 p-3 sm:p-3.5 sm:overflow-y-auto space-y-2.5">
             <div className="bg-white border border-slate-200 rounded-xl p-3">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Descripción</p>
               <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-line">{descripcion === null ? 'Cargando…' : descripcion || '—'}</p>
@@ -1123,29 +1149,6 @@ function DetalleProducto({ p, editar, eliminar, verMovimientos, irAMovimientos, 
                 <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-line">{v}</p>
               </div>
             ))}
-
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {p.ficha_tecnica_url && (
-                <a href={p.ficha_tecnica_url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg border bg-white flex items-center gap-1.5" style={{ borderColor: '#cfe0ef', color: 'var(--primary)' }}>
-                  <FileText className="w-3.5 h-3.5" /> Ficha Técnica
-                </a>
-              )}
-              {p.drive_carpeta_url && (
-                <a href={p.drive_carpeta_url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg border bg-white flex items-center gap-1.5" style={{ borderColor: '#cdebe4', color: 'var(--teal)' }}>
-                  <Images className="w-3.5 h-3.5" /> Multimedia
-                </a>
-              )}
-              {editar && (
-                <button type="button" onClick={() => abrirEditar(p.id)} className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg border bg-white flex items-center gap-1.5" style={{ borderColor: '#f1dfbf', color: '#a86d10' }}>
-                  <Pencil className="w-3.5 h-3.5" /> Editar producto
-                </button>
-              )}
-              {eliminar && (
-                <button type="button" onClick={eliminarProducto} className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg border flex items-center gap-1.5" style={{ borderColor: '#fecaca', color: '#b91c1c', background: '#fff5f5' }}>
-                  <Trash2 className="w-3.5 h-3.5" /> Eliminar
-                </button>
-              )}
-            </div>
           </div>
         </div>
 

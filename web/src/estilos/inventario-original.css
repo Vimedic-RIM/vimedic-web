@@ -348,6 +348,7 @@
 /* Faltaban en el volcado de Tailwind precompilado (el proyecto no corre Tailwind en el build:
    una clase nueva con valores entre corchetes no existe hasta que se agrega aquí a mano).
    Ficha de producto: galería + ventana más compacta (2026-11-11). */
+.cursor-help{cursor:help}
 .inv-obs{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:9999px;background:#fef2f2;color:#dc2626;cursor:help;flex-shrink:0}
 .inv-obs:hover{background:#fee2e2}
 .bg-\[\#f6f9fc\]{background-color:#f6f9fc}
