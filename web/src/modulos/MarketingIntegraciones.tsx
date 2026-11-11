@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  ArrowDown, ArrowUp, BookOpen, CalendarClock, Check, CircleCheck, ClipboardCheck, Copy, Eye, Film, Globe, ImagePlus, KeyRound, Link2, Plug, RefreshCw, Search, Send, Sparkles, Tag, Trash2, Video, X, XCircle,
+  ArrowDown, ArrowUp, BookOpen, CalendarClock, Check, CircleCheck, ClipboardCheck, Copy, Eye, FileBadge, FileText, Film, Globe, ImagePlus, KeyRound, Link2, Plug, RefreshCw, Search, Send, Sparkles, Tag, Trash2, Upload, Video, X, XCircle,
 } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
@@ -384,9 +384,9 @@ export function Biblioteca({ perfil, aviso }: { perfil: Perfil; aviso: (t: strin
 /* Campos de "Datos del producto" que se editan directo o pasan por Revisión,
    igual que ya funcionaba Descripción (marketing_cambios + permiso 'aprobar').
    'modelo' vive en la columna codigo_unico y 'publico' en en_catalogo. */
-const CAMPO_COL: Record<string, string> = { modelo: 'codigo_unico', publico: 'en_catalogo', nuevo: 'sin_etiqueta_nuevo' }
+const CAMPO_COL: Record<string, string> = { modelo: 'codigo_unico', publico: 'en_catalogo', nuevo: 'sin_etiqueta_nuevo', album: 'drive_carpeta_url' }
 const CAMPOS_BOOL = ['publico', 'nuevo']
-export const CAMPOS_PRODUCTO = ['descripcion', 'nombre', 'categoria', 'marca', 'modelo', 'garantia', 'accesorios', 'certificaciones', 'caracteristicas', 'especificaciones', 'publico', 'imagen_url', 'nuevo']
+export const CAMPOS_PRODUCTO = ['descripcion', 'nombre', 'categoria', 'marca', 'modelo', 'garantia', 'accesorios', 'certificaciones', 'caracteristicas', 'especificaciones', 'publico', 'imagen_url', 'nuevo', 'album']
 
 export async function aplicarCampoProducto(productoId: string, campo: string, valorNuevo: string): Promise<string | null> {
   if (campo === 'categoria') {
@@ -414,9 +414,12 @@ export async function aplicarCampoProducto(productoId: string, campo: string, va
 type ProdFull = {
   nombre: string; categoria: string; marca: string; codigo_unico: string; garantia: string; accesorios: string; certificaciones: string
   caracteristicas: string; especificaciones: string
-  pvp: number; aplica_iva: boolean; en_catalogo: boolean; imagen_url: string; descripcion: string
+  pvp: number; aplica_iva: boolean; en_catalogo: boolean; imagen_url: string; descripcion: string; drive_carpeta_url: string
 }
 type GalItem = { id: string; tipo: 'imagen' | 'video'; archivo_url: string; descripcion: string | null; orden: number }
+type DocTecnico = { id: string; tipo: string; nombre: string; url: string | null }
+const DOC_TIPOS = ['Manual de usuario', 'Manual de servicio', 'Hoja de datos del fabricante', 'Certificado', 'Registro sanitario', 'Otro']
+const DOC_OBLIGATORIOS = ['Manual de usuario', 'Hoja de datos del fabricante', 'Registro sanitario']
 const WEB = 'vimedic.com.ec'
 const money = (n: number) => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -433,23 +436,55 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
   const [avPicker, setAvPicker] = useState(false)
   const [avLista, setAvLista] = useState<{ id: string; titulo: string; archivo_url: string; tipo: string }[]>([])
   const [sinNuevo, setSinNuevo] = useState(prod.sin_etiqueta_nuevo)
+  const [docs, setDocs] = useState<DocTecnico[]>([])
+  const [docTipo, setDocTipo] = useState(DOC_TIPOS[0])
+  const [docSubiendo, setDocSubiendo] = useState(false)
   const aprobar = puede(perfil, 'marketing', 'aprobar')
+  const puedeDocs = puede(perfil, 'documentos_tecnicos', 'crear') || puede(perfil, 'documentos_tecnicos', 'editar')
   const enlace = `https://${WEB}/equipo/?id=${encodeURIComponent(prod.codigo)}`
 
   const cargarGaleria = useCallback(() => {
     supabase.from('producto_galeria').select('id,tipo,archivo_url,descripcion,orden').eq('producto_id', prod.id).is('deleted_at', null).order('orden')
       .then(({ data }) => setGaleria((data as GalItem[]) ?? []))
   }, [prod.id])
+  const cargarDocs = useCallback(() => {
+    supabase.from('documentos_tecnicos').select('id,tipo,nombre,url').eq('producto_id', prod.id).is('deleted_at', null).order('created_at', { ascending: false })
+      .then(({ data }) => setDocs((data as DocTecnico[]) ?? []))
+  }, [prod.id])
 
   useEffect(() => {
-    supabase.from('productos').select('nombre,marca,codigo_unico,garantia,accesorios,certificaciones,caracteristicas,especificaciones,pvp,aplica_iva,en_catalogo,imagen_url,descripcion,categoria:categorias(nombre)').eq('id', prod.id).single()
+    supabase.from('productos').select('nombre,marca,codigo_unico,garantia,accesorios,certificaciones,caracteristicas,especificaciones,pvp,aplica_iva,en_catalogo,imagen_url,drive_carpeta_url,descripcion,categoria:categorias(nombre)').eq('id', prod.id).single()
       .then(({ data }) => { const d = data as unknown as Record<string, any> | null; if (!d) return // eslint-disable-line @typescript-eslint/no-explicit-any
-        const f: ProdFull = { nombre: d.nombre ?? '', categoria: d.categoria?.nombre ?? '', marca: d.marca ?? '', codigo_unico: d.codigo_unico ?? '', garantia: d.garantia ?? '', accesorios: d.accesorios ?? '', certificaciones: d.certificaciones ?? '', caracteristicas: d.caracteristicas ?? '', especificaciones: d.especificaciones ?? '', pvp: Number(d.pvp) || 0, aplica_iva: d.aplica_iva !== false, en_catalogo: !!d.en_catalogo, imagen_url: d.imagen_url ?? '', descripcion: d.descripcion ?? '' }
+        const f: ProdFull = { nombre: d.nombre ?? '', categoria: d.categoria?.nombre ?? '', marca: d.marca ?? '', codigo_unico: d.codigo_unico ?? '', garantia: d.garantia ?? '', accesorios: d.accesorios ?? '', certificaciones: d.certificaciones ?? '', caracteristicas: d.caracteristicas ?? '', especificaciones: d.especificaciones ?? '', pvp: Number(d.pvp) || 0, aplica_iva: d.aplica_iva !== false, en_catalogo: !!d.en_catalogo, imagen_url: d.imagen_url ?? '', descripcion: d.descripcion ?? '', drive_carpeta_url: d.drive_carpeta_url ?? '' }
         setFull(f)
-        setBase({ nombre: f.nombre, categoria: f.categoria, marca: f.marca, modelo: f.codigo_unico, garantia: f.garantia, accesorios: f.accesorios, certificaciones: f.certificaciones, caracteristicas: f.caracteristicas, especificaciones: f.especificaciones, imagen_url: f.imagen_url, descripcion: f.descripcion, publico: f.en_catalogo ? 'SI' : 'NO', nuevo: prod.sin_etiqueta_nuevo ? 'SI' : 'NO' })
+        setBase({ nombre: f.nombre, categoria: f.categoria, marca: f.marca, modelo: f.codigo_unico, garantia: f.garantia, accesorios: f.accesorios, certificaciones: f.certificaciones, caracteristicas: f.caracteristicas, especificaciones: f.especificaciones, imagen_url: f.imagen_url, descripcion: f.descripcion, album: f.drive_carpeta_url, publico: f.en_catalogo ? 'SI' : 'NO', nuevo: prod.sin_etiqueta_nuevo ? 'SI' : 'NO' })
       })
     cargarGaleria()
-  }, [prod.id, cargarGaleria])
+    cargarDocs()
+  }, [prod.id, cargarGaleria, cargarDocs])
+
+  async function docSubir(files: FileList | null) {
+    if (!files || !files.length) return
+    setDocSubiendo(true)
+    try {
+      for (const f of Array.from(files)) {
+        if (f.size > 20 * 1024 * 1024) { aviso(f.name + ' supera los 20 MB.'); continue }
+        const base64 = await new Promise<string>((ok, fail) => {
+          const r = new FileReader()
+          r.onerror = () => fail(new Error('No se pudo leer el archivo.'))
+          r.onload = () => ok(String(r.result).split(',')[1] || '')
+          r.readAsDataURL(f)
+        })
+        const { data, error } = await supabase.functions.invoke('drive', { body: { accion: 'subir', modulo: 'documentos_tecnicos', carpeta: 'documentos_tecnicos/' + prod.codigo, nombre: f.name, mime: f.type || 'application/octet-stream', base64 } })
+        const resp = data as { id?: string; enlace?: string; error?: string } | null
+        if (error || resp?.error) { aviso('No se pudo subir ' + f.name + ': ' + (resp?.error || error?.message)); continue }
+        await supabase.from('documentos_tecnicos').insert({ id: crypto.randomUUID(), producto_id: prod.id, tipo: docTipo, nombre: f.name, drive_id: resp?.id, url: resp?.enlace, subido_por: perfil.id })
+      }
+      cargarDocs()
+    } finally {
+      setDocSubiendo(false)
+    }
+  }
 
   async function galAgregar() {
     const url = nuevoUrl.trim()
@@ -684,6 +719,44 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
       {full && campoTexto('descripcion', 'descripcion', 'Descripción', { full: true, multilinea: true, filas: 3 })}
       {full && campoTexto('caracteristicas', 'caracteristicas', 'Características (una por línea, se muestran con ✓)', { full: true, multilinea: true, filas: 5, maxLength: 3400 })}
       {full && campoTexto('especificaciones', 'especificaciones', 'Especificaciones técnicas (una por línea: Dato: valor)', { full: true, multilinea: true, filas: 6, maxLength: 4000 })}
+
+      {full && (
+        <div className="space-y-2">
+          <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5"><Link2 className="w-3.5 h-3.5 text-amber-500" />Álbum de multimedia</p>
+          <div className="flex gap-2 items-center">
+            <input type="url" className="inp flex-1" placeholder="Carpeta de Google Drive" value={full.drive_carpeta_url} onChange={(e) => set('drive_carpeta_url', e.target.value)} onBlur={() => guardarCampo('album', full.drive_carpeta_url)} />
+            {full.drive_carpeta_url && <a href={full.drive_carpeta_url} target="_blank" rel="noopener noreferrer" className="btn !py-1.5">Abrir ↗</a>}
+          </div>
+          <p className="text-[10px] text-slate-400">Archivo interno en Drive. No se muestra en el catálogo cuando la galería ya tiene fotos.</p>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5"><FileBadge className="w-3.5 h-3.5 text-[var(--teal)]" />Documentos técnicos</p>
+          <span className={'ml-auto pill ' + (docs.length === 0 ? 'bg-red-50 text-red-600' : DOC_OBLIGATORIOS.every((t) => docs.some((d) => d.tipo === t)) ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700')}>
+            {docs.length === 0 ? 'Sin documentos' : DOC_OBLIGATORIOS.every((t) => docs.some((d) => d.tipo === t)) ? 'Completo' : 'Incompleto'}
+          </span>
+        </div>
+        <div className="space-y-1">
+          {docs.map((d) => (
+            <div key={d.id} className="flex items-center gap-2 text-[11.5px] text-slate-600">
+              <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              {d.url ? <a href={d.url} target="_blank" rel="noopener noreferrer" className="text-[var(--primary)] font-semibold">{d.tipo}</a> : <span>{d.tipo}</span>}
+              <span className="text-slate-400 truncate">{d.nombre}</span>
+            </div>
+          ))}
+          {!docs.length && <p className="text-[11px] text-slate-400">Sin documentos técnicos todavía.</p>}
+          {(() => { const faltan = DOC_OBLIGATORIOS.filter((t) => !docs.some((d) => d.tipo === t)); return faltan.length > 0 && <p className="text-[11px] text-slate-500">Falta: {faltan.join(', ')}. Los sube Servicio Técnico.</p> })()}
+        </div>
+        {puedeDocs && (
+          <div className="flex gap-2 items-center flex-wrap">
+            <select className="inp !py-1.5" value={docTipo} onChange={(e) => setDocTipo(e.target.value)}>{DOC_TIPOS.map((t) => <option key={t}>{t}</option>)}</select>
+            <label className="btn cursor-pointer !py-1.5"><Upload className="w-3.5 h-3.5" />{docSubiendo ? 'Subiendo…' : 'Elegir archivos'}
+              <input type="file" multiple className="hidden" disabled={docSubiendo} onChange={(e) => { docSubir(e.target.files); e.target.value = '' }} /></label>
+          </div>
+        )}
+      </div>
     </Ventana>
   )
 }
