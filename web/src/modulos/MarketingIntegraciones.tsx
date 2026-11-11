@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  BookOpen, CalendarClock, Check, CircleCheck, ClipboardCheck, Copy, Eye, Globe, ImagePlus, KeyRound, Link2, Plug, RefreshCw, Search, Send, Sparkles, Tag, Trash2, X, XCircle,
+  ArrowDown, ArrowUp, BookOpen, CalendarClock, Check, CircleCheck, ClipboardCheck, Copy, Eye, Film, Globe, ImagePlus, KeyRound, Link2, Plug, RefreshCw, Search, Send, Sparkles, Tag, Trash2, Video, X, XCircle,
 } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
@@ -316,6 +316,7 @@ type ProdFull = {
   nombre: string; categoria: string; marca: string; codigo_unico: string; garantia: string; accesorios: string; certificaciones: string
   pvp: number; aplica_iva: boolean; en_catalogo: boolean; imagen_url: string; descripcion: string
 }
+type GalItem = { id: string; tipo: 'imagen' | 'video'; archivo_url: string; descripcion: string | null; orden: number }
 const WEB = 'vimedic.com.ec'
 const money = (n: number) => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -328,8 +329,18 @@ function EditorProducto({ perfil, prod, cerrar, aviso }: { perfil: Perfil; prod:
   const [estado, setEstado] = useState<Record<string, 'guardando' | 'ok' | 'revision' | 'error'>>({})
   const [marcas, setMarcas] = useState<string[]>([])
   const [categorias, setCategorias] = useState<string[]>([])
+  const [galeria, setGaleria] = useState<GalItem[]>([])
+  const [nuevoTipo, setNuevoTipo] = useState<'imagen' | 'video'>('imagen')
+  const [nuevoUrl, setNuevoUrl] = useState('')
+  const [avPicker, setAvPicker] = useState(false)
+  const [avLista, setAvLista] = useState<{ id: string; titulo: string; archivo_url: string; tipo: string }[]>([])
   const aprobar = puede(perfil, 'marketing', 'aprobar')
   const enlace = `https://${WEB}/equipo/?id=${encodeURIComponent(prod.codigo)}`
+
+  const cargarGaleria = useCallback(() => {
+    supabase.from('producto_galeria').select('id,tipo,archivo_url,descripcion,orden').eq('producto_id', prod.id).is('deleted_at', null).order('orden')
+      .then(({ data }) => setGaleria((data as GalItem[]) ?? []))
+  }, [prod.id])
 
   useEffect(() => {
     supabase.from('productos').select('nombre,marca,codigo_unico,garantia,accesorios,certificaciones,pvp,aplica_iva,en_catalogo,imagen_url,descripcion,categoria:categorias(nombre)').eq('id', prod.id).single()
@@ -341,7 +352,44 @@ function EditorProducto({ perfil, prod, cerrar, aviso }: { perfil: Perfil; prod:
     supabase.from('productos').select('marca').not('marca', 'is', null).is('deleted_at', null).limit(3000)
       .then(({ data }) => setMarcas([...new Set(((data as { marca: string }[]) ?? []).map((x) => x.marca.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'))))
     supabase.from('categorias').select('nombre').eq('activo', true).order('nombre').then(({ data }) => setCategorias(((data as { nombre: string }[]) ?? []).map((c) => c.nombre)))
-  }, [prod.id])
+    cargarGaleria()
+  }, [prod.id, cargarGaleria])
+
+  async function galAgregar() {
+    const url = nuevoUrl.trim()
+    if (!url) return
+    const orden = galeria.length ? Math.max(...galeria.map((g) => g.orden)) + 1 : 0
+    const { error } = await supabase.from('producto_galeria').insert({ id: crypto.randomUUID(), producto_id: prod.id, tipo: nuevoTipo, archivo_url: url, orden, descripcion: null })
+    if (error) { aviso('No se pudo agregar: ' + error.message); return }
+    setNuevoUrl(''); cargarGaleria()
+  }
+  async function galQuitar(id: string) {
+    const { error } = await supabase.from('producto_galeria').update({ deleted_at: new Date().toISOString() }).eq('id', id)
+    if (error) aviso('No se pudo quitar: ' + error.message); else cargarGaleria()
+  }
+  async function galMover(idx: number, dir: -1 | 1) {
+    const otro = idx + dir
+    if (otro < 0 || otro >= galeria.length) return
+    const a = galeria[idx], b = galeria[otro]
+    await Promise.all([
+      supabase.from('producto_galeria').update({ orden: b.orden }).eq('id', a.id),
+      supabase.from('producto_galeria').update({ orden: a.orden }).eq('id', b.id),
+    ])
+    cargarGaleria()
+  }
+  async function galDescripcion(id: string, descripcion: string) {
+    await supabase.from('producto_galeria').update({ descripcion: descripcion.trim() || null }).eq('id', id)
+  }
+  function abrirAvPicker() {
+    setAvPicker(true)
+    supabase.from('audiovisual').select('id,titulo,archivo_url,tipo').eq('producto_id', prod.id).not('archivo_url', 'is', null).is('deleted_at', null).order('fecha', { ascending: false }).limit(20)
+      .then(({ data }) => setAvLista((data as { id: string; titulo: string; archivo_url: string; tipo: string }[]) ?? []))
+  }
+  async function galDesdeAudiovisual(a: { archivo_url: string; tipo: string }) {
+    const orden = galeria.length ? Math.max(...galeria.map((g) => g.orden)) + 1 : 0
+    const { error } = await supabase.from('producto_galeria').insert({ id: crypto.randomUUID(), producto_id: prod.id, tipo: a.tipo === 'Foto' ? 'imagen' : 'video', archivo_url: a.archivo_url, orden, descripcion: null })
+    if (error) aviso('No se pudo agregar: ' + error.message); else { cargarGaleria(); setAvPicker(false) }
+  }
 
   async function guardarCampo(campo: string, valorNuevo: string) {
     const valorAnterior = base[campo] ?? ''
@@ -420,7 +468,7 @@ function EditorProducto({ perfil, prod, cerrar, aviso }: { perfil: Perfil; prod:
     setIa(false)
   }
 
-  const falta = full ? [!full.imagen_url && 'Imagen principal', !full.nombre.trim() && 'Nombre', !full.categoria.trim() && 'Categoría', !full.marca.trim() && 'Marca', !full.descripcion.trim() && 'Descripción'].filter(Boolean) as string[] : []
+  const falta = full ? [!full.imagen_url && 'Imagen principal', !full.nombre.trim() && 'Nombre', !full.categoria.trim() && 'Categoría', !full.marca.trim() && 'Marca', !full.descripcion.trim() && 'Descripción', galeria.filter((g) => g.tipo === 'imagen').length < 3 && 'Al menos 3 fotos'].filter(Boolean) as string[] : []
 
   return (
     <Ventana titulo={prod.nombre} cerrar={cerrar} ancho="sm:max-w-2xl" pie={<>
@@ -473,6 +521,49 @@ function EditorProducto({ perfil, prod, cerrar, aviso }: { perfil: Perfil; prod:
           {!aprobar && <p className="text-[10.5px] text-slate-400">Se guarda solo mientras escribes. Los cambios pasan a Revisión.</p>}
         </div>
       )}
+
+      <div className="space-y-2">
+        <div className="flex items-center gap-2"><p className="text-xs font-bold text-slate-800 flex items-center gap-1.5"><ImagePlus className="w-3.5 h-3.5 text-[var(--cyan)]" />Galería del catálogo</p>
+          <span className="ml-auto text-[10px] font-mono-spec text-slate-400">{galeria.length} elemento{galeria.length === 1 ? '' : 's'}</span></div>
+        <p className="text-[11px] text-slate-500">Fotos y videos que se ven en el catálogo después de la imagen principal. Se guarda solo.</p>
+        {galeria.length > 0 && (
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+            {galeria.map((g, i) => (
+              <div key={g.id} className="rounded-xl border border-slate-200 overflow-hidden bg-slate-50">
+                <div className="aspect-square grid place-items-center bg-slate-100">
+                  {g.tipo === 'video'
+                    ? <Video className="w-6 h-6 text-slate-400" />
+                    : <img src={imagen(g.archivo_url, 200)} alt="" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} />}
+                </div>
+                <input type="text" defaultValue={g.descripcion ?? ''} onBlur={(e) => galDescripcion(g.id, e.target.value)} placeholder="Descripción" className="w-full text-[9px] px-1.5 py-1 border-t border-slate-200 bg-white" />
+                <div className="flex items-center gap-0.5 px-1 pb-1">
+                  <button type="button" className="w-5 h-5 grid place-items-center text-slate-400 hover:text-slate-700 disabled:opacity-30" onClick={() => galMover(i, -1)} disabled={i === 0} title="Mover antes"><ArrowUp className="w-3 h-3" /></button>
+                  <button type="button" className="w-5 h-5 grid place-items-center text-slate-400 hover:text-slate-700 disabled:opacity-30" onClick={() => galMover(i, 1)} disabled={i === galeria.length - 1} title="Mover después"><ArrowDown className="w-3 h-3" /></button>
+                  <button type="button" className="ml-auto w-5 h-5 grid place-items-center text-red-500 hover:text-red-700" onClick={() => galQuitar(g.id)} title="Quitar"><Trash2 className="w-3 h-3" /></button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <select className="inp !py-1.5" value={nuevoTipo} onChange={(e) => setNuevoTipo(e.target.value as 'imagen' | 'video')}><option value="imagen">Foto</option><option value="video">Video</option></select>
+          <input type="url" className="inp flex-1 min-w-[180px]" placeholder={nuevoTipo === 'video' ? 'Enlace de YouTube/Vimeo' : 'Enlace de Drive/HTTPS'} value={nuevoUrl} onChange={(e) => setNuevoUrl(e.target.value)} />
+          <button type="button" className="btn" onClick={galAgregar}><ImagePlus className="w-3.5 h-3.5" />Agregar</button>
+          <button type="button" className="btn" onClick={abrirAvPicker}><Film className="w-3.5 h-3.5" />Desde Audiovisual</button>
+        </div>
+        {avPicker && (
+          <div className="rounded-xl border border-slate-200 p-2 space-y-1">
+            {!avLista.length && <p className="text-[11px] text-slate-400 text-center py-2">Sin piezas de Audiovisual para este producto.</p>}
+            {avLista.map((a) => (
+              <button type="button" key={a.id} className="flex items-center gap-2 w-full text-left p-1.5 rounded-lg hover:bg-slate-50" onClick={() => galDesdeAudiovisual(a)}>
+                <span className="w-8 h-8 rounded-md bg-slate-100 grid place-items-center shrink-0">{a.tipo === 'Foto' ? <ImagePlus className="w-3.5 h-3.5 text-slate-400" /> : <Video className="w-3.5 h-3.5 text-slate-400" />}</span>
+                <span className="text-xs text-slate-700 truncate flex-1">{a.titulo}</span>
+              </button>
+            ))}
+            <button type="button" className="text-[10px] text-slate-400 underline px-1.5" onClick={() => setAvPicker(false)}>Cerrar</button>
+          </div>
+        )}
+      </div>
 
       <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-3 space-y-2">
         <p className="text-[11px] font-bold text-violet-700 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" />Redactar con IA (Gemini)</p>
