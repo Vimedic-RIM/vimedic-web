@@ -253,31 +253,111 @@ function NuevaPublicacion({ cuentas, piezas, inicial, cerrar, hecho, aviso }: { 
 }
 
 /* ============================ Biblioteca (descripciones con IA) ============================ */
-type Prod = { id: string; codigo: string; nombre: string; descripcion: string | null; imagen_url: string | null; categoria: { nombre: string } | null }
+type Prod = {
+  id: string; codigo: string; nombre: string; descripcion: string | null; imagen_url: string | null; categoria: { nombre: string } | null
+  drive_carpeta_url: string | null; ficha_tecnica_url: string | null; fecha_creacion: string | null; sin_etiqueta_nuevo: boolean
+}
+const DIAS_NUEVO = 30
+const normalize = (s: string) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+function prodReciente(p: Prod) { const t = p.fecha_creacion ? Date.parse(p.fecha_creacion) : NaN; return isFinite(t) && Date.now() - t < DIAS_NUEVO * 864e5 }
+function prodFaltan(p: Prod, tieneGaleria: boolean) {
+  const f: string[] = []
+  if (!p.imagen_url) f.push('imagen')
+  if (!String(p.descripcion || '').trim()) f.push('descripción')
+  if (!p.ficha_tecnica_url) f.push('ficha')
+  if (!p.drive_carpeta_url && !tieneGaleria) f.push('álbum o galería')
+  return f
+}
+function prodEsNuevo(p: Prod) { return prodReciente(p) && !p.sin_etiqueta_nuevo }
+
 export function Biblioteca({ perfil, aviso }: { perfil: Perfil; aviso: (t: string) => void }) {
+  const [productos, setProductos] = useState<Prod[]>([])
+  const [galCount, setGalCount] = useState<Record<string, number>>({})
+  const [cargando, setCargando] = useState(true)
   const [q, setQ] = useState('')
-  const [lista, setLista] = useState<Prod[]>([])
+  const [cat, setCat] = useState('')
+  const [miss, setMiss] = useState('')
+  const [limite, setLimite] = useState(48)
   const [sel, setSel] = useState<Prod | null>(null)
-  useEffect(() => {
-    const t = q.trim(); let vivo = true
-    const h = setTimeout(() => {
-      let c = supabase.from('productos').select('id,codigo,nombre,descripcion,imagen_url,categoria:categorias(nombre)').is('deleted_at', null).or('estado.is.null,estado.not.ilike.inactivo')
-      for (const w of t.replace(/[,()%*\\"']/g, ' ').split(/\s+/).filter(Boolean)) c = c.or(`nombre.ilike.%${w}%,codigo.ilike.%${w}%,marca.ilike.%${w}%`)
-      c.order('en_vista_publica', { ascending: false }).order('orden', { ascending: true, nullsFirst: false }).order('nombre').limit(24).then(({ data }) => { if (vivo) setLista((data as unknown as Prod[]) ?? []) })
-    }, t ? 250 : 0)
-    return () => { vivo = false; clearTimeout(h) }
-  }, [q])
+
+  const cargar = useCallback(() => {
+    setCargando(true)
+    supabase.from('productos').select('id,codigo,nombre,descripcion,imagen_url,drive_carpeta_url,ficha_tecnica_url,fecha_creacion,sin_etiqueta_nuevo,categoria:categorias(nombre)')
+      .is('deleted_at', null).or('estado.is.null,estado.not.ilike.inactivo').order('nombre').limit(3000)
+      .then(({ data }) => {
+        const l = (data as unknown as Prod[]) ?? []
+        setProductos(l); setCargando(false)
+        const ids = l.map((p) => p.id)
+        if (!ids.length) { setGalCount({}); return }
+        supabase.from('producto_galeria').select('producto_id').in('producto_id', ids).is('deleted_at', null).then(({ data: gal }) => {
+          const c: Record<string, number> = {}
+          for (const g of (gal as { producto_id: string }[]) ?? []) c[g.producto_id] = (c[g.producto_id] ?? 0) + 1
+          setGalCount(c)
+        })
+      })
+  }, [])
+  useEffect(() => { cargar() }, [cargar])
+
+  const categorias = useMemo(() => [...new Set(productos.map((p) => p.categoria?.nombre).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, 'es')), [productos])
+
+  const filtrados = useMemo(() => {
+    const qn = normalize(q)
+    return productos.filter((p) => {
+      if (qn && !normalize([p.codigo, p.nombre, p.categoria?.nombre].join(' ')).includes(qn)) return false
+      if (cat && p.categoria?.nombre !== cat) return false
+      const tieneGal = !!galCount[p.id]
+      const faltan = prodFaltan(p, tieneGal)
+      if (miss === 'inc' && !(prodReciente(p) && faltan.length)) return false
+      if (miss === 'img' && p.imagen_url) return false
+      if (miss === 'desc' && String(p.descripcion || '').trim()) return false
+      if (miss === 'ficha' && p.ficha_tecnica_url) return false
+      if (miss === 'album' && (p.drive_carpeta_url || tieneGal)) return false
+      return true
+    }).map((p) => ({ p, reciente: prodReciente(p), faltan: prodFaltan(p, !!galCount[p.id]) }))
+      .sort((a, b) => Number(b.reciente && b.faltan.length > 0) - Number(a.reciente && a.faltan.length > 0))
+  }, [productos, q, cat, miss, galCount])
+
+  const pendientes = useMemo(() => productos.filter((p) => prodReciente(p) && prodFaltan(p, !!galCount[p.id]).length).length, [productos, galCount])
+
   return (
     <section>
-      <div className="relative max-w-md mb-4"><Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Busca un equipo por nombre o código…" className="inp pl-9 w-full" /></div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-        {lista.map((p) => (
-          <button type="button" key={p.id} className="av-card text-left" onClick={() => setSel(p)}>
-            <div className="aspect-square bg-slate-100 overflow-hidden">{p.imagen_url ? <img loading="lazy" src={imagen(p.imagen_url, 320)} alt="" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} /> : null}</div>
-            <div className="p-2.5"><p className="text-[10px] font-mono-spec text-slate-400">{p.codigo}</p><p className="text-xs font-bold text-slate-800 line-clamp-2">{p.nombre}</p><p className="text-[10px] mt-0.5" style={{ color: p.descripcion ? '#04896f' : '#c98a1f' }}>{p.descripcion ? 'Con descripción' : 'Sin descripción'}</p></div>
+      <div className="flex items-center gap-2 flex-wrap mb-3">
+        <div className="relative flex-1 min-w-[220px] max-w-md"><Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input type="search" value={q} onChange={(e) => { setQ(e.target.value); setLimite(48) }} placeholder="Buscar nombre, categoría o código…" className="inp pl-9 w-full" /></div>
+        <select className="inp" value={cat} onChange={(e) => { setCat(e.target.value); setLimite(48) }} aria-label="Categoría">
+          <option value="">Todas las categorías</option>{categorias.map((c) => <option key={c}>{c}</option>)}
+        </select>
+        <select className="inp" value={miss} onChange={(e) => { setMiss(e.target.value); setLimite(48) }} aria-label="Faltantes">
+          <option value="">Todos</option><option value="inc">Nuevos por completar</option><option value="img">Sin imagen</option><option value="desc">Sin descripción</option><option value="ficha">Sin ficha</option><option value="album">Sin álbum</option>
+        </select>
+        <button type="button" className="btn" onClick={cargar}><RefreshCw className="w-3.5 h-3.5" />Actualizar</button>
+        <span className="text-[11px] text-slate-500 ml-auto">{cargando ? 'Cargando biblioteca…' : productos.length + ' productos' + (pendientes ? ' · ' + pendientes + ' nuevo' + (pendientes === 1 ? '' : 's') + ' por completar' : '')}</span>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+        {filtrados.slice(0, limite).map(({ p, faltan, reciente }) => (
+          <button type="button" key={p.id} className="av-card text-left flex flex-col" onClick={() => setSel(p)}>
+            <div className="aspect-square bg-slate-100 overflow-hidden relative">
+              {p.imagen_url
+                ? <img loading="lazy" src={imagen(p.imagen_url, 320)} alt="" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} />
+                : <span className="w-full h-full grid place-items-center text-slate-300"><ImagePlus className="w-7 h-7" /></span>}
+              {prodEsNuevo(p) && <span className="absolute top-1.5 left-1.5 text-[9px] font-bold uppercase tracking-wider text-white bg-[#c98a1f] rounded-full px-2 py-0.5">Nuevo</span>}
+            </div>
+            <div className="p-2.5 flex-1 flex flex-col">
+              <p className="text-[10px] font-mono-spec text-slate-400 truncate">{p.codigo}{p.categoria ? ' · ' + p.categoria.nombre : ''}</p>
+              <p className="text-xs font-bold text-slate-800 mt-0.5 line-clamp-2">{p.nombre}</p>
+              {reciente && faltan.length > 0 && <p className="text-[10px] text-amber-700 mt-1 line-clamp-2">Falta: {faltan.join(', ')}</p>}
+              <div className="flex gap-1 mt-auto pt-2 flex-wrap">
+                <span className={'pill ' + (p.imagen_url ? 'bg-sky-50 text-sky-700' : 'bg-red-50 text-red-600')}>{p.imagen_url ? 'Img' : 'Sin img'}</span>
+                <span className={'pill ' + (String(p.descripcion || '').trim() ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-400')}>Desc</span>
+                <span className={'pill ' + (p.ficha_tecnica_url ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-400')}>Ficha</span>
+                <span className={'pill ' + ((p.drive_carpeta_url || galCount[p.id]) ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-400')}>Álbum</span>
+              </div>
+            </div>
           </button>
         ))}
+        {!cargando && !filtrados.length && <p className="col-span-full p-8 text-center text-sm text-slate-400">No hay productos con estos filtros.</p>}
       </div>
+      {filtrados.length > limite && <button type="button" className="btn mt-4" onClick={() => setLimite((l) => l + 48)}>Mostrar más productos</button>}
       {sel && <EditorProducto perfil={perfil} prod={sel} cerrar={() => setSel(null)} aviso={aviso} />}
     </section>
   )
@@ -286,8 +366,9 @@ export function Biblioteca({ perfil, aviso }: { perfil: Perfil; aviso: (t: strin
 /* Campos de "Datos del producto" que se editan directo o pasan por Revisión,
    igual que ya funcionaba Descripción (marketing_cambios + permiso 'aprobar').
    'modelo' vive en la columna codigo_unico y 'publico' en en_catalogo. */
-const CAMPO_COL: Record<string, string> = { modelo: 'codigo_unico', publico: 'en_catalogo' }
-export const CAMPOS_PRODUCTO = ['descripcion', 'nombre', 'categoria', 'marca', 'modelo', 'garantia', 'accesorios', 'certificaciones', 'publico', 'imagen_url']
+const CAMPO_COL: Record<string, string> = { modelo: 'codigo_unico', publico: 'en_catalogo', nuevo: 'sin_etiqueta_nuevo' }
+const CAMPOS_BOOL = ['publico', 'nuevo']
+export const CAMPOS_PRODUCTO = ['descripcion', 'nombre', 'categoria', 'marca', 'modelo', 'garantia', 'accesorios', 'certificaciones', 'publico', 'imagen_url', 'nuevo']
 
 export async function aplicarCampoProducto(productoId: string, campo: string, valorNuevo: string): Promise<string | null> {
   if (campo === 'categoria') {
@@ -307,7 +388,7 @@ export async function aplicarCampoProducto(productoId: string, campo: string, va
     return error?.message ?? null
   }
   const col = CAMPO_COL[campo] ?? campo
-  const valor: string | boolean | null = campo === 'publico' ? valorNuevo === 'SI' : (valorNuevo.trim() || null)
+  const valor: string | boolean | null = CAMPOS_BOOL.includes(campo) ? valorNuevo === 'SI' : (valorNuevo.trim() || null)
   const { error } = await supabase.from('productos').update({ [col]: valor }).eq('id', productoId)
   return error?.message ?? null
 }
@@ -334,6 +415,7 @@ function EditorProducto({ perfil, prod, cerrar, aviso }: { perfil: Perfil; prod:
   const [nuevoUrl, setNuevoUrl] = useState('')
   const [avPicker, setAvPicker] = useState(false)
   const [avLista, setAvLista] = useState<{ id: string; titulo: string; archivo_url: string; tipo: string }[]>([])
+  const [sinNuevo, setSinNuevo] = useState(prod.sin_etiqueta_nuevo)
   const aprobar = puede(perfil, 'marketing', 'aprobar')
   const enlace = `https://${WEB}/equipo/?id=${encodeURIComponent(prod.codigo)}`
 
@@ -347,7 +429,7 @@ function EditorProducto({ perfil, prod, cerrar, aviso }: { perfil: Perfil; prod:
       .then(({ data }) => { const d = data as unknown as Record<string, any> | null; if (!d) return // eslint-disable-line @typescript-eslint/no-explicit-any
         const f: ProdFull = { nombre: d.nombre ?? '', categoria: d.categoria?.nombre ?? '', marca: d.marca ?? '', codigo_unico: d.codigo_unico ?? '', garantia: d.garantia ?? '', accesorios: d.accesorios ?? '', certificaciones: d.certificaciones ?? '', pvp: Number(d.pvp) || 0, aplica_iva: d.aplica_iva !== false, en_catalogo: !!d.en_catalogo, imagen_url: d.imagen_url ?? '', descripcion: d.descripcion ?? '' }
         setFull(f)
-        setBase({ nombre: f.nombre, categoria: f.categoria, marca: f.marca, modelo: f.codigo_unico, garantia: f.garantia, accesorios: f.accesorios, certificaciones: f.certificaciones, imagen_url: f.imagen_url, descripcion: f.descripcion, publico: f.en_catalogo ? 'SI' : 'NO' })
+        setBase({ nombre: f.nombre, categoria: f.categoria, marca: f.marca, modelo: f.codigo_unico, garantia: f.garantia, accesorios: f.accesorios, certificaciones: f.certificaciones, imagen_url: f.imagen_url, descripcion: f.descripcion, publico: f.en_catalogo ? 'SI' : 'NO', nuevo: prod.sin_etiqueta_nuevo ? 'SI' : 'NO' })
       })
     supabase.from('productos').select('marca').not('marca', 'is', null).is('deleted_at', null).limit(3000)
       .then(({ data }) => setMarcas([...new Set(((data as { marca: string }[]) ?? []).map((x) => x.marca.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'))))
@@ -456,6 +538,12 @@ function EditorProducto({ perfil, prod, cerrar, aviso }: { perfil: Perfil; prod:
     else { setBase((b) => ({ ...b, publico: nuevo ? 'SI' : 'NO' })); aviso('Enviado a Revisión: ' + (nuevo ? 'mostrar' : 'ocultar') + ' en la web.') }
   }
 
+  function toggleNuevo() {
+    const nuevo = !sinNuevo
+    setSinNuevo(nuevo)
+    guardarCampo('nuevo', nuevo ? 'SI' : 'NO')
+  }
+
   async function redactar() {
     setIa(true); setMsg('')
     try {
@@ -482,6 +570,14 @@ function EditorProducto({ perfil, prod, cerrar, aviso }: { perfil: Perfil; prod:
           <span className="w-9 h-9 rounded-lg grid place-items-center shrink-0" style={full.en_catalogo ? { background: '#dcfce7', color: '#04896f' } : { background: '#f1f5f9', color: '#94a3b8' }}><Globe className="w-4 h-4" /></span>
           <div className="min-w-0 flex-1"><p className="text-[12.5px] font-bold text-slate-800">Visible al público</p><p className="text-[11px] text-slate-500">{full.en_catalogo ? 'Se muestra en la web y en los catálogos.' : 'No se muestra en la web ni en los catálogos.'}</p></div>
           <Interruptor activo={full.en_catalogo} cambiar={() => cambiarPublico(!full.en_catalogo)} />
+        </div>
+      )}
+
+      {prodReciente(prod) && (
+        <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50/60 px-3 py-2">
+          <span className="text-[9px] font-bold uppercase tracking-wider text-white rounded-full px-2 py-0.5 shrink-0" style={{ background: '#c98a1f', opacity: sinNuevo ? .35 : 1, textDecoration: sinNuevo ? 'line-through' : undefined }}>Nuevo</span>
+          <p className="text-[11.5px] text-slate-600 flex-1 min-w-0">{sinNuevo ? 'Etiqueta "Nuevo" quitada. Este equipo ya no se marca como nuevo.' : 'Se muestra como "Nuevo" en el catálogo mientras sea reciente.'}</p>
+          <button type="button" className="btn !py-1.5 shrink-0" onClick={toggleNuevo}><Tag className="w-3.5 h-3.5" />{sinNuevo ? 'Volver a mostrar' : 'Quitar etiqueta'}</button>
         </div>
       )}
 
