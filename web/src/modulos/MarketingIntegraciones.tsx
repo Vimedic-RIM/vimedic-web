@@ -254,7 +254,7 @@ function NuevaPublicacion({ cuentas, piezas, inicial, cerrar, hecho, aviso }: { 
 
 /* ============================ Biblioteca (descripciones con IA) ============================ */
 type Prod = {
-  id: string; codigo: string; nombre: string; descripcion: string | null; imagen_url: string | null; categoria: { nombre: string } | null
+  id: string; codigo: string; nombre: string; descripcion: string | null; imagen_url: string | null; categoria: { nombre: string } | null; marca: string | null
   drive_carpeta_url: string | null; ficha_tecnica_url: string | null; fecha_creacion: string | null; sin_etiqueta_nuevo: boolean
 }
 const DIAS_NUEVO = 30
@@ -282,28 +282,46 @@ export function Biblioteca({ perfil, aviso }: { perfil: Perfil; aviso: (t: strin
 
   const cargar = useCallback(() => {
     setCargando(true)
-    supabase.from('productos').select('id,codigo,nombre,descripcion,imagen_url,drive_carpeta_url,ficha_tecnica_url,fecha_creacion,sin_etiqueta_nuevo,categoria:categorias(nombre)')
-      .is('deleted_at', null).or('estado.is.null,estado.not.ilike.inactivo').order('nombre').limit(3000)
-      .then(({ data }) => {
-        const l = (data as unknown as Prod[]) ?? []
-        setProductos(l); setCargando(false)
-        const ids = l.map((p) => p.id)
-        if (!ids.length) { setGalCount({}); return }
-        supabase.from('producto_galeria').select('producto_id').in('producto_id', ids).is('deleted_at', null).then(({ data: gal }) => {
-          const c: Record<string, number> = {}
-          for (const g of (gal as { producto_id: string }[]) ?? []) c[g.producto_id] = (c[g.producto_id] ?? 0) + 1
-          setGalCount(c)
-        })
-      })
+    ;(async () => {
+      const PAGE = 1000
+      // Supabase corta cada respuesta en ~1000 filas sin importar el .limit() pedido:
+      // hay que paginar con .range() hasta que una página vuelva incompleta.
+      const todos: Prod[] = []
+      for (let desde = 0; ; desde += PAGE) {
+        const { data, error } = await supabase.from('productos')
+          .select('id,codigo,nombre,descripcion,imagen_url,marca,drive_carpeta_url,ficha_tecnica_url,fecha_creacion,sin_etiqueta_nuevo,categoria:categorias(nombre)')
+          .is('deleted_at', null).or('estado.is.null,estado.not.ilike.inactivo').order('nombre').order('id')
+          .range(desde, desde + PAGE - 1)
+        const pagina = (data as unknown as Prod[]) ?? []
+        if (error || !pagina.length) break
+        todos.push(...pagina)
+        if (pagina.length < PAGE) break
+      }
+      setProductos(todos); setCargando(false)
+
+      const c: Record<string, number> = {}
+      for (let desde = 0; ; desde += PAGE) {
+        const { data, error } = await supabase.from('producto_galeria').select('producto_id').is('deleted_at', null).order('id').range(desde, desde + PAGE - 1)
+        const pagina = (data as { producto_id: string }[]) ?? []
+        if (error || !pagina.length) break
+        for (const g of pagina) c[g.producto_id] = (c[g.producto_id] ?? 0) + 1
+        if (pagina.length < PAGE) break
+      }
+      setGalCount(c)
+    })()
   }, [])
   useEffect(() => { cargar() }, [cargar])
 
   const categorias = useMemo(() => [...new Set(productos.map((p) => p.categoria?.nombre).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, 'es')), [productos])
+  const marcas = useMemo(() => [...new Set(productos.map((p) => p.marca).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, 'es')), [productos])
 
   const filtrados = useMemo(() => {
-    const qn = normalize(q)
+    const palabras = normalize(q).split(/\s+/).filter(Boolean)
     return productos.filter((p) => {
-      if (qn && !normalize([p.codigo, p.nombre, p.categoria?.nombre].join(' ')).includes(qn)) return false
+      if (palabras.length) {
+        const haystack = normalize([p.codigo, p.nombre, p.categoria?.nombre, p.marca].join(' '))
+        if (!palabras.every((w) => haystack.includes(w))) return false
+      }
       if (cat && p.categoria?.nombre !== cat) return false
       const tieneGal = !!galCount[p.id]
       const faltan = prodFaltan(p, tieneGal)
@@ -358,7 +376,7 @@ export function Biblioteca({ perfil, aviso }: { perfil: Perfil; aviso: (t: strin
         {!cargando && !filtrados.length && <p className="col-span-full p-8 text-center text-sm text-slate-400">No hay productos con estos filtros.</p>}
       </div>
       {filtrados.length > limite && <button type="button" className="btn mt-4" onClick={() => setLimite((l) => l + 48)}>Mostrar más productos</button>}
-      {sel && <EditorProducto perfil={perfil} prod={sel} cerrar={() => setSel(null)} aviso={aviso} />}
+      {sel && <EditorProducto perfil={perfil} prod={sel} categorias={categorias} marcas={marcas} cerrar={() => setSel(null)} aviso={aviso} />}
     </section>
   )
 }
@@ -368,7 +386,7 @@ export function Biblioteca({ perfil, aviso }: { perfil: Perfil; aviso: (t: strin
    'modelo' vive en la columna codigo_unico y 'publico' en en_catalogo. */
 const CAMPO_COL: Record<string, string> = { modelo: 'codigo_unico', publico: 'en_catalogo', nuevo: 'sin_etiqueta_nuevo' }
 const CAMPOS_BOOL = ['publico', 'nuevo']
-export const CAMPOS_PRODUCTO = ['descripcion', 'nombre', 'categoria', 'marca', 'modelo', 'garantia', 'accesorios', 'certificaciones', 'publico', 'imagen_url', 'nuevo']
+export const CAMPOS_PRODUCTO = ['descripcion', 'nombre', 'categoria', 'marca', 'modelo', 'garantia', 'accesorios', 'certificaciones', 'caracteristicas', 'especificaciones', 'publico', 'imagen_url', 'nuevo']
 
 export async function aplicarCampoProducto(productoId: string, campo: string, valorNuevo: string): Promise<string | null> {
   if (campo === 'categoria') {
@@ -395,21 +413,20 @@ export async function aplicarCampoProducto(productoId: string, campo: string, va
 
 type ProdFull = {
   nombre: string; categoria: string; marca: string; codigo_unico: string; garantia: string; accesorios: string; certificaciones: string
+  caracteristicas: string; especificaciones: string
   pvp: number; aplica_iva: boolean; en_catalogo: boolean; imagen_url: string; descripcion: string
 }
 type GalItem = { id: string; tipo: 'imagen' | 'video'; archivo_url: string; descripcion: string | null; orden: number }
 const WEB = 'vimedic.com.ec'
 const money = (n: number) => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-function EditorProducto({ perfil, prod, cerrar, aviso }: { perfil: Perfil; prod: Prod; cerrar: () => void; aviso: (t: string) => void }) {
+function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { perfil: Perfil; prod: Prod; categorias: string[]; marcas: string[]; cerrar: () => void; aviso: (t: string) => void }) {
   const [full, setFull] = useState<ProdFull | null>(null)
   const [base, setBase] = useState<Record<string, string>>({})
   const [notas, setNotas] = useState('')
   const [ia, setIa] = useState(false)
   const [msg, setMsg] = useState('')
   const [estado, setEstado] = useState<Record<string, 'guardando' | 'ok' | 'revision' | 'error'>>({})
-  const [marcas, setMarcas] = useState<string[]>([])
-  const [categorias, setCategorias] = useState<string[]>([])
   const [galeria, setGaleria] = useState<GalItem[]>([])
   const [nuevoTipo, setNuevoTipo] = useState<'imagen' | 'video'>('imagen')
   const [nuevoUrl, setNuevoUrl] = useState('')
@@ -425,15 +442,12 @@ function EditorProducto({ perfil, prod, cerrar, aviso }: { perfil: Perfil; prod:
   }, [prod.id])
 
   useEffect(() => {
-    supabase.from('productos').select('nombre,marca,codigo_unico,garantia,accesorios,certificaciones,pvp,aplica_iva,en_catalogo,imagen_url,descripcion,categoria:categorias(nombre)').eq('id', prod.id).single()
+    supabase.from('productos').select('nombre,marca,codigo_unico,garantia,accesorios,certificaciones,caracteristicas,especificaciones,pvp,aplica_iva,en_catalogo,imagen_url,descripcion,categoria:categorias(nombre)').eq('id', prod.id).single()
       .then(({ data }) => { const d = data as unknown as Record<string, any> | null; if (!d) return // eslint-disable-line @typescript-eslint/no-explicit-any
-        const f: ProdFull = { nombre: d.nombre ?? '', categoria: d.categoria?.nombre ?? '', marca: d.marca ?? '', codigo_unico: d.codigo_unico ?? '', garantia: d.garantia ?? '', accesorios: d.accesorios ?? '', certificaciones: d.certificaciones ?? '', pvp: Number(d.pvp) || 0, aplica_iva: d.aplica_iva !== false, en_catalogo: !!d.en_catalogo, imagen_url: d.imagen_url ?? '', descripcion: d.descripcion ?? '' }
+        const f: ProdFull = { nombre: d.nombre ?? '', categoria: d.categoria?.nombre ?? '', marca: d.marca ?? '', codigo_unico: d.codigo_unico ?? '', garantia: d.garantia ?? '', accesorios: d.accesorios ?? '', certificaciones: d.certificaciones ?? '', caracteristicas: d.caracteristicas ?? '', especificaciones: d.especificaciones ?? '', pvp: Number(d.pvp) || 0, aplica_iva: d.aplica_iva !== false, en_catalogo: !!d.en_catalogo, imagen_url: d.imagen_url ?? '', descripcion: d.descripcion ?? '' }
         setFull(f)
-        setBase({ nombre: f.nombre, categoria: f.categoria, marca: f.marca, modelo: f.codigo_unico, garantia: f.garantia, accesorios: f.accesorios, certificaciones: f.certificaciones, imagen_url: f.imagen_url, descripcion: f.descripcion, publico: f.en_catalogo ? 'SI' : 'NO', nuevo: prod.sin_etiqueta_nuevo ? 'SI' : 'NO' })
+        setBase({ nombre: f.nombre, categoria: f.categoria, marca: f.marca, modelo: f.codigo_unico, garantia: f.garantia, accesorios: f.accesorios, certificaciones: f.certificaciones, caracteristicas: f.caracteristicas, especificaciones: f.especificaciones, imagen_url: f.imagen_url, descripcion: f.descripcion, publico: f.en_catalogo ? 'SI' : 'NO', nuevo: prod.sin_etiqueta_nuevo ? 'SI' : 'NO' })
       })
-    supabase.from('productos').select('marca').not('marca', 'is', null).is('deleted_at', null).limit(3000)
-      .then(({ data }) => setMarcas([...new Set(((data as { marca: string }[]) ?? []).map((x) => x.marca.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'))))
-    supabase.from('categorias').select('nombre').eq('activo', true).order('nombre').then(({ data }) => setCategorias(((data as { nombre: string }[]) ?? []).map((c) => c.nombre)))
     cargarGaleria()
   }, [prod.id, cargarGaleria])
 
@@ -495,7 +509,7 @@ function EditorProducto({ perfil, prod, cerrar, aviso }: { perfil: Perfil; prod:
   }
 
   function set<K extends keyof ProdFull>(k: K, v: ProdFull[K]) { setFull((x) => (x ? { ...x, [k]: v } : x)) }
-  function campoTexto(campo: string, k: keyof ProdFull, etiqueta: string, opts: { full?: boolean; lista?: string[]; placeholder?: string; multilinea?: boolean; maxLength?: number } = {}) {
+  function campoTexto(campo: string, k: keyof ProdFull, etiqueta: string, opts: { full?: boolean; lista?: string[]; placeholder?: string; multilinea?: boolean; filas?: number; maxLength?: number } = {}) {
     if (!full) return null
     const valor = String(full[k] ?? '')
     const St = estado[campo]
@@ -509,7 +523,7 @@ function EditorProducto({ perfil, prod, cerrar, aviso }: { perfil: Perfil; prod:
           {St === 'error' && <span className="text-[9px] font-bold text-red-600">no se guardó</span>}
         </span>
         {opts.multilinea
-          ? <textarea rows={2} {...comun} onChange={(e) => set(k, e.target.value)} onBlur={() => guardarCampo(campo, valor)} />
+          ? <textarea rows={opts.filas ?? 2} {...comun} onChange={(e) => set(k, e.target.value)} onBlur={() => guardarCampo(campo, valor)} />
           : <input type="text" {...comun} onChange={(e) => set(k, e.target.value)} onBlur={() => guardarCampo(campo, valor)} />}
         {opts.lista && <datalist id={campo + 'Lst'}>{opts.lista.map((o) => <option key={o} value={o} />)}</datalist>}
       </label>
@@ -548,15 +562,15 @@ function EditorProducto({ perfil, prod, cerrar, aviso }: { perfil: Perfil; prod:
     setIa(true); setMsg('')
     try {
       const r = await llamar<{ descripcion: string; caracteristicas: string[]; conFicha: boolean }>('ia_producto', { id: prod.id, notas })
-      const texto = r.descripcion + (r.caracteristicas.length ? '\n\nCaracterísticas:\n' + r.caracteristicas.map((c) => '• ' + c).join('\n') : '')
-      set('descripcion', texto)
-      await guardarCampo('descripcion', texto)
+      const car = r.caracteristicas.join('\n')
+      set('descripcion', r.descripcion); set('caracteristicas', car)
+      await Promise.all([guardarCampo('descripcion', r.descripcion), guardarCampo('caracteristicas', car)])
       setMsg(r.conFicha ? 'Redactado con los datos de la ficha técnica.' : 'Redactado sin ficha técnica legible: revisa que no falte nada.')
     } catch (e) { setMsg((e as Error).message) }
     setIa(false)
   }
 
-  const falta = full ? [!full.imagen_url && 'Imagen principal', !full.nombre.trim() && 'Nombre', !full.categoria.trim() && 'Categoría', !full.marca.trim() && 'Marca', !full.descripcion.trim() && 'Descripción', galeria.filter((g) => g.tipo === 'imagen').length < 3 && 'Al menos 3 fotos'].filter(Boolean) as string[] : []
+  const falta = full ? [!full.imagen_url && 'Imagen principal', !full.nombre.trim() && 'Nombre', !full.categoria.trim() && 'Categoría', !full.marca.trim() && 'Marca', !full.descripcion.trim() && 'Descripción', !full.caracteristicas.trim() && 'Características', !full.especificaciones.trim() && 'Especificaciones técnicas', galeria.filter((g) => g.tipo === 'imagen').length < 3 && 'Al menos 3 fotos'].filter(Boolean) as string[] : []
 
   return (
     <Ventana titulo={prod.nombre} cerrar={cerrar} ancho="sm:max-w-2xl" pie={<>
@@ -667,7 +681,9 @@ function EditorProducto({ perfil, prod, cerrar, aviso }: { perfil: Perfil; prod:
         <button type="button" className="btn" onClick={redactar} disabled={ia}><Sparkles />{ia ? 'Redactando…' : 'Redactar descripción y características'}</button>
         <p className="text-[10px] text-slate-500">Si el producto tiene ficha técnica en PDF, la IA la lee para no inventar datos.</p>
       </div>
-      {full && campoTexto('descripcion', 'descripcion', 'Descripción', { full: true, multilinea: true })}
+      {full && campoTexto('descripcion', 'descripcion', 'Descripción', { full: true, multilinea: true, filas: 3 })}
+      {full && campoTexto('caracteristicas', 'caracteristicas', 'Características (una por línea, se muestran con ✓)', { full: true, multilinea: true, filas: 5, maxLength: 3400 })}
+      {full && campoTexto('especificaciones', 'especificaciones', 'Especificaciones técnicas (una por línea: Dato: valor)', { full: true, multilinea: true, filas: 6, maxLength: 4000 })}
     </Ventana>
   )
 }
