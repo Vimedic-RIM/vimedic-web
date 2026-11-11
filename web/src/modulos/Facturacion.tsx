@@ -67,6 +67,7 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
   const [factura, setFactura] = useState<Fila | null>(null)
   const [cargando, setCargando] = useState(false)
   const [generandoGuia, setGenerandoGuia] = useState<string | null>(null)
+  const [notasCredito, setNotasCredito] = useState<Fila | null>(null)
   const filtrosRef = useRef<HTMLDivElement>(null)
   const peticion = useRef(0)
   const esPc = typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches
@@ -173,7 +174,8 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
     if (qa === 'verGuia' && r.guiaEnvioUrl) return abrirDelBucket(r.guiaEnvioUrl)
     if (qa === 'conformidad' && r.actaConformidadUrl) return abrir(r.actaConformidadUrl)
     if (qa === 'guia') return generarGuia(r)
-    aviso('Generar actas y notas de crédito se está migrando: sigue disponible en la app actual.')
+    if (qa === 'nc') { setNotasCredito(r); return }
+    aviso('Generar actas se está migrando: sigue disponible en la app actual.')
   }
 
   /* Genera la guía de despacho: asegura que exista el registro en Bodega (ya automático al
@@ -418,6 +420,7 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
       {detalle && <Detalle r={conItems(detalle) ?? detalle} perfil={perfil} puedeEditar={puedeEditar} cerrar={() => setDetalle(null)} accion={accion} generandoGuia={generandoGuia}
         facturar={(r) => { setDetalle(null); setFactura(conItems(r)) }} aviso={aviso} recargar={() => { cargar(filtro); cargarStats(); setItems({}) }} />}
       {factura && <ModalFactura r={factura} perfil={perfil} cerrar={() => setFactura(null)} aviso={aviso} guardado={() => { setFactura(null); aviso('Factura registrada.'); cargar(filtro); cargarStats(); setItems({}) }} />}
+      {notasCredito && <ModalNotasCredito r={notasCredito} cerrar={() => setNotasCredito(null)} aviso={aviso} />}
     </div>
   )
 }
@@ -668,6 +671,196 @@ function ModalFactura({ r, perfil, cerrar, guardado, aviso }: { r: Fila; perfil:
         <div className="shrink-0 border-t border-slate-200 bg-white p-4 flex items-center gap-2">
           <button type="button" onClick={cerrar} className="h-11 px-4 rounded-2xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50">Cancelar</button>
           <button type="button" onClick={guardar} disabled={guardando} className="flex-1 h-11 rounded-2xl text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: 'linear-gradient(135deg,var(--primary),var(--cyan))', boxShadow: '0 10px 20px -14px rgba(5,92,157,.9)' }}>{guardando ? 'Guardando…' : 'Guardar factura'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ============================ Notas de crédito ============================ */
+type NcLinea = {
+  movimiento_id: string; producto_codigo: string; nombre: string; cantidad: number; precio: number; descuento: number; aplica_iva: boolean
+  base: number; iva: number; acreditado: number; vigente: number; base_vigente: number; iva_vigente: number; estado_nc: string | null
+}
+type NcNota = { id: string; codigo: string; numero: string; fecha: string; datos: { motivo: string; pdf_url: string; total: number }; creado_por: string | null }
+type NcDevPendiente = { id: string; nombre: string; producto_codigo: string; cantidad: number; recibido: number; estado_nc: string | null }
+
+function ModalNotasCredito({ r, cerrar, aviso }: { r: Fila; cerrar: () => void; aviso: (t: string) => void }) {
+  const [lineas, setLineas] = useState<NcLinea[] | null>(null)
+  const [resumen, setResumen] = useState<{ notas: NcNota[]; devoluciones_pendientes: NcDevPendiente[] } | null>(null)
+  const [sel, setSel] = useState<Record<string, { on: boolean; tipo: 'CANTIDAD' | 'PRECIO'; cantidad: string; monto: string }>>({})
+  const [numero, setNumero] = useState(''); const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10))
+  const [motivo, setMotivo] = useState(''); const [pdfUrl, setPdfUrl] = useState('')
+  const [msg, setMsg] = useState(''); const [guardando, setGuardando] = useState(false)
+  const [recepcion, setRecepcion] = useState<{ id: string; cantidad: string; destino: string; fecha: string; observacion: string } | null>(null)
+  const [recGuardando, setRecGuardando] = useState(false)
+
+  const cargar = useCallback(() => {
+    Promise.all([
+      supabase.rpc('nc_lineas_factura', { p_factura: r.uuid }),
+      supabase.rpc('nc_resumen_factura', { p_factura: r.uuid }),
+    ]).then(([a, b]) => {
+      setLineas((a.data as NcLinea[] | null) ?? [])
+      setResumen((b.data as { notas: NcNota[]; devoluciones_pendientes: NcDevPendiente[] } | null) ?? { notas: [], devoluciones_pendientes: [] })
+    })
+  }, [r.uuid])
+  useEffect(() => { cargar() }, [cargar])
+  useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') cerrar() }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [cerrar])
+
+  function marcar(l: NcLinea, on: boolean) {
+    setSel((s) => ({ ...s, [l.movimiento_id]: on ? { on: true, tipo: 'CANTIDAD', cantidad: String(l.vigente), monto: (l.base_vigente + l.iva_vigente).toFixed(2) } : { ...s[l.movimiento_id], on: false } }))
+  }
+  function cambiar(id: string, cambios: Partial<{ tipo: 'CANTIDAD' | 'PRECIO'; cantidad: string; monto: string }>) {
+    setSel((s) => ({ ...s, [id]: { ...s[id], ...cambios } }))
+  }
+
+  async function guardar() {
+    setMsg('')
+    if (!numero.trim() || !motivo.trim()) { setMsg('Indica número y motivo de la nota.'); return }
+    if (!/^https:\/\//i.test(pdfUrl.trim())) { setMsg('El enlace al PDF de la nota debe empezar con https://'); return }
+    const elegidas = Object.entries(sel).filter(([, v]) => v.on)
+    if (!elegidas.length) { setMsg('Marca al menos un producto a acreditar.'); return }
+    const p_lineas = elegidas.map(([movimiento_id, v]) => {
+      const l = lineas!.find((x) => x.movimiento_id === movimiento_id)!
+      const monto = Math.max(0, Number(v.monto) || 0)
+      const aplicaIva = l.aplica_iva
+      const base = aplicaIva ? Math.round((monto / 1.15) * 100) / 100 : monto
+      const iva = Math.round((monto - base) * 100) / 100
+      return { movimiento_id, tipo: v.tipo, cantidad: v.tipo === 'CANTIDAD' ? Number(v.cantidad) || 0 : 0, base, iva }
+    })
+    setGuardando(true)
+    const { error } = await supabase.rpc('nc_registrar', { p_factura: r.uuid, p_numero: numero.trim(), p_fecha: fecha, p_motivo: motivo.trim(), p_pdf_url: pdfUrl.trim(), p_lineas })
+    setGuardando(false)
+    if (error) { setMsg(error.message); return }
+    aviso('Nota de crédito ' + numero.trim() + ' registrada.')
+    setNumero(''); setMotivo(''); setPdfUrl(''); setSel({}); cargar()
+  }
+
+  async function guardarRecepcion() {
+    if (!recepcion) return
+    if (!recepcion.observacion.trim()) { aviso('Indica una observación de la recepción.'); return }
+    setRecGuardando(true)
+    const { error } = await supabase.rpc('nc_registrar_recepcion', {
+      p_devolucion_id: recepcion.id, p_cantidad: Number(recepcion.cantidad) || 0, p_destino: recepcion.destino, p_fecha: recepcion.fecha, p_observacion: recepcion.observacion.trim(),
+    })
+    setRecGuardando(false)
+    if (error) { aviso(error.message); return }
+    aviso('Recepción registrada.'); setRecepcion(null); cargar()
+  }
+
+  const totalSel = Object.entries(sel).filter(([, v]) => v.on).reduce((t, [, v]) => t + (Number(v.monto) || 0), 0)
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-[2px] z-[60] flex items-center justify-center p-0 sm:p-4 overlay" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
+      <div className="modal-panel bg-[#f6f9fc] sm:rounded-3xl shadow-2xl w-full h-full sm:h-auto sm:max-w-2xl sm:max-h-[92vh] flex flex-col overflow-hidden">
+        <div className="shrink-0 px-5 py-4 text-white" style={{ background: 'linear-gradient(135deg,var(--navy),var(--primary))' }}>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-white/70 flex items-center gap-1.5"><ReceiptText className="w-3.5 h-3.5" />Notas de crédito</span>
+            <button type="button" onClick={cerrar} className="w-8 h-8 rounded-xl bg-white/15 hover:bg-white/25 flex items-center justify-center" aria-label="Cerrar"><X className="w-4 h-4" /></button>
+          </div>
+          <h3 className="font-display font-bold text-lg leading-snug mt-1.5">{r.cliente || 'Venta'}</h3>
+          <p className="text-[11px] text-white/70 mt-1">{[r.id, r.numeroFactura].filter(Boolean).join(' · ')}</p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3">
+          {resumen && resumen.notas.length > 0 && (
+            <div className="bg-white border border-slate-200 rounded-2xl p-3">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Notas ya aplicadas</p>
+              {resumen.notas.map((n) => (
+                <div key={n.id} className="flex items-center justify-between gap-2 py-1 text-[11.5px] border-t border-slate-100 first:border-0">
+                  <span className="min-w-0 truncate"><b className="text-slate-700">{n.numero}</b> · {fechaCorta(new Date(n.fecha).getTime())}{n.creado_por ? ' · ' + n.creado_por : ''}</span>
+                  <a href={n.datos.pdf_url} target="_blank" rel="noopener" className="text-[var(--primary)] font-semibold shrink-0">{money(n.datos.total)} · ver</a>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {resumen && resumen.devoluciones_pendientes.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3">
+              <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wider mb-1.5">Devoluciones pendientes de recepción</p>
+              {resumen.devoluciones_pendientes.map((d) => {
+                const pendiente = d.cantidad - d.recibido
+                return (
+                  <div key={d.id} className="py-1.5 border-t border-amber-200 first:border-0">
+                    <div className="flex items-center justify-between gap-2 text-[11.5px]">
+                      <span className="min-w-0 truncate"><b className="text-slate-700">{pendiente}</b> de {d.cantidad} u. · {d.nombre}</span>
+                      {recepcion?.id !== d.id && <button type="button" onClick={() => setRecepcion({ id: d.id, cantidad: String(pendiente), destino: 'DISPONIBLE', fecha: new Date().toISOString().slice(0, 10), observacion: '' })} className="text-[10.5px] font-bold px-2 py-1 rounded-lg border bg-white" style={{ borderColor: '#f1dfbf', color: '#a86d10' }}>Registrar recepción</button>}
+                    </div>
+                    {recepcion?.id === d.id && (
+                      <div className="mt-2 bg-white rounded-xl border border-amber-200 p-2.5 space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="block"><span className="block text-[9.5px] font-bold text-slate-400 uppercase">Cantidad recibida</span>
+                            <input type="number" min="0.001" max={pendiente} step="0.001" value={recepcion.cantidad} onChange={(e) => setRecepcion({ ...recepcion, cantidad: e.target.value })} className="fi-in" /></label>
+                          <label className="block"><span className="block text-[9.5px] font-bold text-slate-400 uppercase">Fecha</span>
+                            <input type="date" value={recepcion.fecha} onChange={(e) => setRecepcion({ ...recepcion, fecha: e.target.value })} className="fi-in" /></label>
+                        </div>
+                        <label className="block"><span className="block text-[9.5px] font-bold text-slate-400 uppercase">Destino</span>
+                          <select value={recepcion.destino} onChange={(e) => setRecepcion({ ...recepcion, destino: e.target.value })} className="fi-in bg-white">
+                            <option value="DISPONIBLE">Recibido y apto para venta</option>
+                            <option value="NO_DISPONIBLE">Recibido dañado / no disponible</option>
+                            <option value="NO_ENTREGADO">Nunca entregado: restituir salida</option>
+                          </select></label>
+                        <label className="block"><span className="block text-[9.5px] font-bold text-slate-400 uppercase">Observación / evidencia</span>
+                          <textarea rows={2} value={recepcion.observacion} onChange={(e) => setRecepcion({ ...recepcion, observacion: e.target.value })} className="fi-in" /></label>
+                        <div className="flex gap-2">
+                          <button type="button" onClick={() => setRecepcion(null)} className="text-[11px] font-bold px-3 py-1.5 rounded-lg border border-slate-200">Cancelar</button>
+                          <button type="button" onClick={guardarRecepcion} disabled={recGuardando} className="flex-1 text-[11px] font-bold px-3 py-1.5 rounded-lg text-white disabled:opacity-60" style={{ background: '#c98a1f' }}>{recGuardando ? 'Guardando…' : 'Confirmar recepción'}</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          <div className="bg-white border border-slate-200 rounded-2xl p-3">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Qué se acredita</p>
+            {lineas === null && <p className="text-[11px] text-slate-400 py-2">Cargando productos…</p>}
+            {lineas?.length === 0 && <p className="text-[11px] text-slate-400 py-2">Esta factura no tiene salidas de inventario registradas.</p>}
+            {lineas?.filter((l) => l.vigente > 0 || l.base_vigente > 0).map((l) => {
+              const s = sel[l.movimiento_id]
+              return (
+                <div key={l.movimiento_id} className="py-2 border-t border-slate-100 first:border-0">
+                  <label className="flex items-center gap-2 text-[11.5px]">
+                    <input type="checkbox" checked={!!s?.on} onChange={(e) => marcar(l, e.target.checked)} className="w-4 h-4" />
+                    <span className="min-w-0 truncate flex-1"><b className="text-slate-700">{l.nombre}</b> <span className="text-slate-400">({l.producto_codigo})</span></span>
+                    <span className="text-slate-500 shrink-0">vigente {money(l.base_vigente + l.iva_vigente)}</span>
+                  </label>
+                  {s?.on && (
+                    <div className="mt-2 pl-6 grid grid-cols-2 gap-2">
+                      <label className="block"><span className="block text-[9.5px] font-bold text-slate-400 uppercase">Tipo de ajuste</span>
+                        <select value={s.tipo} onChange={(e) => cambiar(l.movimiento_id, { tipo: e.target.value as 'CANTIDAD' | 'PRECIO', cantidad: e.target.value === 'PRECIO' ? '0' : s.cantidad })} className="fi-in bg-white">
+                          <option value="CANTIDAD">Devuelve unidades</option>
+                          <option value="PRECIO">Solo ajuste de precio</option>
+                        </select></label>
+                      {s.tipo === 'CANTIDAD' && <label className="block"><span className="block text-[9.5px] font-bold text-slate-400 uppercase">Cantidad (máx. {l.vigente})</span>
+                        <input type="number" min="0.001" max={l.vigente} step="0.001" value={s.cantidad} onChange={(e) => cambiar(l.movimiento_id, { cantidad: e.target.value })} className="fi-in" /></label>}
+                      <label className="block col-span-2"><span className="block text-[9.5px] font-bold text-slate-400 uppercase">Monto a acreditar (con IVA, máx. {money(l.base_vigente + l.iva_vigente)})</span>
+                        <input type="number" min="0.01" max={l.base_vigente + l.iva_vigente} step="0.01" value={s.monto} onChange={(e) => cambiar(l.movimiento_id, { monto: e.target.value })} className="fi-in" /></label>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="fi-sec">
+            <div className="fi-sec-h"><span className="fi-num" style={{ background: '#7c3aed' }}>1</span><div className="flex-1"><b>Datos de la nota</b><small>Tal como se emitió en Contífico</small></div></div>
+            <div className="grid grid-cols-2 gap-2">
+              <input type="text" value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="N° de la nota" className="fi-in" />
+              <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className="fi-in" />
+            </div>
+            <textarea rows={2} value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo de la nota de crédito" className="fi-in mt-2" />
+            <input type="url" value={pdfUrl} onChange={(e) => setPdfUrl(e.target.value)} placeholder="https://… enlace al PDF de la nota" className="fi-in mt-2" />
+          </div>
+          {msg && <p className="fi-err">{msg}</p>}
+        </div>
+
+        <div className="shrink-0 border-t border-slate-200 bg-white p-4 flex items-center gap-2">
+          <div className="text-[11px] text-slate-500 flex-1">{totalSel > 0 && <>Total a acreditar: <b className="text-slate-700">{money(totalSel)}</b></>}</div>
+          <button type="button" onClick={cerrar} className="h-11 px-4 rounded-2xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50">Cerrar</button>
+          <button type="button" onClick={guardar} disabled={guardando} className="h-11 px-5 rounded-2xl text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: '#7c3aed' }}>{guardando ? 'Guardando…' : 'Aplicar nota'}</button>
         </div>
       </div>
     </div>
