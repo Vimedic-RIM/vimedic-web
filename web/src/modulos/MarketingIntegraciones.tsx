@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowDown, ArrowUp, BookOpen, CalendarClock, Check, CircleCheck, ClipboardCheck, Copy, Eye, FileBadge, FileText, Film, Globe, ImagePlus, KeyRound, Link2, Plug, RefreshCw, Search, Send, Sparkles, Tag, Trash2, Upload, Video, X, XCircle,
 } from 'lucide-react'
@@ -255,7 +255,7 @@ function NuevaPublicacion({ cuentas, piezas, inicial, cerrar, hecho, aviso }: { 
 /* ============================ Biblioteca (descripciones con IA) ============================ */
 type Prod = {
   id: string; codigo: string; nombre: string; descripcion: string | null; imagen_url: string | null; categoria: { nombre: string } | null; marca: string | null
-  drive_carpeta_url: string | null; ficha_tecnica_url: string | null; fecha_creacion: string | null; sin_etiqueta_nuevo: boolean
+  drive_carpeta_url: string | null; ficha_tecnica_url: string | null; fecha_creacion: string | null; sin_etiqueta_nuevo: boolean; en_catalogo: boolean
 }
 const DIAS_NUEVO = 30
 const normalize = (s: string) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
@@ -279,6 +279,7 @@ export function Biblioteca({ perfil, aviso }: { perfil: Perfil; aviso: (t: strin
   const [miss, setMiss] = useState('')
   const [limite, setLimite] = useState(48)
   const [sel, setSel] = useState<Prod | null>(null)
+  const centinela = useRef<HTMLDivElement>(null)
 
   const cargar = useCallback(() => {
     setCargando(true)
@@ -289,8 +290,8 @@ export function Biblioteca({ perfil, aviso }: { perfil: Perfil; aviso: (t: strin
       const todos: Prod[] = []
       for (let desde = 0; ; desde += PAGE) {
         const { data, error } = await supabase.from('productos')
-          .select('id,codigo,nombre,descripcion,imagen_url,marca,drive_carpeta_url,ficha_tecnica_url,fecha_creacion,sin_etiqueta_nuevo,categoria:categorias(nombre)')
-          .is('deleted_at', null).or('estado.is.null,estado.not.ilike.inactivo').order('nombre').order('id')
+          .select('id,codigo,nombre,descripcion,imagen_url,marca,drive_carpeta_url,ficha_tecnica_url,fecha_creacion,sin_etiqueta_nuevo,en_catalogo,categoria:categorias(nombre)')
+          .is('deleted_at', null).or('estado.is.null,estado.not.ilike.inactivo').order('en_catalogo', { ascending: false }).order('nombre').order('id')
           .range(desde, desde + PAGE - 1)
         const pagina = (data as unknown as Prod[]) ?? []
         if (error || !pagina.length) break
@@ -332,10 +333,20 @@ export function Biblioteca({ perfil, aviso }: { perfil: Perfil; aviso: (t: strin
       if (miss === 'album' && (p.drive_carpeta_url || tieneGal)) return false
       return true
     }).map((p) => ({ p, reciente: prodReciente(p), faltan: prodFaltan(p, !!galCount[p.id]) }))
-      .sort((a, b) => Number(b.reciente && b.faltan.length > 0) - Number(a.reciente && a.faltan.length > 0))
+      // Prioridad: visibles en la web pública primero, luego nuevos incompletos, luego el resto.
+      .sort((a, b) => (Number(b.p.en_catalogo) - Number(a.p.en_catalogo)) || (Number(b.reciente && b.faltan.length > 0) - Number(a.reciente && a.faltan.length > 0)))
   }, [productos, q, cat, miss, galCount])
 
   const pendientes = useMemo(() => productos.filter((p) => prodReciente(p) && prodFaltan(p, !!galCount[p.id]).length).length, [productos, galCount])
+
+  // Scroll infinito: cuando el centinela entra en pantalla, se revela más de la lista ya cargada.
+  useEffect(() => {
+    const el = centinela.current
+    if (!el) return
+    const obs = new IntersectionObserver((entradas) => { if (entradas[0]?.isIntersecting) setLimite((l) => l + 48) }, { rootMargin: '600px' })
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [filtrados.length])
 
   return (
     <section>
@@ -375,7 +386,7 @@ export function Biblioteca({ perfil, aviso }: { perfil: Perfil; aviso: (t: strin
         ))}
         {!cargando && !filtrados.length && <p className="col-span-full p-8 text-center text-sm text-slate-400">No hay productos con estos filtros.</p>}
       </div>
-      {filtrados.length > limite && <button type="button" className="btn mt-4" onClick={() => setLimite((l) => l + 48)}>Mostrar más productos</button>}
+      {filtrados.length > limite && <div ref={centinela} className="py-6 text-center text-[11px] text-slate-400">Cargando más productos…</div>}
       {sel && <EditorProducto perfil={perfil} prod={sel} categorias={categorias} marcas={marcas} cerrar={() => setSel(null)} aviso={aviso} />}
     </section>
   )
@@ -384,9 +395,9 @@ export function Biblioteca({ perfil, aviso }: { perfil: Perfil; aviso: (t: strin
 /* Campos de "Datos del producto" que se editan directo o pasan por Revisión,
    igual que ya funcionaba Descripción (marketing_cambios + permiso 'aprobar').
    'modelo' vive en la columna codigo_unico y 'publico' en en_catalogo. */
-const CAMPO_COL: Record<string, string> = { modelo: 'codigo_unico', publico: 'en_catalogo', nuevo: 'sin_etiqueta_nuevo', album: 'drive_carpeta_url' }
+const CAMPO_COL: Record<string, string> = { modelo: 'codigo_unico', publico: 'en_catalogo', nuevo: 'sin_etiqueta_nuevo', album: 'drive_carpeta_url', ficha: 'ficha_tecnica_url' }
 const CAMPOS_BOOL = ['publico', 'nuevo']
-export const CAMPOS_PRODUCTO = ['descripcion', 'nombre', 'categoria', 'marca', 'modelo', 'garantia', 'accesorios', 'certificaciones', 'caracteristicas', 'especificaciones', 'publico', 'imagen_url', 'nuevo', 'album']
+export const CAMPOS_PRODUCTO = ['descripcion', 'nombre', 'categoria', 'marca', 'modelo', 'garantia', 'accesorios', 'certificaciones', 'caracteristicas', 'especificaciones', 'publico', 'imagen_url', 'nuevo', 'album', 'ficha', 'destacados']
 
 export async function aplicarCampoProducto(productoId: string, campo: string, valorNuevo: string): Promise<string | null> {
   if (campo === 'categoria') {
@@ -413,13 +424,51 @@ export async function aplicarCampoProducto(productoId: string, campo: string, va
 
 type ProdFull = {
   nombre: string; categoria: string; marca: string; codigo_unico: string; garantia: string; accesorios: string; certificaciones: string
-  caracteristicas: string; especificaciones: string
+  caracteristicas: string; especificaciones: string; destacados: string; ficha_tecnica_url: string
   pvp: number; aplica_iva: boolean; en_catalogo: boolean; imagen_url: string; descripcion: string; drive_carpeta_url: string
 }
 type GalItem = { id: string; tipo: 'imagen' | 'video'; archivo_url: string; descripcion: string | null; orden: number }
 type DocTecnico = { id: string; tipo: string; nombre: string; url: string | null }
 const DOC_TIPOS = ['Manual de usuario', 'Manual de servicio', 'Hoja de datos del fabricante', 'Certificado', 'Registro sanitario', 'Otro']
 const DOC_OBLIGATORIOS = ['Manual de usuario', 'Hoja de datos del fabricante', 'Registro sanitario']
+type Ficha = { version: number; url: string; fecha: string }
+type Especificacion = { dato: string; valor: string }
+
+function construirFichaHtml(full: ProdFull, codigo: string, destacadosSel: string[], especs: Especificacion[]): string {
+  const esc = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const car = full.caracteristicas.split('\n').map((x) => x.trim()).filter(Boolean)
+  const certs = full.certificaciones.split(/[,;·\n]/).map((x) => x.trim()).filter(Boolean)
+  const destacadosEsp = destacadosSel.length ? especs.filter((e) => destacadosSel.includes(e.dato)) : especs.slice(0, 3)
+  return `<style>
+    .ft-page{font-family:Arial,sans-serif;color:#0b2545;font-size:12px;width:210mm;min-height:297mm;box-sizing:border-box;padding:16mm;margin:0 auto;background:#fff}
+    .ft-head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #055c9d;padding-bottom:10px;margin-bottom:14px}
+    .ft-tag{display:inline-block;border:2px solid #055c9d;color:#055c9d;font-weight:bold;letter-spacing:2px;padding:4px 12px;border-radius:8px;font-size:12px}
+    .ft-img{display:block;margin:0 auto 14px;max-width:70mm;max-height:60mm;object-fit:contain}
+    .ft-destacados{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+    .ft-chip{background:#eef6fd;border:1px solid #cfe3f5;border-radius:8px;padding:6px 10px;font-size:10.5px}
+    .ft-tabla{width:100%;border-collapse:collapse;margin:8px 0}
+    .ft-tabla td{padding:5px 8px;border-bottom:1px solid #e2e8f0;font-size:11px}
+    .ft-car{margin:0;padding:0;list-style:none}
+    .ft-car li{padding:3px 0;font-size:11px}
+    .ft-cert{display:inline-block;background:#f0fdf8;border:1px solid #bfe6da;color:#04896f;border-radius:999px;padding:3px 10px;font-size:10px;margin:0 4px 4px 0}
+  </style>
+  <div class="ft-page">
+    <div class="ft-head">
+      <div><b style="font-size:22px;color:#055c9d">VIMEDIC</b><br><span class="ft-tag">FICHA TÉCNICA</span></div>
+      <div style="text-align:right;font-size:10px;color:#64748b">${esc(codigo)}<br>${esc(new Date().toLocaleDateString('es-EC'))}</div>
+    </div>
+    <h1 style="font-size:17px;margin:0 0 2px">${esc(full.nombre)}</h1>
+    <p style="font-size:11px;color:#64748b;margin:0 0 12px">${[full.marca, full.codigo_unico, full.categoria].filter(Boolean).map(esc).join(' · ')}</p>
+    ${full.imagen_url ? `<img class="ft-img" src="${esc(full.imagen_url)}">` : ''}
+    ${destacadosEsp.length ? `<div class="ft-destacados">${destacadosEsp.map((e) => `<span class="ft-chip"><b>${esc(e.dato)}:</b> ${esc(e.valor)}</span>`).join('')}</div>` : ''}
+    ${full.descripcion ? `<p style="font-size:11.5px;line-height:1.5">${esc(full.descripcion)}</p>` : ''}
+    ${car.length ? `<h3 style="font-size:12px;margin:14px 0 4px">Características</h3><ul class="ft-car">${car.map((c) => `<li>✓ ${esc(c)}</li>`).join('')}</ul>` : ''}
+    ${especs.length ? `<h3 style="font-size:12px;margin:14px 0 4px">Especificaciones técnicas</h3><table class="ft-tabla">${especs.map((e) => `<tr><td style="font-weight:bold;width:40%">${esc(e.dato)}</td><td>${esc(e.valor)}</td></tr>`).join('')}</table>` : ''}
+    ${full.garantia ? `<p style="font-size:11px;margin-top:10px"><b>Garantía:</b> ${esc(full.garantia)}</p>` : ''}
+    ${certs.length ? `<div style="margin-top:8px">${certs.map((c) => `<span class="ft-cert">${esc(c)}</span>`).join('')}</div>` : ''}
+    <p style="margin-top:24px;font-size:9px;color:#94a3b8;text-align:center">vimedic.com.ec · ${esc(codigo)}</p>
+  </div>`
+}
 const WEB = 'vimedic.com.ec'
 const money = (n: number) => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -439,6 +488,9 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
   const [docs, setDocs] = useState<DocTecnico[]>([])
   const [docTipo, setDocTipo] = useState(DOC_TIPOS[0])
   const [docSubiendo, setDocSubiendo] = useState(false)
+  const [ficha, setFicha] = useState<Ficha | null>(null)
+  const [generando, setGenerando] = useState(false)
+  const [optimizando, setOptimizando] = useState(false)
   const aprobar = puede(perfil, 'marketing', 'aprobar')
   const puedeDocs = puede(perfil, 'documentos_tecnicos', 'crear') || puede(perfil, 'documentos_tecnicos', 'editar')
   const enlace = `https://${WEB}/equipo/?id=${encodeURIComponent(prod.codigo)}`
@@ -451,17 +503,112 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
     supabase.from('documentos_tecnicos').select('id,tipo,nombre,url').eq('producto_id', prod.id).is('deleted_at', null).order('created_at', { ascending: false })
       .then(({ data }) => setDocs((data as DocTecnico[]) ?? []))
   }, [prod.id])
+  const cargarFicha = useCallback(() => {
+    supabase.from('fichas_tecnicas').select('version,url,fecha').eq('producto_id', prod.id).order('version', { ascending: false }).limit(1).maybeSingle()
+      .then(({ data }) => setFicha((data as Ficha) ?? null))
+  }, [prod.id])
 
   useEffect(() => {
-    supabase.from('productos').select('nombre,marca,codigo_unico,garantia,accesorios,certificaciones,caracteristicas,especificaciones,pvp,aplica_iva,en_catalogo,imagen_url,drive_carpeta_url,descripcion,categoria:categorias(nombre)').eq('id', prod.id).single()
+    supabase.from('productos').select('nombre,marca,codigo_unico,garantia,accesorios,certificaciones,caracteristicas,especificaciones,destacados,ficha_tecnica_url,pvp,aplica_iva,en_catalogo,imagen_url,drive_carpeta_url,descripcion,categoria:categorias(nombre)').eq('id', prod.id).single()
       .then(({ data }) => { const d = data as unknown as Record<string, any> | null; if (!d) return // eslint-disable-line @typescript-eslint/no-explicit-any
-        const f: ProdFull = { nombre: d.nombre ?? '', categoria: d.categoria?.nombre ?? '', marca: d.marca ?? '', codigo_unico: d.codigo_unico ?? '', garantia: d.garantia ?? '', accesorios: d.accesorios ?? '', certificaciones: d.certificaciones ?? '', caracteristicas: d.caracteristicas ?? '', especificaciones: d.especificaciones ?? '', pvp: Number(d.pvp) || 0, aplica_iva: d.aplica_iva !== false, en_catalogo: !!d.en_catalogo, imagen_url: d.imagen_url ?? '', descripcion: d.descripcion ?? '', drive_carpeta_url: d.drive_carpeta_url ?? '' }
+        const f: ProdFull = { nombre: d.nombre ?? '', categoria: d.categoria?.nombre ?? '', marca: d.marca ?? '', codigo_unico: d.codigo_unico ?? '', garantia: d.garantia ?? '', accesorios: d.accesorios ?? '', certificaciones: d.certificaciones ?? '', caracteristicas: d.caracteristicas ?? '', especificaciones: d.especificaciones ?? '', destacados: d.destacados ?? '', ficha_tecnica_url: d.ficha_tecnica_url ?? '', pvp: Number(d.pvp) || 0, aplica_iva: d.aplica_iva !== false, en_catalogo: !!d.en_catalogo, imagen_url: d.imagen_url ?? '', descripcion: d.descripcion ?? '', drive_carpeta_url: d.drive_carpeta_url ?? '' }
         setFull(f)
-        setBase({ nombre: f.nombre, categoria: f.categoria, marca: f.marca, modelo: f.codigo_unico, garantia: f.garantia, accesorios: f.accesorios, certificaciones: f.certificaciones, caracteristicas: f.caracteristicas, especificaciones: f.especificaciones, imagen_url: f.imagen_url, descripcion: f.descripcion, album: f.drive_carpeta_url, publico: f.en_catalogo ? 'SI' : 'NO', nuevo: prod.sin_etiqueta_nuevo ? 'SI' : 'NO' })
+        setBase({ nombre: f.nombre, categoria: f.categoria, marca: f.marca, modelo: f.codigo_unico, garantia: f.garantia, accesorios: f.accesorios, certificaciones: f.certificaciones, caracteristicas: f.caracteristicas, especificaciones: f.especificaciones, imagen_url: f.imagen_url, descripcion: f.descripcion, album: f.drive_carpeta_url, ficha: f.ficha_tecnica_url, publico: f.en_catalogo ? 'SI' : 'NO', nuevo: prod.sin_etiqueta_nuevo ? 'SI' : 'NO' })
       })
     cargarGaleria()
     cargarDocs()
-  }, [prod.id, cargarGaleria, cargarDocs])
+    cargarFicha()
+  }, [prod.id, cargarGaleria, cargarDocs, cargarFicha])
+
+  const especs = useMemo<Especificacion[]>(() => {
+    if (!full) return []
+    return full.especificaciones.split('\n').map((l) => { const i = l.indexOf(':'); return i > 0 ? { dato: l.slice(0, i).trim(), valor: l.slice(i + 1).trim() } : null }).filter(Boolean) as Especificacion[]
+  }, [full])
+  const destacadosSel = full?.destacados ? full.destacados.split('|').filter(Boolean) : []
+
+  function toggleDestacado(dato: string) {
+    if (!full) return
+    const on = destacadosSel.includes(dato)
+    if (!on && destacadosSel.length >= 3) { aviso('Elige máximo 3 datos destacados.'); return }
+    const nuevos = (on ? destacadosSel.filter((x) => x !== dato) : [...destacadosSel, dato]).join('|')
+    set('destacados', nuevos)
+    guardarCampo('destacados', nuevos)
+  }
+
+  function fichaVistaPrevia() {
+    if (!full) return
+    const html = construirFichaHtml(full, prod.codigo, destacadosSel, especs)
+    const blob = new Blob([`<!doctype html><html><head><meta charset="utf-8"><title>Ficha técnica</title></head><body style="margin:0;background:#e2e8f0">${html}</body></html>`], { type: 'text/html;charset=utf-8' })
+    window.open(URL.createObjectURL(blob), '_blank', 'noopener')
+  }
+
+  async function fichaGenerar() {
+    if (!full || fichaFaltan.length) return
+    setGenerando(true)
+    try {
+      const html2pdf = (await import('html2pdf.js')).default
+      const htmlStr = construirFichaHtml(full, prod.codigo, destacadosSel, especs)
+      const blob = await html2pdf().set({
+        margin: 0, image: { type: 'jpeg', quality: 0.96 },
+        html2canvas: { scale: 2, useCORS: true, allowTaint: false, logging: false, windowWidth: 794 },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      }).from(htmlStr, 'string').toPdf().output('blob') as Blob
+      const base64 = await new Promise<string>((ok, fail) => {
+        const r = new FileReader()
+        r.onerror = () => fail(new Error('No se pudo leer el PDF.'))
+        r.onload = () => ok(String(r.result).split(',')[1] || '')
+        r.readAsDataURL(blob)
+      })
+      const { data, error } = await supabase.functions.invoke('drive', { body: { accion: 'subir', modulo: 'marketing', carpeta: 'fichas_tecnicas/' + prod.codigo, nombre: 'Ficha tecnica ' + prod.codigo + '.pdf', mime: 'application/pdf', base64 } })
+      const resp = data as { id?: string; enlace?: string; error?: string } | null
+      if (error || resp?.error || !resp?.enlace) { aviso('No se pudo subir la ficha: ' + (resp?.error || error?.message)); return }
+      const nuevaVersion = (ficha?.version ?? 0) + 1
+      await supabase.from('fichas_tecnicas').insert({ id: crypto.randomUUID(), producto_id: prod.id, version: nuevaVersion, url: resp.enlace, drive_id: resp.id, generada_por: perfil.id, anterior_url: ficha?.url ?? null })
+      await supabase.from('productos').update({ ficha_tecnica_url: resp.enlace }).eq('id', prod.id)
+      set('ficha_tecnica_url', resp.enlace)
+      setBase((b) => ({ ...b, ficha: resp.enlace as string }))
+      setFicha({ version: nuevaVersion, url: resp.enlace, fecha: new Date().toISOString() })
+      aviso('Ficha técnica generada (versión ' + nuevaVersion + ').')
+    } catch (e) {
+      aviso('No se pudo generar la ficha: ' + (e as Error).message)
+    } finally {
+      setGenerando(false)
+    }
+  }
+
+  async function fichaSubirManual(file: File | null) {
+    if (!file) return
+    if (file.size > 20 * 1024 * 1024) { aviso('El archivo supera los 20 MB.'); return }
+    const base64 = await new Promise<string>((ok, fail) => {
+      const r = new FileReader()
+      r.onerror = () => fail(new Error('No se pudo leer el archivo.'))
+      r.onload = () => ok(String(r.result).split(',')[1] || '')
+      r.readAsDataURL(file)
+    })
+    const { data, error } = await supabase.functions.invoke('drive', { body: { accion: 'subir', modulo: 'marketing', carpeta: 'fichas_tecnicas/' + prod.codigo, nombre: file.name, mime: file.type || 'application/pdf', base64 } })
+    const resp = data as { id?: string; enlace?: string; error?: string } | null
+    if (error || resp?.error || !resp?.enlace) { aviso('No se pudo subir: ' + (resp?.error || error?.message)); return }
+    await guardarCampo('ficha', resp.enlace)
+    const nuevaVersion = (ficha?.version ?? 0) + 1
+    await supabase.from('fichas_tecnicas').insert({ id: crypto.randomUUID(), producto_id: prod.id, version: nuevaVersion, url: resp.enlace, drive_id: resp.id, generada_por: perfil.id, anterior_url: ficha?.url ?? null })
+    setFicha({ version: nuevaVersion, url: resp.enlace, fecha: new Date().toISOString() })
+  }
+
+  async function optimizarAlt() {
+    const faltan = galeria.filter((g) => !(g.descripcion ?? '').trim())
+    if (!faltan.length) { aviso('Todas las fotos y videos ya tienen texto alternativo.'); return }
+    setOptimizando(true)
+    try {
+      const r = await llamar<{ textos: string[] }>('ia_alt_texto', { id: prod.id, n: faltan.length, tipos: faltan.map((g) => g.tipo) })
+      await Promise.all(faltan.map((g, i) => supabase.from('producto_galeria').update({ descripcion: r.textos[i] }).eq('id', g.id)))
+      cargarGaleria()
+      aviso('Texto alternativo generado para ' + faltan.length + ' elemento' + (faltan.length === 1 ? '' : 's') + '.')
+    } catch (e) {
+      aviso((e as Error).message)
+    } finally {
+      setOptimizando(false)
+    }
+  }
 
   async function docSubir(files: FileList | null) {
     if (!files || !files.length) return
@@ -606,6 +753,24 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
   }
 
   const falta = full ? [!full.imagen_url && 'Imagen principal', !full.nombre.trim() && 'Nombre', !full.categoria.trim() && 'Categoría', !full.marca.trim() && 'Marca', !full.descripcion.trim() && 'Descripción', !full.caracteristicas.trim() && 'Características', !full.especificaciones.trim() && 'Especificaciones técnicas', galeria.filter((g) => g.tipo === 'imagen').length < 3 && 'Al menos 3 fotos'].filter(Boolean) as string[] : []
+  const fotosOk = galeria.filter((g) => g.tipo === 'imagen').length >= 3
+  const fichaFaltan = full ? [!full.imagen_url && 'Imagen principal', !full.descripcion.trim() && 'Descripción', !full.especificaciones.trim() && 'Especificaciones técnicas', !fotosOk && 'Al menos 3 fotos', !full.caracteristicas.trim() && 'Características'].filter(Boolean) as string[] : []
+  const seo = full ? (() => {
+    const avisos = [
+      { ok: full.nombre.trim().length > 8, texto: 'Nombre descriptivo (qué es + marca/modelo)' },
+      { ok: !!full.marca.trim(), texto: 'Marca registrada' },
+      { ok: !!full.categoria.trim(), texto: 'Categoría' },
+      { ok: full.descripcion.trim().length >= 120, texto: 'Descripción de al menos 120 caracteres' },
+      { ok: !!full.nombre.trim().split(' ')[0] && normalize(full.descripcion).includes(normalize(full.nombre.trim().split(' ')[0])), texto: 'La descripción menciona el nombre del equipo' },
+      { ok: full.caracteristicas.split('\n').filter((x) => x.trim()).length >= 3, texto: 'Al menos 3 características' },
+      { ok: especs.length >= 3, texto: 'Al menos 3 especificaciones técnicas' },
+      { ok: !!full.imagen_url, texto: 'Imagen principal' },
+      { ok: fotosOk, texto: 'Al menos 3 fotos en la galería' },
+      { ok: galeria.some((g) => g.tipo === 'video'), texto: 'Al menos un video' },
+      { ok: galeria.length === 0 || galeria.every((g) => (g.descripcion ?? '').trim()), texto: 'Texto alternativo en todas las fotos y videos' },
+    ]
+    return { puntaje: Math.round((avisos.filter((a) => a.ok).length / avisos.length) * 100), avisos }
+  })() : null
 
   return (
     <Ventana titulo={prod.nombre} cerrar={cerrar} ancho="sm:max-w-2xl" pie={<>
@@ -757,6 +922,74 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
           </div>
         )}
       </div>
+
+      {full && (
+        <div className="space-y-2">
+          <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5"><FileText className="w-3.5 h-3.5 text-[var(--teal)]" />Ficha técnica</p>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-1.5">
+            <div className="grid sm:grid-cols-2 gap-x-3 gap-y-1">
+              {['Imagen principal', 'Descripción', 'Especificaciones técnicas', 'Al menos 3 fotos', 'Características'].map((t) => (
+                <div key={t} className={'flex items-center gap-1.5 text-[11.5px] ' + (fichaFaltan.includes(t) ? 'text-red-600' : 'text-emerald-700')}>
+                  <span className="font-bold">{fichaFaltan.includes(t) ? '✕' : '✓'}</span>{t}
+                </div>
+              ))}
+            </div>
+            {fichaFaltan.length === 0
+              ? <p className="text-[11px] font-semibold text-emerald-700">✓ Completo: la ficha se puede generar.</p>
+              : <p className="text-[11px] text-slate-500">La ficha se puede generar cuando esté todo lo obligatorio.</p>}
+            {ficha && <p className="text-[11px] text-slate-500">Versión {ficha.version} · {new Date(ficha.fecha).toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' })} · <a href={ficha.url} target="_blank" rel="noopener noreferrer" className="font-bold text-[var(--primary)]">Abrir PDF</a></p>}
+            <div className="flex gap-2 flex-wrap">
+              <button type="button" className="btn !py-1.5" onClick={fichaVistaPrevia}><Eye className="w-3.5 h-3.5" />Vista previa</button>
+              {aprobar && <button type="button" className="btn btn-primary !py-1.5" onClick={fichaGenerar} disabled={generando || fichaFaltan.length > 0}><RefreshCw className="w-3.5 h-3.5" />{generando ? 'Generando…' : 'Generar ahora'}</button>}
+            </div>
+          </div>
+
+          {especs.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-[11px] font-semibold text-slate-600">Datos destacados de la ficha (elige hasta 3)</p>
+              <div className="flex flex-wrap gap-1.5">
+                {especs.slice(0, 18).map((e) => (
+                  <button type="button" key={e.dato} onClick={() => toggleDestacado(e.dato)}
+                    className={'text-[10.5px] font-semibold px-3 py-1.5 rounded-full border ' + (destacadosSel.includes(e.dato) ? 'bg-[var(--primary)] text-white border-[var(--primary)]' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300')}>
+                    {e.dato}
+                  </button>
+                ))}
+              </div>
+              {!destacadosSel.length && <p className="text-[10.5px] text-slate-400">Sin elegir: se usan las 3 primeras.</p>}
+            </div>
+          )}
+
+          {aprobar && (
+            <div className="space-y-1.5">
+              <p className="text-[11px] font-semibold text-slate-600">Solo Coordinación: enlace manual (se reemplaza la próxima vez que se genere la ficha)</p>
+              <div className="flex gap-2 items-center">
+                <input type="url" className="inp flex-1" placeholder="Enlace de la ficha" value={full.ficha_tecnica_url} onChange={(e) => set('ficha_tecnica_url', e.target.value)} onBlur={() => guardarCampo('ficha', full.ficha_tecnica_url)} />
+                {full.ficha_tecnica_url && <a href={full.ficha_tecnica_url} target="_blank" rel="noopener noreferrer" className="btn !py-1.5">Abrir ↗</a>}
+              </div>
+              <label className="btn cursor-pointer !py-1.5 inline-flex"><Upload className="w-3.5 h-3.5" />Elegir PDF
+                <input type="file" accept="application/pdf" className="hidden" onChange={(e) => { fichaSubirManual(e.target.files?.[0] ?? null); e.target.value = '' }} /></label>
+            </div>
+          )}
+        </div>
+      )}
+
+      {seo && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5"><Search className="w-3.5 h-3.5 text-[var(--primary)]" />Revisión SEO</p>
+            <span className={'ml-auto pill ' + (seo.puntaje >= 80 ? 'bg-emerald-50 text-emerald-700' : seo.puntaje >= 50 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-600')}>{seo.puntaje} / 100</span>
+          </div>
+          <ul className="space-y-1">
+            {seo.avisos.map((a, i) => (
+              <li key={i} className="flex items-start gap-1.5 text-[11.5px]">
+                <span className={'font-bold ' + (a.ok ? 'text-emerald-600' : 'text-red-500')}>{a.ok ? '✓' : '✕'}</span>
+                <span className={a.ok ? 'text-slate-500' : 'text-slate-700'}>{a.texto}</span>
+              </li>
+            ))}
+          </ul>
+          <button type="button" className="btn !py-1.5" onClick={optimizarAlt} disabled={optimizando}><Sparkles className="w-3.5 h-3.5" />{optimizando ? 'Optimizando…' : 'Optimizar textos alternativos ahora'}</button>
+        </div>
+      )}
     </Ventana>
   )
 }

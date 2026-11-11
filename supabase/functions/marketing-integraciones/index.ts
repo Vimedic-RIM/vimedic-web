@@ -181,6 +181,26 @@ Deno.serve(async (req) => {
       const car = (Array.isArray(o.caracteristicas) ? o.caracteristicas : String(o.caracteristicas || '').split('\n')).map((x: unknown) => limpiar(x, 120).replace(/^[-•·*✓✔\d.)\s]+/, '')).filter(Boolean).slice(0, 15)
       return responder({ descripcion: limpiar(o.descripcion, 1200), caracteristicas: car, conFicha })
     }
+    if (accion === 'ia_alt_texto') {
+      if (!(await puede('crear'))) throw new Falla('No tienes permiso para usar la IA.', 403)
+      const { data: p } = await admin.from('productos').select('nombre,marca,categoria:categorias(nombre)').eq('id', b.id).maybeSingle()
+      if (!p) throw new Falla('No se encontró el producto.')
+      const n = Math.max(1, Math.min(20, Number(b.n) || 1))
+      // deno-lint-ignore no-explicit-any
+      const cat = (p as any).categoria?.nombre
+      const tipos = Array.isArray(b.tipos) ? b.tipos.map((t: unknown) => (t === 'video' ? 'video' : 'imagen')) : Array(n).fill('imagen')
+      const o = json(await gemini([{ text: [
+        'Eres redactor de accesibilidad web para VIMEDIC, importadora de equipos médicos en Ecuador.',
+        'Producto: ' + p.nombre + (p.marca ? ' · Marca ' + p.marca : '') + (cat ? ' · Categoría ' + cat : ''),
+        'Escribe ' + n + ' textos alternativos (alt text) cortos en español, cada uno para un elemento distinto de la galería del catálogo, en este orden de tipo: ' + tipos.join(', ') + '.',
+        'Cada texto describe de forma genérica y realista qué se vería en ' + (tipos.includes('video') ? 'esa foto o video' : 'esa foto') + ' del equipo (ej. "Vista frontal de ' + p.nombre + '", "Panel de control de ' + p.nombre + '"), sin inventar detalles que no puedas saber. Máximo 90 caracteres cada uno, sin numerar.',
+        'Devuelve SOLO un JSON: {"textos": ["...", "..."]} con exactamente ' + n + ' elementos.',
+      ].join('\n') }], { temperature: 0.6, maxOutputTokens: 500, responseMimeType: 'application/json' }))
+      const limpiar = (t: unknown) => String(t || '').replace(/[<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 90)
+      const textos = (Array.isArray(o.textos) ? o.textos : []).map(limpiar).filter(Boolean)
+      while (textos.length < n) textos.push((p.marca ? p.marca + ' ' : '') + p.nombre)
+      return responder({ textos: textos.slice(0, n) })
+    }
     throw new Falla('Acción no reconocida.')
   } catch (e) {
     const f = e as Falla
