@@ -282,7 +282,7 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
 
   const fila = (r: Fila) => {
     const ts = fechaTs(r), monto = totalFila(r)
-    const alerta = !r.datosCompletos || (r.estado === 'Facturado' && !r.guiaEnvioUrl), esFm = r.empresa === 'FEMEDICS'
+    const alerta = !r.datosCompletos || (r.estado === 'Facturado' && !r.guiaDespachoUrl), esFm = r.empresa === 'FEMEDICS'
     let acc: React.ReactNode
     if (r.estado === 'Pendiente') acc = !r.datosCompletos
       ? <span className="text-[10px] font-bold text-red-600" title="Faltan datos de pago/entrega"><TriangleAlert className="w-4 h-4" /></span>
@@ -306,7 +306,7 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
           <span className={'fx-doc ' + (r.facturaUrl ? 'ok' : '')} title="Factura PDF"><Receipt /></span>
           <span className={'fx-doc ' + (r.actaUrl ? 'ok' : '')} title="Acta de garantía"><FileCheck2 /></span>
           <span className={'fx-doc ' + (r.guiaDespachoUrl ? 'ok' : 'warn')} title="Guía de despacho"><Boxes /></span>
-          {r.esEnvio && <span className={'fx-doc ' + (r.guiaEnvioUrl ? 'ok' : '')} title="Guía de envío (etiqueta)"><Truck /></span>}
+          <span className={'fx-doc ' + (r.guiaEnvioUrl ? 'ok' : '')} title="Guía de envío (etiqueta)"><Truck /></span>
         </div>
         <div className="flex justify-end lg:justify-start"><span className={'fx-st ' + (r.estado === 'Facturado' ? 'f' : 'p')}>{r.estado || '—'}</span></div>
         <div className="fx-lg justify-end">{acc}</div>
