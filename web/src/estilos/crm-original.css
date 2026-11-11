@@ -51,6 +51,15 @@
     .vm-card-move{border:1px solid #dce7ee;border-radius:6px;padding:3px 6px;color:#53728c;font-size:10px;line-height:1.2;cursor:grab;touch-action:none;}
     .vm-card-move:hover{background:#e7f7f8;color:#047b88;}
     .vm-moving .lead-card{transition:none!important;transform:none!important;}
+
+    /* Tarjeta v2: total con IVA siempre visible + acciones rápidas que aparecen al pasar el mouse (compacta en reposo, dinámica al interactuar) */
+    .vm-lead-card-v2{padding-top:7px;padding-bottom:7px;}
+    .vm-card-total{font-size:10.5px;font-weight:800;color:#fff;background:var(--teal);padding:1px 7px;border-radius:999px;font-family:'IBM Plex Mono',monospace;letter-spacing:.01em;}
+    .vm-card-hover-acts{gap:4px;max-width:0;opacity:0;overflow:hidden;transition:max-width .15s ease,opacity .1s ease;}
+    .vm-card-hover-acts a{width:22px;height:22px;border-radius:7px;display:grid;place-items:center;background:color-mix(in srgb,var(--c) 12%,#fff);color:var(--c);flex-shrink:0;}
+    .vm-card-hover-acts a:hover{background:color-mix(in srgb,var(--c) 22%,#fff);}
+    .vm-card-hover-acts svg{width:12px;height:12px;}
+    .lead-card:hover .vm-card-hover-acts{max-width:60px;opacity:1;}
     /* Menú compacto "Mover a…" junto a la tarjeta */
     #vmMovePanel{position:fixed;z-index:150;width:224px;padding:6px;background:#fff;border:1px solid #e2e8f0;border-radius:14px;
       box-shadow:0 18px 40px -14px rgba(11,37,69,.45);transform-origin:top left;animation:vmPop .14s cubic-bezier(.2,.8,.2,1) both}

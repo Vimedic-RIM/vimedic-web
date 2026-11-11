@@ -526,8 +526,8 @@ function Tarjeta({ g, asesor, color, arrastrando, abrir, iniciarArrastre, finArr
   const intento = conIntento(g.estado) && !esGanado
   const esperaIntento = intento && (g.proximoTS ? g.proximoTS > Date.now() : Date.now() - (g.ultimaTS || g.fechaTS) < 86400000)
   return (
-    <div className={'lead-card bg-white rounded-lg border border-slate-200 px-2.5 py-1.5 shadow-sm ' + (venc ? 'vm-vencida ' : '') + (aband ? 'vm-abandonada ' : '') + (arrastrando ? 'dragging' : '')}
-      draggable={!esGanado} onDragStart={(e) => { if ((e.target as HTMLElement).closest('button,select,input')) { e.preventDefault(); return } iniciarArrastre(e) }} onDragEnd={finArrastre} onClick={abrir}>
+    <div className={'lead-card vm-lead-card-v2 bg-white rounded-lg border border-slate-200 px-2.5 py-1.5 shadow-sm ' + (venc ? 'vm-vencida ' : '') + (aband ? 'vm-abandonada ' : '') + (arrastrando ? 'dragging' : '')}
+      draggable={!esGanado} onDragStart={(e) => { if ((e.target as HTMLElement).closest('button,select,input,a')) { e.preventDefault(); return } iniciarArrastre(e) }} onDragEnd={finArrastre} onClick={abrir}>
       <div className="flex items-center justify-between gap-1 mb-1">
         <span className="pill text-[9px] truncate" style={{ background: color + '1A', color }}><Tipo className="w-2.5 h-2.5 inline -mt-0.5" /> {g.tipo}</span>
         <div className="flex items-center gap-1 shrink-0">
@@ -535,12 +535,20 @@ function Tarjeta({ g, asesor, color, arrastrando, abrir, iniciarArrastre, finArr
           {!esGanado && <button type="button" className="vm-card-move" aria-label="Mover gestión" onClick={(e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); mover(r.left, r.bottom + 6) }}>Mover</button>}
         </div>
       </div>
-      <p className="font-display font-bold text-xs text-slate-800 truncate">{g.nombre || 'Sin nombre'}</p>
+      <div className="flex items-center justify-between gap-1.5">
+        <p className="font-display font-bold text-xs text-slate-800 truncate min-w-0">{g.nombre || 'Sin nombre'}</p>
+        {g.total > 0 && <span className="vm-card-total shrink-0" title="Total con IVA incluido">{dinero2(g.total)}</span>}
+      </div>
       {aband ? <p className="vm-venc-chip vm-aband-chip" title="Más de 24 h en Nuevo sin gestionar"><TriangleAlert />Lead abandonado · {hace(g.fechaTS)}</p>
         : venc ? <p className="vm-venc-chip" title={'Próximo seguimiento: ' + new Date(g.proximoTS).toLocaleString('es-EC')}><AlarmClock />Seguimiento vencido · {hace(g.proximoTS)}</p> : null}
       <div className="flex items-center justify-between gap-1">
-        <p className="text-[10px] text-slate-500 truncate">{asesor}</p>
-        {g.total > 0 && <span className="text-[10px] font-bold shrink-0" style={{ color: 'var(--primary)' }} title="Total con IVA">${g.total.toFixed(2)}</span>}
+        <p className="text-[10px] text-slate-500 truncate min-w-0">{asesor}</p>
+        {g.telefono && (
+          <div className="vm-card-hover-acts hidden sm:flex" onClick={(e) => e.stopPropagation()}>
+            <a href={waLink(g.telefono)} target="_blank" rel="noopener" aria-label="WhatsApp" title="WhatsApp" style={{ ['--c' as string]: '#16a34a' }}><MessageCircle /></a>
+            <a href={telLink(g.telefono)} target="_blank" rel="noopener" aria-label="Llamar" title="Llamar" style={{ ['--c' as string]: 'var(--primary)' }}><Phone /></a>
+          </div>
+        )}
       </div>
       {g.telefono && (
         <div className="vm-mcard-acts sm:hidden">
