@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { BookOpen, CalendarClock, Check, ClipboardCheck, KeyRound, Link2, Plug, RefreshCw, Search, Send, Sparkles, Trash2, X, XCircle } from 'lucide-react'
+import {
+  BookOpen, CalendarClock, Check, CircleCheck, ClipboardCheck, Copy, Eye, Globe, ImagePlus, KeyRound, Link2, Plug, RefreshCw, Search, Send, Sparkles, Tag, Trash2, X, XCircle,
+} from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
-import { imagen } from './Inventario'
+import { imagen, Interruptor } from './Inventario'
 
 /* Conexiones de Marketing: Zernio (redes) y Gemini (IA). Las claves viven en el servidor (Edge Function): el navegador nunca las ve. */
 export async function llamar<T = Record<string, unknown>>(accion: string, datos: Record<string, unknown> = {}, funcion = 'marketing-integraciones'): Promise<T> {
@@ -281,55 +283,212 @@ export function Biblioteca({ perfil, aviso }: { perfil: Perfil; aviso: (t: strin
   )
 }
 
+/* Campos de "Datos del producto" que se editan directo o pasan por Revisión,
+   igual que ya funcionaba Descripción (marketing_cambios + permiso 'aprobar').
+   'modelo' vive en la columna codigo_unico y 'publico' en en_catalogo. */
+const CAMPO_COL: Record<string, string> = { modelo: 'codigo_unico', publico: 'en_catalogo' }
+export const CAMPOS_PRODUCTO = ['descripcion', 'nombre', 'categoria', 'marca', 'modelo', 'garantia', 'accesorios', 'certificaciones', 'publico', 'imagen_url']
+
+export async function aplicarCampoProducto(productoId: string, campo: string, valorNuevo: string): Promise<string | null> {
+  if (campo === 'categoria') {
+    const nombre = valorNuevo.trim()
+    let categoria_id: string | null = null
+    if (nombre) {
+      const { data: existente } = await supabase.from('categorias').select('id').ilike('nombre', nombre).maybeSingle()
+      if (existente) categoria_id = existente.id
+      else {
+        const nueva = crypto.randomUUID()
+        const { error } = await supabase.from('categorias').insert({ id: nueva, nombre })
+        if (error) return error.message
+        categoria_id = nueva
+      }
+    }
+    const { error } = await supabase.from('productos').update({ categoria_id }).eq('id', productoId)
+    return error?.message ?? null
+  }
+  const col = CAMPO_COL[campo] ?? campo
+  const valor: string | boolean | null = campo === 'publico' ? valorNuevo === 'SI' : (valorNuevo.trim() || null)
+  const { error } = await supabase.from('productos').update({ [col]: valor }).eq('id', productoId)
+  return error?.message ?? null
+}
+
+type ProdFull = {
+  nombre: string; categoria: string; marca: string; codigo_unico: string; garantia: string; accesorios: string; certificaciones: string
+  pvp: number; aplica_iva: boolean; en_catalogo: boolean; imagen_url: string; descripcion: string
+}
+const WEB = 'vimedic.com.ec'
+const money = (n: number) => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
 function EditorProducto({ perfil, prod, cerrar, aviso }: { perfil: Perfil; prod: Prod; cerrar: () => void; aviso: (t: string) => void }) {
-  const [texto, setTexto] = useState(prod.descripcion ?? '')
+  const [full, setFull] = useState<ProdFull | null>(null)
+  const [base, setBase] = useState<Record<string, string>>({})
   const [notas, setNotas] = useState('')
   const [ia, setIa] = useState(false)
-  const [guardando, setGuardando] = useState(false)
   const [msg, setMsg] = useState('')
+  const [estado, setEstado] = useState<Record<string, 'guardando' | 'ok' | 'revision' | 'error'>>({})
+  const [marcas, setMarcas] = useState<string[]>([])
+  const [categorias, setCategorias] = useState<string[]>([])
   const aprobar = puede(perfil, 'marketing', 'aprobar')
+  const enlace = `https://${WEB}/equipo/?id=${encodeURIComponent(prod.codigo)}`
+
+  useEffect(() => {
+    supabase.from('productos').select('nombre,marca,codigo_unico,garantia,accesorios,certificaciones,pvp,aplica_iva,en_catalogo,imagen_url,descripcion,categoria:categorias(nombre)').eq('id', prod.id).single()
+      .then(({ data }) => { const d = data as unknown as Record<string, any> | null; if (!d) return // eslint-disable-line @typescript-eslint/no-explicit-any
+        const f: ProdFull = { nombre: d.nombre ?? '', categoria: d.categoria?.nombre ?? '', marca: d.marca ?? '', codigo_unico: d.codigo_unico ?? '', garantia: d.garantia ?? '', accesorios: d.accesorios ?? '', certificaciones: d.certificaciones ?? '', pvp: Number(d.pvp) || 0, aplica_iva: d.aplica_iva !== false, en_catalogo: !!d.en_catalogo, imagen_url: d.imagen_url ?? '', descripcion: d.descripcion ?? '' }
+        setFull(f)
+        setBase({ nombre: f.nombre, categoria: f.categoria, marca: f.marca, modelo: f.codigo_unico, garantia: f.garantia, accesorios: f.accesorios, certificaciones: f.certificaciones, imagen_url: f.imagen_url, descripcion: f.descripcion, publico: f.en_catalogo ? 'SI' : 'NO' })
+      })
+    supabase.from('productos').select('marca').not('marca', 'is', null).is('deleted_at', null).limit(3000)
+      .then(({ data }) => setMarcas([...new Set(((data as { marca: string }[]) ?? []).map((x) => x.marca.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'))))
+    supabase.from('categorias').select('nombre').eq('activo', true).order('nombre').then(({ data }) => setCategorias(((data as { nombre: string }[]) ?? []).map((c) => c.nombre)))
+  }, [prod.id])
+
+  async function guardarCampo(campo: string, valorNuevo: string) {
+    const valorAnterior = base[campo] ?? ''
+    if (valorNuevo === valorAnterior) return
+    setEstado((e) => ({ ...e, [campo]: 'guardando' }))
+    if (aprobar) {
+      const error = await aplicarCampoProducto(prod.id, campo, valorNuevo)
+      setEstado((e) => ({ ...e, [campo]: error ? 'error' : 'ok' }))
+      if (error) setMsg('No se pudo guardar ' + campo + ': ' + error)
+      else setBase((b) => ({ ...b, [campo]: valorNuevo }))
+      return
+    }
+    const { error } = await supabase.from('marketing_cambios').insert({
+      id: crypto.randomUUID(), codigo: 'MC-' + crypto.randomUUID().slice(0, 6).toUpperCase(), producto_id: prod.id,
+      producto_texto: `${prod.codigo} · ${prod.nombre}`, campo, nivel: 'Producto', valor_anterior: valorAnterior, valor_nuevo: valorNuevo,
+      estado: 'Pendiente', autor_id: perfil.id, autor_rol: perfil.rol ?? null,
+    })
+    setEstado((e) => ({ ...e, [campo]: error ? 'error' : 'revision' }))
+    if (error) setMsg('No se pudo enviar ' + campo + ' a revisión: ' + error.message)
+    else setBase((b) => ({ ...b, [campo]: valorNuevo }))
+  }
+
+  function set<K extends keyof ProdFull>(k: K, v: ProdFull[K]) { setFull((x) => (x ? { ...x, [k]: v } : x)) }
+  function campoTexto(campo: string, k: keyof ProdFull, etiqueta: string, opts: { full?: boolean; lista?: string[]; placeholder?: string; multilinea?: boolean; maxLength?: number } = {}) {
+    if (!full) return null
+    const valor = String(full[k] ?? '')
+    const St = estado[campo]
+    const comun = { value: valor, maxLength: opts.maxLength, placeholder: opts.placeholder, className: 'inp w-full', list: opts.lista ? campo + 'Lst' : undefined }
+    return (
+      <label className={'mkf-lbl' + (opts.full ? ' sm:col-span-2' : '')}>
+        <span className="flex items-center gap-1.5">{etiqueta}
+          {St === 'guardando' && <RefreshCw className="w-3 h-3 animate-spin text-slate-400" />}
+          {St === 'ok' && <CircleCheck className="w-3 h-3 text-emerald-600" />}
+          {St === 'revision' && <span className="text-[9px] font-bold text-amber-700">enviado a revisión</span>}
+          {St === 'error' && <span className="text-[9px] font-bold text-red-600">no se guardó</span>}
+        </span>
+        {opts.multilinea
+          ? <textarea rows={2} {...comun} onChange={(e) => set(k, e.target.value)} onBlur={() => guardarCampo(campo, valor)} />
+          : <input type="text" {...comun} onChange={(e) => set(k, e.target.value)} onBlur={() => guardarCampo(campo, valor)} />}
+        {opts.lista && <datalist id={campo + 'Lst'}>{opts.lista.map((o) => <option key={o} value={o} />)}</datalist>}
+      </label>
+    )
+  }
+
+  async function cambiarPublico(nuevo: boolean) {
+    if (!full) return
+    const anterior = full.en_catalogo
+    set('en_catalogo', nuevo)
+    setEstado((e) => ({ ...e, publico: 'guardando' }))
+    if (aprobar) {
+      const error = await aplicarCampoProducto(prod.id, 'publico', nuevo ? 'SI' : 'NO')
+      setEstado((e) => ({ ...e, publico: error ? 'error' : 'ok' }))
+      if (error) { setMsg('No se pudo cambiar: ' + error); set('en_catalogo', anterior) }
+      else setBase((b) => ({ ...b, publico: nuevo ? 'SI' : 'NO' }))
+      return
+    }
+    const { error } = await supabase.from('marketing_cambios').insert({
+      id: crypto.randomUUID(), codigo: 'MC-' + crypto.randomUUID().slice(0, 6).toUpperCase(), producto_id: prod.id,
+      producto_texto: `${prod.codigo} · ${prod.nombre}`, campo: 'publico', nivel: 'Producto', valor_anterior: anterior ? 'SI' : 'NO', valor_nuevo: nuevo ? 'SI' : 'NO',
+      estado: 'Pendiente', autor_id: perfil.id, autor_rol: perfil.rol ?? null,
+    })
+    setEstado((e) => ({ ...e, publico: error ? 'error' : 'revision' }))
+    if (error) { setMsg('No se pudo enviar a revisión: ' + error.message); set('en_catalogo', anterior) }
+    else { setBase((b) => ({ ...b, publico: nuevo ? 'SI' : 'NO' })); aviso('Enviado a Revisión: ' + (nuevo ? 'mostrar' : 'ocultar') + ' en la web.') }
+  }
+
   async function redactar() {
     setIa(true); setMsg('')
     try {
       const r = await llamar<{ descripcion: string; caracteristicas: string[]; conFicha: boolean }>('ia_producto', { id: prod.id, notas })
-      setTexto(r.descripcion + (r.caracteristicas.length ? '\n\nCaracterísticas:\n' + r.caracteristicas.map((c) => '• ' + c).join('\n') : ''))
+      const texto = r.descripcion + (r.caracteristicas.length ? '\n\nCaracterísticas:\n' + r.caracteristicas.map((c) => '• ' + c).join('\n') : '')
+      set('descripcion', texto)
+      await guardarCampo('descripcion', texto)
       setMsg(r.conFicha ? 'Redactado con los datos de la ficha técnica.' : 'Redactado sin ficha técnica legible: revisa que no falte nada.')
     } catch (e) { setMsg((e as Error).message) }
     setIa(false)
   }
-  async function enviar(directo: boolean) {
-    if (!texto.trim()) { setMsg('La descripción está vacía.'); return }
-    setGuardando(true)
-    if (directo) {
-      const { error } = await supabase.from('productos').update({ descripcion: texto.trim() }).eq('id', prod.id)
-      setGuardando(false)
-      if (error) { setMsg('No se pudo aplicar: ' + error.message); return }
-      aviso('Descripción actualizada en el inventario.'); cerrar(); return
-    }
-    const { error } = await supabase.from('marketing_cambios').insert({ id: crypto.randomUUID(), codigo: 'MC-' + crypto.randomUUID().slice(0, 6).toUpperCase(), producto_id: prod.id, producto_texto: `${prod.codigo} · ${prod.nombre}`, campo: 'descripcion', nivel: 'Producto', valor_anterior: prod.descripcion ?? '', valor_nuevo: texto.trim(), estado: 'Pendiente', autor_id: perfil.id, autor_rol: perfil.rol ?? null })
-    setGuardando(false)
-    if (error) { setMsg('No se pudo enviar: ' + error.message); return }
-    aviso('Enviada a Revisión.'); cerrar()
-  }
+
+  const falta = full ? [!full.imagen_url && 'Imagen principal', !full.nombre.trim() && 'Nombre', !full.categoria.trim() && 'Categoría', !full.marca.trim() && 'Marca', !full.descripcion.trim() && 'Descripción'].filter(Boolean) as string[] : []
+
   return (
-    <Ventana titulo={prod.nombre} cerrar={cerrar} ancho="sm:max-w-2xl" pie={<><p className="text-[11px] flex-1 text-slate-500">{msg}</p>
-      {aprobar && <button className="btn" onClick={() => enviar(true)} disabled={guardando}>Aplicar directo</button>}
-      <button className="btn btn-primary" onClick={() => enviar(false)} disabled={guardando}><Send />Enviar a revisión</button></>}>
-      <p className="text-[11px] text-slate-500">{prod.codigo}{prod.categoria ? ' · ' + prod.categoria.nombre : ''}</p>
+    <Ventana titulo={prod.nombre} cerrar={cerrar} ancho="sm:max-w-2xl" pie={<>
+      <p className={'text-[11px] font-semibold flex-1 ' + (falta.length ? 'text-amber-700' : 'text-emerald-700')}>{falta.length ? 'Falta: ' + falta.join(', ') : '✓ Producto completo'}<span className="block font-normal text-slate-400">{msg || 'Todo se guarda solo'}</span></p>
+      <button className="btn btn-primary" onClick={cerrar}><Check />Listo</button>
+    </>}>
+      <p className="text-[11px] text-slate-500">{prod.codigo}{full?.categoria ? ' · ' + full.categoria : ''}</p>
+
+      {full && (
+        <div className="flex items-center gap-3 rounded-xl border border-slate-200 p-3" style={full.en_catalogo ? { background: '#f0fdf8', borderColor: '#bfe6da' } : undefined}>
+          <span className="w-9 h-9 rounded-lg grid place-items-center shrink-0" style={full.en_catalogo ? { background: '#dcfce7', color: '#04896f' } : { background: '#f1f5f9', color: '#94a3b8' }}><Globe className="w-4 h-4" /></span>
+          <div className="min-w-0 flex-1"><p className="text-[12.5px] font-bold text-slate-800">Visible al público</p><p className="text-[11px] text-slate-500">{full.en_catalogo ? 'Se muestra en la web y en los catálogos.' : 'No se muestra en la web ni en los catálogos.'}</p></div>
+          <Interruptor activo={full.en_catalogo} cambiar={() => cambiarPublico(!full.en_catalogo)} />
+        </div>
+      )}
+
+      <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-2.5">
+        {full?.imagen_url ? <img src={imagen(full.imagen_url, 96)} alt="" className="w-12 h-12 rounded-lg object-contain bg-white border border-slate-200 shrink-0" /> : <span className="w-12 h-12 rounded-lg bg-white border border-slate-200 shrink-0 grid place-items-center text-slate-300"><ImagePlus className="w-4 h-4" /></span>}
+        <div className="min-w-0 flex-1"><p className="text-[10px] font-mono-spec uppercase text-slate-400 font-semibold">Enlace del equipo para compartir</p><p className="text-[12px] font-semibold text-[var(--primary)] truncate">{enlace}</p></div>
+        <button type="button" className="btn !py-1.5" onClick={() => { navigator.clipboard.writeText(enlace); aviso('Enlace copiado.') }}><Copy className="w-3.5 h-3.5" />Copiar</button>
+        <button type="button" className="btn !py-1.5" onClick={() => window.open(enlace, '_blank', 'noopener')}><Eye className="w-3.5 h-3.5" />Vista previa</button>
+      </div>
+
+      {full && (
+        <div className="space-y-2">
+          <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5"><ImagePlus className="w-3.5 h-3.5 text-[var(--primary)]" />Imagen principal del producto</p>
+          <p className="text-[11px] text-slate-500">Se usa en el catálogo, cotizaciones e inventario. Recomendado 4:3, fondo claro. Al elegirla se sube sola.</p>
+          <label className="flex items-center gap-2 border border-dashed border-slate-300 rounded-xl p-2.5 cursor-pointer hover:border-[var(--cyan)] opacity-60 cursor-not-allowed" title="Próximamente: subir archivo directo">
+            <ImagePlus className="w-4 h-4 text-slate-400" /><span className="text-xs text-slate-600">Elegir nueva imagen (JPG, PNG, WebP)</span>
+            <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled />
+          </label>
+          <label className="block text-[10px] font-semibold text-slate-500">O pega un enlace de Drive / HTTPS
+            <input type="url" className="inp w-full mt-1" value={full.imagen_url} onChange={(e) => set('imagen_url', e.target.value)} onBlur={() => guardarCampo('imagen_url', full.imagen_url)} /></label>
+        </div>
+      )}
+
+      {full && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2"><p className="text-xs font-bold text-slate-800 flex items-center gap-1.5"><Tag className="w-3.5 h-3.5 text-[var(--primary)]" />Datos del producto</p>
+            <span className="ml-auto text-[11px] text-slate-500">PVP {money(full.pvp)} {full.aplica_iva ? '' : '(sin IVA)'} <span className="text-slate-400">(solo lectura)</span></span></div>
+          <div className="grid sm:grid-cols-2 gap-2">
+            {campoTexto('nombre', 'nombre', 'Nombre', { full: true })}
+            {campoTexto('categoria', 'categoria', 'Categoría', { lista: categorias })}
+            {campoTexto('marca', 'marca', 'Marca', { lista: marcas })}
+            {campoTexto('modelo', 'codigo_unico', 'Modelo')}
+            {campoTexto('garantia', 'garantia', 'Garantía', { placeholder: 'Ej. 1 año' })}
+            {campoTexto('accesorios', 'accesorios', 'Incluye (accesorios, uno por línea)', { full: true, multilinea: true, maxLength: 1200 })}
+            {campoTexto('certificaciones', 'certificaciones', 'Certificaciones', { full: true, placeholder: 'ISO 13485 · CE · ARCSA' })}
+          </div>
+          {!aprobar && <p className="text-[10.5px] text-slate-400">Se guarda solo mientras escribes. Los cambios pasan a Revisión.</p>}
+        </div>
+      )}
+
       <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-3 space-y-2">
         <p className="text-[11px] font-bold text-violet-700 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" />Redactar con IA (Gemini)</p>
         <input value={notas} onChange={(e) => setNotas(e.target.value)} className="inp w-full" placeholder="Indicaciones (opcional): enfoque, público, qué resaltar…" />
         <button type="button" className="btn" onClick={redactar} disabled={ia}><Sparkles />{ia ? 'Redactando…' : 'Redactar descripción y características'}</button>
         <p className="text-[10px] text-slate-500">Si el producto tiene ficha técnica en PDF, la IA la lee para no inventar datos.</p>
       </div>
-      <label className="block text-[11px] font-bold text-slate-500">Descripción<textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={12} className="inp w-full mt-1" /></label>
+      {full && campoTexto('descripcion', 'descripcion', 'Descripción', { full: true, multilinea: true })}
     </Ventana>
   )
 }
 
 /* ============================ Revisión (aprobaciones) ============================ */
 type Cambio = { id: string; codigo: string | null; fecha: string; producto_id: string | null; producto_texto: string | null; campo: string; valor_anterior: string | null; valor_nuevo: string | null; estado: string; comentario: string | null; autor: { nombre: string } | null }
-const CAMPOS_OK = ['descripcion']
+const CAMPOS_OK = CAMPOS_PRODUCTO
+const textoCambio = (campo: string, v: string | null) => (campo === 'publico' ? (v === 'SI' ? 'Visible al público' : 'Oculto') : v || '—')
 export function Revision({ perfil, aviso }: { perfil: Perfil; aviso: (t: string) => void }) {
   const [lista, setLista] = useState<Cambio[] | null>(null)
   const [error, setError] = useState('')
@@ -347,8 +506,8 @@ export function Revision({ perfil, aviso }: { perfil: Perfil; aviso: (t: string)
   async function decidir(c: Cambio, ok: boolean) {
     if (ok) {
       if (!c.producto_id || !CAMPOS_OK.includes(c.campo)) { aviso('Este tipo de cambio todavía se aplica a mano en el Inventario.'); return }
-      const { error } = await supabase.from('productos').update({ [c.campo]: c.valor_nuevo }).eq('id', c.producto_id)
-      if (error) { aviso('No se pudo aplicar: ' + error.message); return }
+      const error = await aplicarCampoProducto(c.producto_id, c.campo, c.valor_nuevo ?? '')
+      if (error) { aviso('No se pudo aplicar: ' + error); return }
     }
     const { error } = await supabase.from('marketing_cambios').update({ estado: ok ? 'Aprobado' : 'Rechazado', revisado_por: perfil.id, fecha_revision: new Date().toISOString(), comentario: com[c.id]?.trim() || null }).eq('id', c.id)
     if (error) aviso('No se pudo guardar: ' + error.message); else { aviso(ok ? 'Cambio aprobado y aplicado.' : 'Cambio rechazado.'); cargar() }
@@ -364,8 +523,8 @@ export function Revision({ perfil, aviso }: { perfil: Perfil; aviso: (t: string)
           <article key={c.id} className="card p-4">
             <div className="flex items-center gap-2 flex-wrap"><b className="text-sm text-slate-800">{c.producto_texto}</b><span className="pill" style={{ background: '#fff8eb', color: '#a16207' }}>{c.campo}</span><span className="text-[10px] text-slate-400 ml-auto">{c.autor?.nombre ?? '—'} · {new Date(c.fecha).toLocaleDateString('es-EC')}</span></div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3 text-xs">
-              <div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] font-bold uppercase text-slate-400 mb-1">Antes</p><p className="whitespace-pre-line text-slate-600">{c.valor_anterior || '—'}</p></div>
-              <div className="rounded-xl bg-emerald-50 p-3"><p className="text-[10px] font-bold uppercase text-emerald-700 mb-1">Propuesto</p><p className="whitespace-pre-line text-slate-800">{c.valor_nuevo}</p></div>
+              <div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] font-bold uppercase text-slate-400 mb-1">Antes</p><p className="whitespace-pre-line text-slate-600">{textoCambio(c.campo, c.valor_anterior)}</p></div>
+              <div className="rounded-xl bg-emerald-50 p-3"><p className="text-[10px] font-bold uppercase text-emerald-700 mb-1">Propuesto</p><p className="whitespace-pre-line text-slate-800">{textoCambio(c.campo, c.valor_nuevo)}</p></div>
             </div>
             {aprobar && <div className="flex gap-2 mt-3 flex-wrap"><input className="inp flex-1 min-w-[200px]" placeholder="Comentario (opcional)" value={com[c.id] ?? ''} onChange={(e) => setCom((o) => ({ ...o, [c.id]: e.target.value }))} />
               <button className="btn" style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => decidir(c, false)}><XCircle />Rechazar</button><button className="btn btn-primary" onClick={() => decidir(c, true)}><Check />Aprobar y aplicar</button></div>}
