@@ -20,9 +20,6 @@ type Tog = { k: string; t: string; d?: string; fondo?: string; mod?: string; acc
 const TOGGLES: Tog[] = [
   { k: 'facturacion', t: 'Acceso a Facturación', mod: 'facturacion' },
   { k: 'empleados', t: 'Acceso a Empleados', mod: 'empleados' },
-  { k: 'recibeLeads', t: 'Recibe leads de la web', d: 'Entra únicamente al reparto automático de leads de la web. No incluye mensajes de redes.', fondo: 'azul', col: 'recibe_leads' },
-  { k: 'recibeMensajes', t: 'Recibe leads de mensajes de redes', d: 'Permiso independiente para Messenger, Instagram y WhatsApp. Creación automática pausada temporalmente en CRM Vimedic.', fondo: 'violeta', col: 'recibe_leads_mensajes' },
-  { k: 'recibeMeta', t: 'Recibe clientes potenciales de Meta', d: 'Entra al reparto justo de los formularios de Facebook e Instagram. Sin este permiso no recibe ninguno.', fondo: 'naranja', col: 'recibe_clientes_meta' },
   { k: 'dashboardEjecutivo', t: 'Acceso a Dashboard Ejecutivo', mod: 'dashboard' },
   { k: 'movimientos', t: 'Acceso a Movimientos', d: 'Ve el historial de ingresos y salidas de todos los productos.', mod: 'movimientos' },
   { k: 'clientes', t: 'Acceso a Clientes', d: 'Ficha completa de cada cliente: datos, cotizaciones, facturas, productos e historial. Crear, editar y eliminar se dan en "Qué puede hacer en cada módulo".', mod: 'clientes' },
@@ -34,24 +31,15 @@ const TOGGLES: Tog[] = [
   { k: 'importaciones', t: 'Acceso a Importaciones', d: 'Pedidos a proveedores, embarques y nacionalización.', mod: 'importaciones' },
   { k: 'importacionesaprueba', t: 'Aprueba importaciones (Gerencia)', d: 'Aprueba órdenes de compra y pagos al exterior en Importaciones.', fondo: 'indigo', mod: 'importaciones', acc: 'aprobar' },
   { k: 'financiero', t: 'Acceso a Financiero', d: 'Cobros, pagos, flujo de caja y reportes.', mod: 'financiero' },
-  { k: 'adquisiciones', t: 'Acceso a Adquisiciones', d: 'Ingresos de mercadería (compras a proveedor que suben el stock).', flag: 'adquisiciones' },
   { k: 'catalogos', t: 'Acceso a Catálogos personalizados', d: 'Arma catálogos PDF por segmento con el WhatsApp del asesor.', mod: 'catalogos' },
   { k: 'ofertas', t: 'Acceso a Ofertas y Liquidación', d: 'Stock dormido y con observaciones: estrategias, ofertas y resultados.', mod: 'ofertas' },
   { k: 'femedics', t: 'Acceso a Femedics CRM', mod: 'femedics' },
-  { k: 'preciosFemedics', t: 'Inventario con precios Femedics', d: 'Ve y cotiza con el PVP subido 11.11 % (con 10 % de descuento vuelve al PVP VIMEDIC). Siempre activo si la empresa del empleado es solo Femedics (con «Ambas empresas» el +11.11 % se aplica en Femedics CRM).', flag: 'preciosFemedics' },
   { k: 'marketing', t: 'Módulo Marketing', mod: 'marketing' },
-  { k: 'marketingindicadores', t: 'Ver indicadores de Marketing', d: 'Pestañas Resumen y Anuncios del módulo Marketing (resultados, ventas, inversión). Sin este permiso solo ve el Planificador, Audiovisual, Biblioteca y Material.', flag: 'marketingindicadores' },
 ]
 const FONDOS: Record<string, React.CSSProperties> = {
   azul: { background: '#eef6fd', border: '1px solid #d6e6f5' }, violeta: { background: '#f5f3ff', border: '1px solid #ddd6fe' },
   naranja: { background: '#fff7ed', border: '1px solid #fde2c3' }, indigo: { background: '#eef2ff', border: '1px solid #dbe2fb' },
 }
-const INV_SUB: Tog[] = [
-  { k: 'inventarioVerMovimientos', t: 'Ver Movimientos del producto', mod: 'movimientos' },
-  { k: 'inventarioEditar', t: 'Editar Producto', mod: 'inventario', acc: 'editar' },
-  { k: 'inventarioMultimedia', t: 'Editar Multimedia', flag: 'inventarioMultimedia' },
-  { k: 'inventarioAgregar', t: 'Agregar Producto', mod: 'inventario', acc: 'crear' },
-]
 /* Módulos de la tabla "Qué puede hacer en cada módulo" */
 const MODS_ACC: [string, string][] = [
   ['crm', 'CRM Vimedic'], ['clientes', 'Clientes'], ['femedics', 'Femedics CRM'], ['inventario', 'Inventario'], ['movimientos', 'Movimientos'], ['facturacion', 'Facturación'],
@@ -63,9 +51,27 @@ const MODS_ACC: [string, string][] = [
    misma fila con sus acciones (crear/editar/eliminar/aprobar) en vez de mostrarse por separado. */
 const VER_TOGGLE: Record<string, Tog> = Object.fromEntries(TOGGLES.filter((t) => t.mod && !t.col && !t.flag && (!t.acc || t.acc === 'ver')).map((t) => [t.mod!, t]))
 const APROBAR_EXTRA: Record<string, Tog> = Object.fromEntries(TOGGLES.filter((t) => t.acc === 'aprobar' && t.mod).map((t) => [t.mod!, t]))
-const MODS_ACC_SET = new Set(MODS_ACC.map(([m]) => m))
-/* El resto de TOGGLES (leads, flags, dashboard) va en "Otros accesos", compacto y aparte de la tabla de módulos. */
-const OTROS_ACCESOS: Tog[] = TOGGLES.filter((t) => t.acc !== 'aprobar' && (t.col || t.flag || (t.mod && !MODS_ACC_SET.has(t.mod)))).filter((t) => t.k !== 'marketingindicadores')
+/* Cada permiso extra vive bajo el módulo al que pertenece de verdad (los leads son del CRM, el
+   precio Femedics es de Femedics, etc.) y solo se muestra cuando ese módulo está habilitado —
+   nunca más como una lista suelta de "otros accesos" sin relación con nada. */
+const SUBMODULO: Record<string, Tog[]> = {
+  crm: [
+    { k: 'recibeLeads', t: 'Recibe leads de la web', d: 'Entra únicamente al reparto automático de leads de la web. No incluye mensajes de redes.', fondo: 'azul', col: 'recibe_leads' },
+    { k: 'recibeMensajes', t: 'Recibe leads de mensajes de redes', d: 'Permiso independiente para Messenger, Instagram y WhatsApp. Creación automática pausada temporalmente en CRM Vimedic.', fondo: 'violeta', col: 'recibe_leads_mensajes' },
+    { k: 'recibeMeta', t: 'Recibe clientes potenciales de Meta', d: 'Entra al reparto justo de los formularios de Facebook e Instagram. Sin este permiso no recibe ninguno.', fondo: 'naranja', col: 'recibe_clientes_meta' },
+  ],
+  inventario: [
+    { k: 'inventarioVerMovimientos', t: 'Ver Movimientos del producto', mod: 'movimientos' },
+    { k: 'inventarioMultimedia', t: 'Editar Multimedia', flag: 'inventarioMultimedia' },
+    { k: 'adquisiciones', t: 'Acceso a Adquisiciones', d: 'Ingresos de mercadería (compras a proveedor que suben el stock).', flag: 'adquisiciones' },
+  ],
+  femedics: [
+    { k: 'preciosFemedics', t: 'Inventario con precios Femedics', d: 'Ve y cotiza con el PVP subido 11.11 % (con 10 % de descuento vuelve al PVP VIMEDIC). Siempre activo si la empresa del empleado es solo Femedics (con «Ambas empresas» el +11.11 % se aplica en Femedics CRM).', flag: 'preciosFemedics' },
+  ],
+  marketing: [
+    { k: 'marketingindicadores', t: 'Ver indicadores de Marketing', d: 'Pestañas Resumen y Anuncios del módulo Marketing (resultados, ventas, inversión). Sin este permiso solo ve el Planificador, Audiovisual, Biblioteca y Material.', flag: 'marketingindicadores' },
+  ],
+}
 
 const titulo = (s: string) => s.replace(/(^|\s)([a-záéíóúñ])/g, (_m, a, b) => a + b.toUpperCase())
 const iniciales = (n: string) => { const p = n.trim().split(' ').filter(Boolean); return p.length ? (p[0][0] + (p[1]?.[0] ?? '')).toUpperCase() : '?' }
@@ -313,7 +319,6 @@ function Ficha({ perfil, emp, lista, roles, cerrar, guardado, aviso }: { perfil:
     setElim(false); aviso('Empleado enviado a la Papelera.'); guardado()
   }
 
-  const inv = tiene('inventario', 'ver')
   const campo = 'w-full border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2'
   const ring = { ['--tw-ring-color' as string]: 'var(--cyan)' }
 
@@ -400,20 +405,21 @@ function Ficha({ perfil, emp, lista, roles, cerrar, guardado, aviso }: { perfil:
                 </div>
 
                 <div>
-                  <p className="text-[11px] font-bold text-slate-500 uppercase mb-2">Otros accesos</p>
-                  <div className="space-y-1.5">{OTROS_ACCESOS.map((t) => fila(t, true))}</div>
+                  <p className="text-[11px] font-bold text-slate-500 uppercase mb-2">Dashboard Ejecutivo</p>
+                  {fila(TOGGLES.find((t) => t.k === 'dashboardEjecutivo')!, true)}
                 </div>
 
-                <div className="bg-slate-50 rounded-lg p-2.5 space-y-2">
-                  <label className="block"><span className="block text-[11px] font-semibold text-slate-700" title="Coordinación aprueba; Asistente y Audiovisual envían a aprobación lo importante (nombre, especificaciones, visible al público y publicaciones).">Rol en Marketing</span>
-                    <select value={mk.rol} onChange={(e) => setMk({ ...mk, rol: e.target.value })} className="mt-1 w-full border border-slate-200 rounded-lg px-2 py-1.5 text-[11px] bg-white">
-                      <option value="">Sin rol (Asistente)</option><option>Coordinación</option><option>Asistente</option><option>Audiovisual</option>
-                    </select></label>
-                  <label className="flex items-center gap-2 text-[10.5px] font-semibold text-slate-600" title="Sus cambios salen sin esperar; Coordinación los revisa después"><input type="checkbox" checked={mk.directa} onChange={(e) => setMk({ ...mk, directa: e.target.checked })} className="w-3.5 h-3.5" />Publicación directa</label>
-                  <label className="flex items-center gap-2 text-[10.5px] font-semibold text-slate-600" title="Ve márgenes, edita porcentajes y aprueba campañas como Black Friday"><input type="checkbox" checked={mk.aprueba} onChange={(e) => setMk({ ...mk, aprueba: e.target.checked })} className="w-3.5 h-3.5" />Aprueba promociones</label>
-                </div>
-
-                {fila(TOGGLES.find((t) => t.k === 'marketingindicadores')!, true)}
+                {tiene('marketing', 'ver') && (
+                  <div className="bg-slate-50 rounded-lg p-2.5 space-y-2">
+                    <p className="text-[11px] font-bold text-slate-500 uppercase -mb-0.5">Marketing</p>
+                    <label className="block"><span className="block text-[11px] font-semibold text-slate-700" title="Coordinación aprueba; Asistente y Audiovisual envían a aprobación lo importante (nombre, especificaciones, visible al público y publicaciones).">Rol en Marketing</span>
+                      <select value={mk.rol} onChange={(e) => setMk({ ...mk, rol: e.target.value })} className="mt-1 w-full border border-slate-200 rounded-lg px-2 py-1.5 text-[11px] bg-white">
+                        <option value="">Sin rol (Asistente)</option><option>Coordinación</option><option>Asistente</option><option>Audiovisual</option>
+                      </select></label>
+                    <label className="flex items-center gap-2 text-[10.5px] font-semibold text-slate-600" title="Sus cambios salen sin esperar; Coordinación los revisa después"><input type="checkbox" checked={mk.directa} onChange={(e) => setMk({ ...mk, directa: e.target.checked })} className="w-3.5 h-3.5" />Publicación directa</label>
+                    <label className="flex items-center gap-2 text-[10.5px] font-semibold text-slate-600" title="Ve márgenes, edita porcentajes y aprueba campañas como Black Friday"><input type="checkbox" checked={mk.aprueba} onChange={(e) => setMk({ ...mk, aprueba: e.target.checked })} className="w-3.5 h-3.5" />Aprueba promociones</label>
+                  </div>
+                )}
               </div>
 
               {/* Columna derecha: tabla única de módulos — acceso + qué puede hacer, en una sola fila cada uno */}
@@ -435,9 +441,10 @@ function Ficha({ perfil, emp, lista, roles, cerrar, guardado, aviso }: { perfil:
                     {modsFiltrados.map(([mod, nombre]) => (
                       <div key={mod}>
                         <FilaModulo mod={mod} nombre={nombre} tiene={tiene} delRol={delRol} cambiar={cambiar} cambiarAcc={cambiarAcc} />
-                        {mod === 'inventario' && inv && (
+                        {/* Permisos propios del módulo (leads del CRM, precio Femedics, etc.): solo aparecen con el módulo habilitado */}
+                        {SUBMODULO[mod] && tiene(mod, 'ver') && (
                           <div className="pl-9 pr-2.5 pb-1.5 space-y-1">
-                            {INV_SUB.filter((t) => t.k === 'inventarioVerMovimientos' || t.k === 'inventarioMultimedia').map((t) => fila(t, true))}
+                            {SUBMODULO[mod].map((t) => fila(t, true))}
                           </div>
                         )}
                       </div>
