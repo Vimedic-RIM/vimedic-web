@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ArrowDown, ArrowUp, BadgeCheck, Building2, Clock, CreditCard, Download, Eye, FileCheck2, FilePenLine, FilePlus2, FileUp, Folder, Hash, History, Inbox,
+  ArrowDown, ArrowUp, BadgeCheck, Boxes, Building2, Clock, CreditCard, Download, Eye, FileCheck2, FilePenLine, FilePlus2, FileUp, Folder, Hash, History, Inbox,
   Layers, Link2, List, Megaphone, Package, Pencil, Receipt, ReceiptText, RefreshCw, Search, SlidersHorizontal, Truck, TriangleAlert, Upload, X,
 } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
@@ -305,8 +305,8 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
         <div className="fx-lg fx-xl fx-docs">
           <span className={'fx-doc ' + (r.facturaUrl ? 'ok' : '')} title="Factura PDF"><Receipt /></span>
           <span className={'fx-doc ' + (r.actaUrl ? 'ok' : '')} title="Acta de garantía"><FileCheck2 /></span>
-          <span className={'fx-doc ' + (r.guiaDespachoUrl ? 'ok' : 'warn')} title="Guía de despacho"><Truck /></span>
-          {r.esEnvio && <span className={'fx-doc ' + (r.guiaEnvioUrl ? 'ok' : '')} title="Guía de envío (etiqueta)"><Hash /></span>}
+          <span className={'fx-doc ' + (r.guiaDespachoUrl ? 'ok' : 'warn')} title="Guía de despacho"><Boxes /></span>
+          {r.esEnvio && <span className={'fx-doc ' + (r.guiaEnvioUrl ? 'ok' : '')} title="Guía de envío (etiqueta)"><Truck /></span>}
         </div>
         <div className="flex justify-end lg:justify-start"><span className={'fx-st ' + (r.estado === 'Facturado' ? 'f' : 'p')}>{r.estado || '—'}</span></div>
         <div className="fx-lg justify-end">{acc}</div>
@@ -397,7 +397,7 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 mb-3">
           {kpi(Receipt, '#055c9d', '#eaf3fb', stats.facturados, 'Facturas totales', () => { setFiltro('ALL'); setPagina(1) })}
           {kpi(Clock, '#c98a1f', '#fff5e6', stats.pendientes, 'Pendientes por facturar', () => { setFiltro('Pendiente'); setPagina(1) })}
-          {kpi(Truck, '#c0392b', '#fdecea', stats.guias, 'Guías pendientes', () => irChip('guia'))}
+          {kpi(Boxes, '#c0392b', '#fdecea', stats.guias, 'Guías pendientes', () => irChip('guia'))}
           {kpi(FileCheck2, '#04896f', '#e7f6f2', stats.actas, 'Actas pendientes', () => irChip('sinActa'))}
           {kpi(ReceiptText, '#7c3aed', '#f3eefe', stats.notas, 'Notas de crédito')}
         </div>
@@ -444,11 +444,11 @@ function PanelLateral(r: Fila | null, accion: (qa: string, r: Fila) => void, gen
     if (r.actaUrl) acts.push(act('acta', Pencil, '#0f766e', 'Editar acta'))
   }
   if (r.estado === 'Facturado' || r.guiaDespachoUrl) {
-    acts.push(r.guiaDespachoUrl ? act('verGuiaDespacho', Truck, '#c98a1f', 'Ver guía despacho') : act('guiaDespacho', Truck, '#c0392b', generandoGuia === r.uuid ? 'Generando…' : 'Generar guía despacho', generandoGuia === r.uuid))
+    acts.push(r.guiaDespachoUrl ? act('verGuiaDespacho', Boxes, '#c98a1f', 'Ver guía despacho') : act('guiaDespacho', Boxes, '#c0392b', generandoGuia === r.uuid ? 'Generando…' : 'Generar guía despacho', generandoGuia === r.uuid))
     if (r.guiaDespachoUrl) acts.push(act('guiaDespacho', Pencil, '#b7791f', generandoGuia === r.uuid ? 'Generando…' : 'Rehacer guía despacho', generandoGuia === r.uuid))
   }
   if (r.esEnvio || r.guiaEnvioUrl) {
-    acts.push(r.guiaEnvioUrl ? act('verGuiaEnvio', Hash, '#c98a1f', 'Ver etiqueta envío') : act('guiaEnvio', Hash, '#64748b', 'Generar etiqueta envío'))
+    acts.push(r.guiaEnvioUrl ? act('verGuiaEnvio', Truck, '#c98a1f', 'Ver etiqueta envío') : act('guiaEnvio', Truck, '#64748b', 'Generar etiqueta envío'))
     if (r.guiaEnvioUrl) acts.push(act('guiaEnvio', Pencil, '#475569', 'Editar etiqueta envío'))
   }
   if (r.actaConformidadUrl) acts.push(act('conformidad', BadgeCheck, '#17a9ba', 'Conformidad'))
@@ -471,7 +471,7 @@ function PanelLateral(r: Fila | null, accion: (qa: string, r: Fila) => void, gen
       <div className="fx-acts">{acts}</div>
       <div className="px-4 pb-4 space-y-3">
         {!r.datosCompletos && <div className="flex items-start gap-2 text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2"><TriangleAlert className="w-4 h-4 shrink-0" /><span>Faltan datos de pago/entrega. Debe regularizarse desde el CRM antes de facturar.</span></div>}
-        {r.estado === 'Facturado' && !r.guiaDespachoUrl && <div className="flex items-start gap-2 text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2"><Truck className="w-4 h-4 shrink-0" /><span>Falta generar la guía de despacho (obligatoria).</span></div>}
+        {r.estado === 'Facturado' && !r.guiaDespachoUrl && <div className="flex items-start gap-2 text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2"><Boxes className="w-4 h-4 shrink-0" /><span>Falta generar la guía de despacho (obligatoria).</span></div>}
         {r.nota && <div className="text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2" style={{ whiteSpace: 'pre-line' }}><b>Nota interna:</b> {r.nota}</div>}
         <div className="bg-white border border-slate-200 rounded-2xl px-3 py-2">
           <div className="flex items-center justify-between mb-0.5"><p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Productos de la venta</p>{lineas?.length ? <span className="text-[10px] font-bold text-slate-400">{lineas.length} ítem{lineas.length === 1 ? '' : 's'}</span> : null}</div>
@@ -598,11 +598,11 @@ function Detalle({ r, perfil, puedeEditar, cerrar, accion, facturar, aviso, reca
                   {full.actaUrl ? <button type="button" className="pm-btn ok w-full" onClick={() => accion('verActa', full)}>Ver acta .pdf</button> : <button type="button" className="pm-btn solid w-full" style={{ background: '#04896f' }} onClick={() => accion('acta', full)}>Generar acta</button>}</div>
               )}
               {(full.estado === 'Facturado' || full.guiaDespachoUrl) && (
-                <div className="pm-doc"><p className="pm-doc-h"><span className="ic" style={{ ['--c' as string]: '#c0392b' }}><Truck /></span>Guía de despacho <span className="text-red-600">*</span></p>
+                <div className="pm-doc"><p className="pm-doc-h"><span className="ic" style={{ ['--c' as string]: '#c0392b' }}><Boxes /></span>Guía de despacho <span className="text-red-600">*</span></p>
                   {full.guiaDespachoUrl ? <button type="button" className="pm-btn warn w-full" onClick={() => accion('verGuiaDespacho', full)}>Ver guía</button> : <button type="button" disabled={generandoGuia === full.uuid} className="pm-btn solid w-full" style={{ background: '#c0392b' }} onClick={() => accion('guiaDespacho', full)}>{generandoGuia === full.uuid ? 'Generando…' : 'Generar guía de despacho'}</button>}</div>
               )}
               {(full.esEnvio || full.guiaEnvioUrl) && (
-                <div className="pm-doc"><p className="pm-doc-h"><span className="ic" style={{ ['--c' as string]: '#64748b' }}><Hash /></span>Guía de envío (etiqueta)</p>
+                <div className="pm-doc"><p className="pm-doc-h"><span className="ic" style={{ ['--c' as string]: '#64748b' }}><Truck /></span>Guía de envío (etiqueta)</p>
                   {full.guiaEnvioUrl ? <button type="button" className="pm-btn warn w-full" onClick={() => accion('verGuiaEnvio', full)}>Ver etiqueta</button> : <button type="button" className="pm-btn solid w-full" style={{ background: '#64748b' }} onClick={() => accion('guiaEnvio', full)}>Generar etiqueta de envío</button>}</div>
               )}
               {tiene(full.numeroFactura) && (
@@ -949,7 +949,7 @@ function ModalGuiaEnvio({ r, cerrar, guardado }: { r: Fila; cerrar: () => void; 
       <div className="modal-panel bg-[#f6f9fc] sm:rounded-3xl shadow-2xl w-full h-full sm:h-auto sm:max-w-lg sm:max-h-[92vh] flex flex-col overflow-hidden">
         <div className="shrink-0 px-5 py-4 text-white" style={{ background: 'linear-gradient(135deg,var(--navy),var(--primary))' }}>
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-white/70 flex items-center gap-1.5"><Hash className="w-3.5 h-3.5" />Guía de envío · etiqueta</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-white/70 flex items-center gap-1.5"><Truck className="w-3.5 h-3.5" />Guía de envío · etiqueta</span>
             <button type="button" onClick={cerrar} className="w-8 h-8 rounded-xl bg-white/15 hover:bg-white/25 flex items-center justify-center" aria-label="Cerrar"><X className="w-4 h-4" /></button>
           </div>
           <h3 className="font-display font-bold text-lg leading-snug mt-1.5">{r.cliente || 'Venta'}</h3>
