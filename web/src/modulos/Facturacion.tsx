@@ -211,10 +211,12 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
           <td style="padding:6px;border-bottom:1px solid #e2e8f0;text-align:center">${esc(Math.abs(it.cantidad))}</td>
           <td style="padding:6px;border-bottom:1px solid #e2e8f0;font-size:10.5px;color:#64748b">${esc(it.observacion || '')}</td>
         </tr>`).join('')
-      const html = `<div style="font-family:Arial,sans-serif;color:#0b2545;font-size:12px;padding:10px">
+      const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Guía de despacho ${esc(desp.numero_guia)}</title>
+        <style>@page{size:A4;margin:14mm}body{font-family:Arial,sans-serif;color:#0b2545;font-size:13px;margin:0;padding:14px}</style></head>
+        <body>
           <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #055c9d;padding-bottom:10px;margin-bottom:14px">
             <div><b style="font-size:22px;color:#055c9d">${marca}</b><br><span style="font-size:13px;font-weight:bold">GUÍA DE DESPACHO ${esc(desp.numero_guia)}</span></div>
-            <img src="${qrImg}" width="90" height="90">
+            <img src="${qrImg}" width="110" height="110">
           </div>
           <p><b>Factura:</b> ${esc(r.numeroFactura || '—')} &nbsp; <b>Fecha:</b> ${esc(new Date().toLocaleDateString('es-EC'))}</p>
           <p><b>Cliente:</b> ${esc(r.cliente)} &nbsp; <b>C.I./RUC:</b> ${esc(r.identificacion)}</p>
@@ -232,21 +234,13 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
             <div style="width:30%;text-align:center;border-top:1px solid #94a3b8;padding-top:4px">Cliente (recibió conforme)</div>
           </div>
           <p style="margin-top:18px;font-size:9px;color:#64748b;text-align:center">${esc(desp.numero_guia)} · Seguimiento: ${esc(link)}</p>
-        </div>`
+        </body></html>`
 
-      const html2pdf = (await import('html2pdf.js')).default
-      const caja = document.createElement('div')
-      caja.style.cssText = 'position:fixed;left:-10000px;top:0;width:190mm;background:#fff'
-      caja.innerHTML = html
-      document.body.appendChild(caja)
-      let blob: Blob
-      try {
-        blob = await html2pdf().set({ margin: [12, 12, 12, 12], image: { type: 'jpeg', quality: 0.95 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4' } }).from(caja).outputPdf('blob')
-      } finally { caja.remove() }
-
-      const ruta = 'guias/' + desp.numero_guia + '.pdf'
-      const { error: errSubir } = await supabase.storage.from('despachos').upload(ruta, blob, { contentType: 'application/pdf', upsert: true })
-      if (errSubir) { aviso('No se pudo guardar el PDF de la guía: ' + errSubir.message); return }
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+      const ruta = 'guias/' + desp.numero_guia + '.html'
+      const { error: errSubir } = await supabase.storage.from('despachos').upload(ruta, blob, { contentType: 'text/html', upsert: true })
+      if (errSubir) { aviso('No se pudo guardar la guía: ' + errSubir.message); return }
+      window.open(URL.createObjectURL(blob), '_blank', 'noopener')
 
       const { error: errUpd } = await supabase.from('facturas').update({ guia_despacho_url: ruta }).eq('id', r.uuid)
       if (errUpd) { aviso('Guía generada, pero no se pudo guardar el enlace: ' + errUpd.message); return }
@@ -902,7 +896,9 @@ function ModalGuiaEnvio({ r, cerrar, guardado }: { r: Fila; cerrar: () => void; 
       const esc = (v: string) => v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       const NAVY = '#0b2545'
       const dato = (et: string, v: string) => (v ? `<p style="margin:0 0 4px"><b style="color:${NAVY}">${et ? et + ': ' : ''}</b>${esc(v)}</p>` : '')
-      const html = `<div style="font-family:Arial,sans-serif;color:#1e293b;font-size:13px;padding:10px">
+      const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Guía de envío ${esc(r.id)}</title>
+        <style>@page{size:A4;margin:14mm}body{font-family:Arial,sans-serif;color:#1e293b;font-size:13px;margin:0;padding:14px}</style></head>
+        <body>
         <table style="width:100%;border-collapse:collapse;margin-bottom:8px"><tr>
           <td><b style="font-size:26px;color:${NAVY}">VIMEDIC</b></td>
           <td style="text-align:right"><span style="display:inline-block;border:2.5px solid ${NAVY};color:${NAVY};font-size:16px;font-weight:bold;letter-spacing:2px;padding:5px 14px;border-radius:8px">GUÍA DE ENVÍO</span></td>
@@ -920,21 +916,13 @@ function ModalGuiaEnvio({ r, cerrar, guardado }: { r: Fila; cerrar: () => void; 
           <div style="padding:12px 16px">${dato('', d.nombreRemitente)}${dato('C.I./RUC', d.cedulaRemitente)}</div>
         </div>
         <p style="margin-top:14px;font-size:9px;color:#64748b;text-align:center">${esc(r.id)} · ${esc(new Date().toLocaleDateString('es-EC'))}</p>
-      </div>`
+        </body></html>`
 
-      const html2pdf = (await import('html2pdf.js')).default
-      const caja = document.createElement('div')
-      caja.style.cssText = 'position:fixed;left:-10000px;top:0;width:190mm;background:#fff'
-      caja.innerHTML = html
-      document.body.appendChild(caja)
-      let blob: Blob
-      try {
-        blob = await html2pdf().set({ margin: [12, 12, 12, 12], image: { type: 'jpeg', quality: 0.95 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4' } }).from(caja).outputPdf('blob')
-      } finally { caja.remove() }
-
-      const ruta = 'guias/etiqueta-' + r.id + '-' + Date.now() + '.pdf'
-      const { error: errSubir } = await supabase.storage.from('despachos').upload(ruta, blob, { contentType: 'application/pdf', upsert: true })
-      if (errSubir) { setMsg('No se pudo guardar el PDF: ' + errSubir.message); setGuardando(false); return }
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+      const ruta = 'guias/etiqueta-' + r.id + '-' + Date.now() + '.html'
+      const { error: errSubir } = await supabase.storage.from('despachos').upload(ruta, blob, { contentType: 'text/html', upsert: true })
+      if (errSubir) { setMsg('No se pudo guardar la etiqueta: ' + errSubir.message); setGuardando(false); return }
+      window.open(URL.createObjectURL(blob), '_blank', 'noopener')
       const { error: errUpd } = await supabase.from('facturas').update({ guia_envio_url: ruta }).eq('id', r.uuid)
       if (errUpd) { setMsg('Se generó pero no se pudo guardar el enlace: ' + errUpd.message); setGuardando(false); return }
       guardado()
