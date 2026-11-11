@@ -163,6 +163,16 @@ function Nuevo({ p, extra }: { p: Fila; extra?: string }) {
   return <span className={'inv-nuevo ' + (extra || '')} title="Producto nuevo">Nuevo</span>
 }
 
+/* Indicador compacto de observaciones: antes el texto completo se mostraba siempre y alargaba
+   la tarjeta; ahora es un ícono con el aviso completo como mensaje flotante al pasar el mouse. */
+function Obs({ texto }: { texto: string }) {
+  return (
+    <span className="inv-obs" title={texto} onClick={(e) => e.stopPropagation()} aria-label={'Observación: ' + texto}>
+      <TriangleAlert className="w-3 h-3" />
+    </span>
+  )
+}
+
 /* ---------- Tarjeta ---------- */
 type Orden_ = { arrastrar: (id: string) => void; soltar: (id: string) => void }
 function Tarjeta({ p, abrir, car, alternar, reordenar }: { p: Fila; abrir: (id: string) => void; car: Carrito | null; alternar?: (p: Fila) => void; reordenar?: Orden_ }) {
@@ -207,7 +217,7 @@ function Tarjeta({ p, abrir, car, alternar, reordenar }: { p: Fila; abrir: (id: 
         <p className="text-xs font-bold text-slate-800 leading-snug line-clamp-2 min-h-[2.2em]">{p.nombre}</p>
         <div className="flex items-center gap-1 mt-1 flex-wrap">
           {!act && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">Inactivo</span>}
-          {p.reservaciones && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-50 text-red-700">🔴 {p.reservaciones}</span>}
+          {p.reservaciones && <Obs texto={p.reservaciones} />}
           <UbicStock p={p} />
         </div>
         <div className="mt-auto pt-1.5 flex items-end justify-between gap-1">
@@ -262,9 +272,9 @@ function FilaTabla({ p, sel, click, car }: { p: Fila; sel: boolean; click: (id: 
       <div className="inv-lg min-w-0"><span className="block w-full text-[11px] font-mono-spec font-semibold truncate" style={{ color: 'var(--primary)' }}>{p.codigo}</span></div>
       <div className="min-w-0">
         <p className="text-xs font-bold text-slate-800 leading-snug truncate" title={p.nombre}><Nuevo p={p} extra="mr-1" />{p.nombre}</p>
-        <p className="inv-lg text-[10px] text-slate-400 truncate">
-          {p.categoria?.nombre || ''}{!act ? ' · Inactivo' : ''}
-          {p.reservaciones && <> · <span className="text-red-600 font-bold">🔴 {p.reservaciones}</span></>}
+        <p className="inv-lg text-[10px] text-slate-400 truncate flex items-center gap-1">
+          <span className="truncate">{p.categoria?.nombre || ''}{!act ? ' · Inactivo' : ''}</span>
+          {p.reservaciones && <Obs texto={p.reservaciones} />}
         </p>
         <div className="inv-sm flex items-center gap-2 mt-0.5 text-[10px] flex-wrap">
           <span className="font-mono-spec text-slate-400">{p.codigo}{p.codigo_unico ? ' - ' + p.codigo_unico : ''}</span>
