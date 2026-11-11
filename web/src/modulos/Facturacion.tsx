@@ -66,6 +66,7 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
   const [detalle, setDetalle] = useState<Fila | null>(null)
   const [factura, setFactura] = useState<Fila | null>(null)
   const [cargando, setCargando] = useState(false)
+  const [generandoGuia, setGenerandoGuia] = useState<string | null>(null)
   const filtrosRef = useRef<HTMLDivElement>(null)
   const peticion = useRef(0)
   const esPc = typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches
@@ -163,11 +164,96 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
     if (qa === 'detalle') { setDetalle(conItems(r)); return }
     if (qa === 'factura') { if (!r.datosCompletos) return; setFactura(conItems(r)); return }
     const abrir = (u: string) => window.open(u, '_blank', 'noopener')
+    const abrirDelBucket = (ruta: string) => {
+      if (/^https?:\/\//i.test(ruta)) return abrir(ruta)
+      supabase.storage.from('despachos').createSignedUrl(ruta, 3600).then(({ data, error }) => { if (data) abrir(data.signedUrl); else if (error) aviso('No se pudo abrir la guía: ' + error.message) })
+    }
     if (qa === 'verFactura' && r.facturaUrl) return abrir(r.facturaUrl)
     if (qa === 'verActa' && r.actaUrl) return abrir(r.actaUrl)
-    if (qa === 'verGuia' && r.guiaEnvioUrl) return abrir(r.guiaEnvioUrl)
+    if (qa === 'verGuia' && r.guiaEnvioUrl) return abrirDelBucket(r.guiaEnvioUrl)
     if (qa === 'conformidad' && r.actaConformidadUrl) return abrir(r.actaConformidadUrl)
-    aviso('Generar actas, guías y notas de crédito se está migrando: sigue disponible en la app actual.')
+    if (qa === 'guia') return generarGuia(r)
+    aviso('Generar actas y notas de crédito se está migrando: sigue disponible en la app actual.')
+  }
+
+  /* Genera la guía de despacho: asegura que exista el registro en Bodega (ya automático al
+     facturar), arma el PDF con QR de seguimiento y lo sube al mismo bucket privado que usa
+     Bodega para evidencias. Sin precios, como pide el flujo de despacho. */
+  async function generarGuia(r: Fila) {
+    if (generandoGuia) return
+    setGenerandoGuia(r.uuid)
+    try {
+      const { data: fd } = await supabase.from('facturas').select('items').eq('id', r.uuid).single()
+      const lineas = ((fd as { items?: Linea[] } | null)?.items ?? []) as Linea[]
+
+      await supabase.rpc('bodega_crear_despacho', { p_factura: r.uuid })
+      const { data: desp, error: errDesp } = await supabase.from('despachos').select('id,numero_guia,token_seguimiento').eq('factura_id', r.uuid).is('deleted_at', null).maybeSingle()
+      if (errDesp || !desp?.numero_guia || !desp?.token_seguimiento) { aviso('No se pudo preparar la guía: ' + (errDesp?.message ?? 'la factura todavía no está Facturada.')); return }
+
+      const link = 'https://vimedic.com.ec/seguimiento/?c=' + desp.token_seguimiento
+      const qrcode = (await import('qrcode-generator')).default
+      const q = qrcode(0, 'M'); q.addData(link); q.make()
+      const qrImg = q.createDataURL(6, 2)
+
+      const esc = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      const marca = r.empresa === 'FEMEDICS' ? 'FEMEDICS' : 'VIMEDIC'
+      const dirEntrega = r.pe.direccionEnvio || r.pe.direccionEntregaLocal || r.pe.urlGoogleMaps || '—'
+      const contacto = r.pe.nombreDestinatario || r.pe.quienRecibe || r.cliente
+      const telContacto = r.pe.telefonoDestinatario || r.pe.telefonoEntregaLocal || r.telefono
+      const filas = lineas.map((it) => `<tr>
+          <td style="padding:6px;border-bottom:1px solid #e2e8f0;font-family:monospace;font-size:10px">${esc(it.codigo)}</td>
+          <td style="padding:6px;border-bottom:1px solid #e2e8f0">${esc(it.nombre)}</td>
+          <td style="padding:6px;border-bottom:1px solid #e2e8f0;text-align:center">${esc(Math.abs(it.cantidad))}</td>
+          <td style="padding:6px;border-bottom:1px solid #e2e8f0;font-size:10.5px;color:#64748b">${esc(it.observacion || '')}</td>
+        </tr>`).join('')
+      const html = `<div style="font-family:Arial,sans-serif;color:#0b2545;font-size:12px;padding:10px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #055c9d;padding-bottom:10px;margin-bottom:14px">
+            <div><b style="font-size:22px;color:#055c9d">${marca}</b><br><span style="font-size:13px;font-weight:bold">GUÍA DE DESPACHO ${esc(desp.numero_guia)}</span></div>
+            <img src="${qrImg}" width="90" height="90">
+          </div>
+          <p><b>Factura:</b> ${esc(r.numeroFactura || '—')} &nbsp; <b>Fecha:</b> ${esc(new Date().toLocaleDateString('es-EC'))}</p>
+          <p><b>Cliente:</b> ${esc(r.cliente)} &nbsp; <b>C.I./RUC:</b> ${esc(r.identificacion)}</p>
+          <p><b>Dirección de entrega:</b> ${esc(dirEntrega)}${r.pe.ciudad ? ', ' + esc(r.pe.ciudad) : ''}</p>
+          <p><b>Contacto que recibe:</b> ${esc(contacto)}${telContacto ? ' · Tel: ' + esc(telContacto) : ''}</p>
+          <p><b>Asesor comercial:</b> ${esc(r.asesor)}</p>
+          <table style="width:100%;border-collapse:collapse;margin:14px 0">
+            <thead><tr style="background:#0b2545;color:#fff"><th style="padding:6px;text-align:left">Código</th><th style="padding:6px;text-align:left">Producto</th><th style="padding:6px;text-align:center">Cant.</th><th style="padding:6px;text-align:left">Observación</th></tr></thead>
+            <tbody>${filas}</tbody>
+          </table>
+          ${r.nota ? `<p><b>Observaciones generales:</b> ${esc(r.nota)}</p>` : ''}
+          <div style="display:flex;justify-content:space-between;margin-top:40px;font-size:11px">
+            <div style="width:30%;text-align:center;border-top:1px solid #94a3b8;padding-top:4px">Bodega (preparó)</div>
+            <div style="width:30%;text-align:center;border-top:1px solid #94a3b8;padding-top:4px">Logística (retiró)</div>
+            <div style="width:30%;text-align:center;border-top:1px solid #94a3b8;padding-top:4px">Cliente (recibió conforme)</div>
+          </div>
+          <p style="margin-top:18px;font-size:9px;color:#64748b;text-align:center">${esc(desp.numero_guia)} · Seguimiento: ${esc(link)}</p>
+        </div>`
+
+      const html2pdf = (await import('html2pdf.js')).default
+      const caja = document.createElement('div')
+      caja.style.cssText = 'position:fixed;left:-10000px;top:0;width:190mm;background:#fff'
+      caja.innerHTML = html
+      document.body.appendChild(caja)
+      let blob: Blob
+      try {
+        blob = await html2pdf().set({ margin: [12, 12, 12, 12], image: { type: 'jpeg', quality: 0.95 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4' } }).from(caja).outputPdf('blob')
+      } finally { caja.remove() }
+
+      const ruta = 'guias/' + desp.numero_guia + '.pdf'
+      const { error: errSubir } = await supabase.storage.from('despachos').upload(ruta, blob, { contentType: 'application/pdf', upsert: true })
+      if (errSubir) { aviso('No se pudo guardar el PDF de la guía: ' + errSubir.message); return }
+
+      const { error: errUpd } = await supabase.from('facturas').update({ guia_envio_url: ruta }).eq('id', r.uuid)
+      if (errUpd) { aviso('Guía generada, pero no se pudo guardar el enlace: ' + errUpd.message); return }
+
+      await supabase.rpc('registrar_bitacora', { p_modulo: 'facturacion', p_accion: 'generar_guia', p_factura: r.uuid, p_despacho: desp.id, p_comentario: 'Guía ' + desp.numero_guia + ' generada.' })
+      aviso('Guía ' + desp.numero_guia + ' generada.')
+      cargar(filtro); cargarStats(); setItems({})
+    } catch (e) {
+      aviso('No se pudo generar la guía: ' + (e as Error).message)
+    } finally {
+      setGenerandoGuia(null)
+    }
   }
   function exportarCsv() {
     const esc = (v: unknown) => '"' + String(v ?? '').replace(/"/g, '""') + '"'
@@ -325,11 +411,11 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
               </div>
             )}
           </div>
-          <aside className="fx-side">{PanelLateral(conItems(sel), accion)}</aside>
+          <aside className="fx-side">{PanelLateral(conItems(sel), accion, generandoGuia)}</aside>
         </div>
       </main>
 
-      {detalle && <Detalle r={conItems(detalle) ?? detalle} perfil={perfil} puedeEditar={puedeEditar} cerrar={() => setDetalle(null)} accion={accion}
+      {detalle && <Detalle r={conItems(detalle) ?? detalle} perfil={perfil} puedeEditar={puedeEditar} cerrar={() => setDetalle(null)} accion={accion} generandoGuia={generandoGuia}
         facturar={(r) => { setDetalle(null); setFactura(conItems(r)) }} aviso={aviso} recargar={() => { cargar(filtro); cargarStats(); setItems({}) }} />}
       {factura && <ModalFactura r={factura} perfil={perfil} cerrar={() => setFactura(null)} aviso={aviso} guardado={() => { setFactura(null); aviso('Factura registrada.'); cargar(filtro); cargarStats(); setItems({}) }} />}
     </div>
@@ -337,7 +423,7 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
 }
 
 /* ============================ Panel lateral ============================ */
-function PanelLateral(r: Fila | null, accion: (qa: string, r: Fila) => void) {
+function PanelLateral(r: Fila | null, accion: (qa: string, r: Fila) => void, generandoGuia: string | null) {
   if (!r) return <div className="p-10 text-center text-xs text-slate-400">Selecciona un registro para ver su resumen.</div>
   const monto = totalFila(r)
   const act = (qa: string, Icono: typeof Receipt, color: string, label: string, off?: boolean) => (
@@ -350,8 +436,8 @@ function PanelLateral(r: Fila | null, accion: (qa: string, r: Fila) => void) {
     if (r.actaUrl) acts.push(act('acta', Pencil, '#0f766e', 'Editar acta'))
   }
   if (r.esEnvio || r.guiaEnvioUrl) {
-    acts.push(r.guiaEnvioUrl ? act('verGuia', Truck, '#c98a1f', 'Ver guía') : act('guia', Truck, '#c0392b', 'Generar guía'))
-    if (r.guiaEnvioUrl) acts.push(act('guia', Pencil, '#b7791f', 'Editar guía'))
+    acts.push(r.guiaEnvioUrl ? act('verGuia', Truck, '#c98a1f', 'Ver guía') : act('guia', Truck, '#c0392b', generandoGuia === r.uuid ? 'Generando…' : 'Generar guía', generandoGuia === r.uuid))
+    if (r.guiaEnvioUrl) acts.push(act('guia', Pencil, '#b7791f', generandoGuia === r.uuid ? 'Generando…' : 'Editar guía', generandoGuia === r.uuid))
   }
   if (r.actaConformidadUrl) acts.push(act('conformidad', BadgeCheck, '#17a9ba', 'Conformidad'))
   if (r.numeroFactura) acts.push(act('nc', ReceiptText, '#7c3aed', 'Notas crédito'))
@@ -408,8 +494,8 @@ function PanelLateral(r: Fila | null, accion: (qa: string, r: Fila) => void) {
 }
 
 /* ============================ Detalle de venta ============================ */
-function Detalle({ r, perfil, puedeEditar, cerrar, accion, facturar, aviso, recargar }: {
-  r: Fila; perfil: Perfil; puedeEditar: boolean; cerrar: () => void; accion: (qa: string, r: Fila) => void; facturar: (r: Fila) => void; aviso: (t: string) => void; recargar: () => void
+function Detalle({ r, perfil, puedeEditar, cerrar, accion, facturar, aviso, recargar, generandoGuia }: {
+  r: Fila; perfil: Perfil; puedeEditar: boolean; cerrar: () => void; accion: (qa: string, r: Fila) => void; facturar: (r: Fila) => void; aviso: (t: string) => void; recargar: () => void; generandoGuia: string | null
 }) {
   const [full, setFull] = useState<Fila>(r)
   useEffect(() => {
@@ -501,7 +587,7 @@ function Detalle({ r, perfil, puedeEditar, cerrar, accion, facturar, aviso, reca
               )}
               {(full.esEnvio || full.guiaEnvioUrl) && (
                 <div className="pm-doc"><p className="pm-doc-h"><span className="ic" style={{ ['--c' as string]: '#c0392b' }}><Truck /></span>Guía de envío <span className="text-red-600">*</span></p>
-                  {full.guiaEnvioUrl ? <button type="button" className="pm-btn warn w-full" onClick={() => accion('verGuia', full)}>Ver guía</button> : <button type="button" className="pm-btn solid w-full" style={{ background: '#c0392b' }} onClick={() => accion('guia', full)}>Generar guía de envío</button>}</div>
+                  {full.guiaEnvioUrl ? <button type="button" className="pm-btn warn w-full" onClick={() => accion('verGuia', full)}>Ver guía</button> : <button type="button" disabled={generandoGuia === full.uuid} className="pm-btn solid w-full" style={{ background: '#c0392b' }} onClick={() => accion('guia', full)}>{generandoGuia === full.uuid ? 'Generando…' : 'Generar guía de envío'}</button>}</div>
               )}
               {tiene(full.numeroFactura) && (
                 <div className="pm-doc"><p className="pm-doc-h"><span className="ic" style={{ ['--c' as string]: '#7c3aed' }}><ReceiptText /></span>Notas de crédito</p>
