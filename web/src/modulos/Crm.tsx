@@ -660,6 +660,8 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
   async function eliminarGestion(motivo: string) {
     const { error } = await supabase.from(g.tabla).update({ deleted_at: new Date().toISOString(), motivo_eliminacion: motivo || null }).eq('id', g.id)
     if (error) { aviso('No se pudo eliminar: ' + error.message); return }
+    // Ganado = ya tiene (o pudo tener) una fila en Facturación con el mismo código: se elimina también para no dejarla huérfana.
+    if (g.estado === 'Ganado' && g.codigo) await supabase.from('facturas').update({ deleted_at: new Date().toISOString() }).eq('codigo', g.codigo).is('deleted_at', null)
     setElim(false); aviso('Gestión enviada a la Papelera.'); cerrar(); recargar()
   }
 
@@ -773,8 +775,8 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
             <button onClick={guardarNota} disabled={guardando} className="mt-1.5 w-full text-white text-xs font-bold py-2 rounded-lg transition-transform hover:-translate-y-0.5" style={{ background: 'var(--teal)' }}>{guardando ? 'Guardando…' : 'Guardar Nota'}</button>
           </div>
 
-          {puede(perfil, mod, 'eliminar') && g.estado !== 'Ganado' && (
-            <button onClick={() => setElim(true)} className="w-full text-xs font-bold py-2 rounded-lg border flex items-center justify-center gap-1.5" style={{ borderColor: '#fecaca', color: '#b91c1c', background: '#fff5f5' }}><Trash2 className="w-3.5 h-3.5" /> Eliminar gestión</button>
+          {(g.estado === 'Ganado' ? perfil.es_superadmin : puede(perfil, mod, 'eliminar')) && (
+            <button onClick={() => setElim(true)} className="w-full text-xs font-bold py-2 rounded-lg border flex items-center justify-center gap-1.5" style={{ borderColor: '#fecaca', color: '#b91c1c', background: '#fff5f5' }}><Trash2 className="w-3.5 h-3.5" /> Eliminar {g.estado === 'Ganado' ? 'venta' : 'gestión'}</button>
           )}
 
           {g.tabla === 'cotizaciones' && (
@@ -820,7 +822,7 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
           </div>
         </div>
       </div>
-      {elim && <ConfirmarEliminar titulo={`¿Eliminar la gestión de "${g.nombre}"?`} detalle="Desaparece del pipeline pero no se borra de la base. Se puede restaurar desde la Papelera del CRM." cerrar={() => setElim(false)} ok={eliminarGestion} />}
+      {elim && <ConfirmarEliminar titulo={`¿Eliminar la ${g.estado === 'Ganado' ? 'venta' : 'gestión'} de "${g.nombre}"?`} detalle={g.estado === 'Ganado' ? 'Es una venta ya ganada: también se elimina su factura en Facturación si existe. Desaparece del pipeline pero no se borra de la base; se puede restaurar desde la Papelera del CRM.' : 'Desaparece del pipeline pero no se borra de la base. Se puede restaurar desde la Papelera del CRM.'} cerrar={() => setElim(false)} ok={eliminarGestion} />}
     </>
   )
 }
