@@ -74,6 +74,8 @@ type Carrito = { cant: (id: string) => number; agregar: (p: Fila, e?: HTMLElemen
 const CLAVE_CARRITO = 'vm_cot_inv'
 const CLAVE_PENDIENTE = 'vm_cot_pendiente'
 const limpiar = (t: string) => t.replace(/[,()%*\\"']/g, ' ').trim()
+// Sin tildes y en minúsculas, igual que la columna productos.busqueda_normalizada.
+const sinTildes = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 const inactivo = (p: Fila) => String(p.estado || '').trim().toLowerCase() === 'inactivo'
 const esNuevo = (p: Fila) => {
   const t = Date.parse(p.fecha_creacion || '')
@@ -487,9 +489,9 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
   const consulta = useCallback(() => {
     let q = supabase.from('productos').select(COLUMNAS, { count: 'exact' }).is('deleted_at', null)
     if (idsImp) q = q.in('id', idsImp.length ? idsImp : ['00000000-0000-0000-0000-000000000000'])
-    // Cada palabra debe aparecer en alguno de los campos (igual que la búsqueda de la app original).
-    for (const palabra of busqueda.split(/\s+/).filter(Boolean)) {
-      q = q.or(`nombre.ilike.%${palabra}%,codigo.ilike.%${palabra}%,codigo_unico.ilike.%${palabra}%,marca.ilike.%${palabra}%`)
+    // Cada palabra debe aparecer en nombre, código, código único o marca — sin importar tildes ni mayúsculas.
+    for (const palabra of sinTildes(busqueda).split(/\s+/).filter(Boolean)) {
+      q = q.ilike('busqueda_normalizada', `%${palabra}%`)
     }
     if (categoria) q = q.eq('categoria_id', categoria)
     if (!mostrarInactivos) q = q.or('estado.is.null,estado.not.ilike.inactivo')
