@@ -1,11 +1,14 @@
 project_id = "qwkziqjozfeemvjshvsp"
 
-# Cierra el registro público: las cuentas de empleados se crean desde Seguridad (Supabase Auth admin),
-# no por auto-registro. El trigger de vinculo por correo (app.tg_vincular_auth_usuario) sigue funcionando
-# para cuentas creadas así. Solo se declara esta propiedad: el resto de la configuración de Auth
-# en el proyecto (URLs, proveedores, expiración de sesión, etc.) no se toca.
+# Registro abierto solo para permitir el primer ingreso con Google de cualquier empleado
+# (si no, Supabase rechaza con "Signups not allowed" a quien nunca haya tenido cuenta). No es un
+# riesgo: el acceso real lo decide la tabla empleados + permisos (app.puede...), no el solo hecho
+# de tener una cuenta de Supabase Auth. El trigger de vínculo por correo (app.tg_vincular_auth_usuario)
+# sigue vinculando por email a quien ya es empleado; quien no lo es, entra sin permisos a nada.
+# Solo se declara esta propiedad: el resto de la configuración de Auth en el proyecto (URLs,
+# proveedores, expiración de sesión, etc.) no se toca.
 [auth]
-enable_signup = false
+enable_signup = true
 # El proyecto seguía con site_url de ejemplo (localhost:3000): Google habría rechazado la vuelta a la app.
 site_url = "https://vimedic-qa.pages.dev"
 additional_redirect_urls = ["https://vimedic-qa.pages.dev", "https://qa.vimedic.com.ec", "http://localhost:5199"]
