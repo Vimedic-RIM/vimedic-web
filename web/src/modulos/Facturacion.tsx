@@ -611,7 +611,7 @@ function ModalFactura({ r, perfil, cerrar, guardado, aviso }: { r: Fila; perfil:
   async function guardar() {
     setMsg('')
     const n = numero.trim()
-    if (!/^\d{3}-\d{3}-\d{6,9}$/.test(n)) { setMsg('Escribe el número de factura como aparece en Contífico (001-001-000012345).'); return }
+    if (!n) { setMsg('Ingresa el número de factura.'); return }
     if (enlace.trim() && !/^https?:\/\//i.test(enlace.trim())) { setMsg('El enlace debe empezar con https://'); return }
     setGuardando(true)
     const { data: act } = await supabase.from('facturas').select('historial').eq('id', r.uuid).single()
