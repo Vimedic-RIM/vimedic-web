@@ -312,23 +312,23 @@ function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mov
         <button className="btn btn-sm" disabled={!filas.length || generando} onClick={exportarPdf}><FileDown className="w-3.5 h-3.5" />{generando ? 'Generando…' : 'Exportar PDF'}</button>
       </div>
 
-      <div className="rounded-xl border border-slate-200 overflow-hidden">
+      <div>
         {!prods && <p className="p-4 text-center text-xs text-slate-400">Cargando productos…</p>}
         {prods && !filas.length && <p className="p-4 text-center text-xs text-slate-400">Esta campaña todavía no tiene productos.</p>}
         {filas.length > 0 && (
-          <div className="overflow-x-auto"><table className="tbl">
-            <thead><tr><th>Producto</th><th>Categoría</th><th className="num">PVP</th>{verCostos && <th className="num">Costo</th>}<th className="num">Desc.</th><th className="num">Precio final</th>{verCostos && <th className="num">Margen</th>}</tr></thead>
-            <tbody>{filas.map((f) => (
-              <tr key={f.codigo}>
-                <td><b className="text-slate-700">{f.nombre}</b><br /><span className="text-[10px] text-slate-400 font-mono-spec">{f.codigo}{!f.enCatalogo ? ' · No está en el catálogo' : ''}</span></td>
-                <td className="text-slate-500">{f.categoria}</td>
-                <td className="num">{money(f.pvp)}</td>
-                {verCostos && <td className="num">{f.costo != null ? money(f.costo) : '—'}</td>}
-                <td className="num font-semibold" style={{ color: f.desc ? 'var(--amber)' : undefined }}>{f.desc ? f.desc + '%' : '—'}</td>
-                <td className="num font-semibold">{money(f.precioFinal)}</td>
-                {verCostos && <td className="num">{f.margen != null ? f.margen + '%' : '—'}</td>}
-              </tr>))}</tbody>
-          </table></div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">{filas.map((f) => (
+            <article key={f.codigo} className="card p-4">
+              <div className="flex items-center gap-2"><BadgePercent className="w-4 h-4 text-[var(--amber)]" /><span className="font-mono-spec text-[11px] text-slate-400">{f.codigo}</span>
+                <span className="pill ml-auto" style={f.desc ? { background: '#fff8eb', color: '#a16207' } : { background: '#f1f5f9', color: '#64748b' }}>{f.desc ? '-' + f.desc + '%' : 'Sin descuento'}</span></div>
+              <p className="text-sm font-bold text-slate-800 mt-1.5">{f.nombre}</p>
+              <p className="text-[11px] text-slate-500 mt-1">{f.categoria}{!f.enCatalogo ? ' · No está en el catálogo' : ''}</p>
+              <div className="flex items-end gap-2 mt-2">
+                {f.desc > 0 && <span className="text-[11px] text-slate-400 line-through">{money(f.pvp)}</span>}
+                <span className="text-base font-bold" style={{ color: f.desc ? '#c2410c' : 'var(--navy)' }}>{money(f.precioFinal)}</span>
+              </div>
+              {verCostos && <p className="text-[10px] text-slate-400 mt-1">Costo: {f.costo != null ? money(f.costo) : '—'} · Margen: {f.margen != null ? f.margen + '%' : '—'}</p>}
+            </article>
+          ))}</div>
         )}
       </div>
 
