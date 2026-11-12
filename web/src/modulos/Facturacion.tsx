@@ -63,6 +63,7 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
   const [pagina, setPagina] = useState(1)
   const [selId, setSelId] = useState<string | null>(null)
   const [stats, setStats] = useState({ facturados: 0, pendientes: 0, guias: 0, actas: 0, notas: 0 })
+  const [statsListas, setStatsListas] = useState(false)
   const [detalle, setDetalle] = useState<Fila | null>(null)
   const [factura, setFactura] = useState<Fila | null>(null)
   const [cargando, setCargando] = useState(false)
@@ -94,9 +95,12 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
       cuenta(supabase.from('notas_credito').select('id', { count: 'exact', head: true }).is('deleted_at', null)),
     ])
     setStats({ facturados, pendientes, guias, actas, notas })
+    setStatsListas(true)
   }, [])
   useEffect(() => { setCola(null); cargar(filtro) }, [filtro, cargar])
   useEffect(() => { cargarStats() }, [cargarStats])
+  // Si no hay nada pendiente por facturar, se abre directo la pestaña "Todos" en vez de dejar la vista vacía.
+  useEffect(() => { if (statsListas && stats.pendientes === 0 && filtro === 'Pendiente') setFiltro('ALL') }, [statsListas, stats.pendientes, filtro])
   useEffect(() => {
     const canal = supabase.channel('facturas-cola').on('postgres_changes', { event: '*', schema: 'public', table: 'facturas' }, () => { cargar(filtro); cargarStats() }).subscribe()
     return () => { supabase.removeChannel(canal) }
