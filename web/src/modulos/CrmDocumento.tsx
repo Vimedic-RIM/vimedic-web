@@ -268,12 +268,24 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
         empaqueCaja: caja, empaqueArmado: armado, empaqueStretch: stretch, cartaGarantia: garantia, flete, fletePaga,
       }
       const redondo = (n: number) => Math.round(n * 100) / 100
-      const { error: errFact } = await supabase.from('facturas').insert({
-        id: crypto.randomUUID(), codigo, empresa, cliente_id: cliente?.id ?? null, identificacion: cliente?.identificacion ?? (lead.identificacion || null), cotizacion_id: id,
+      // El código de la venta puede coincidir con una factura ya migrada o ya enviada antes
+      // (comparten el mismo código): se actualiza esa fila en vez de intentar duplicarla, y si
+      // ya estaba Facturada no se toca — se avisa en vez de fallar en silencio.
+      const { data: facturaExistente, error: errBuscar } = await supabase.from('facturas').select('id,estado,numero_contifico').eq('codigo', codigo).is('deleted_at', null).maybeSingle()
+      if (errBuscar) { setError('No se pudo verificar Facturación: ' + errBuscar.message); setGuardando(false); return }
+      if (facturaExistente && facturaExistente.estado === 'Facturado') {
+        setError('Esta venta ya fue facturada antes' + (facturaExistente.numero_contifico ? ' (factura N.º ' + facturaExistente.numero_contifico + ')' : '') + '. Revísala en Facturación.')
+        setGuardando(false); return
+      }
+      const datosFactura = {
+        codigo, empresa, cliente_id: cliente?.id ?? null, identificacion: cliente?.identificacion ?? (lead.identificacion || null), cotizacion_id: id,
         asesor_id: asesorId || null, estado: 'Pendiente', fecha_ganado: new Date().toISOString().slice(0, 10), medio_captacion_venta: medio, observacion: nota.trim() || null,
         datos_completos: true, items, pago_entrega: pe, subtotal: redondo(subtotal), iva: redondo(ivaTotal), total: redondo(total), total_neto: redondo(total),
-      })
-      if (errFact && !/duplicate|unique/i.test(errFact.message)) console.warn('No se pudo crear el registro de Facturación:', errFact.message)
+      }
+      const { error: errFact } = facturaExistente
+        ? await supabase.from('facturas').update(datosFactura).eq('id', facturaExistente.id)
+        : await supabase.from('facturas').insert({ id: crypto.randomUUID(), ...datosFactura })
+      if (errFact) { setError('No se pudo enviar a Facturación: ' + errFact.message); setGuardando(false); return }
     }
     const codigoFinal = codigo
     id = ''; codigo = ''
