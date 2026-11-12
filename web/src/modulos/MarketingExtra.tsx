@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { BadgePercent, Check, FolderUp, Megaphone, Plus, Send, Trash2, X } from 'lucide-react'
+import { BadgePercent, Check, FileDown, FolderUp, Megaphone, Plus, Send, Trash2, X } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
 
+const money = (n: number) => '$' + (Number(n) || 0).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
 const normalize = (v: unknown) => String(v || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
-function Ventana({ titulo, cerrar, children, pie }: { titulo: string; cerrar: () => void; children: React.ReactNode; pie: React.ReactNode }) {
+function Ventana({ titulo, cerrar, children, pie, ancha }: { titulo: string; cerrar: () => void; children: React.ReactNode; pie: React.ReactNode; ancha?: boolean }) {
   return (
     <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-[2px] z-[70] flex items-center justify-center p-0 sm:p-4" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
-      <div className="bg-white sm:rounded-2xl shadow-2xl w-full h-full sm:h-auto sm:max-h-[90vh] sm:max-w-xl flex flex-col overflow-hidden">
+      <div className={'bg-white sm:rounded-2xl shadow-2xl w-full h-full sm:h-auto sm:max-h-[90vh] flex flex-col overflow-hidden ' + (ancha ? 'sm:max-w-4xl' : 'sm:max-w-xl')}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0"><h3 className="font-display font-bold text-sm text-slate-800">{titulo}</h3><button onClick={cerrar} className="text-slate-400 hover:text-slate-600" aria-label="Cerrar"><X className="w-4 h-4" /></button></div>
         <div className="flex-1 overflow-y-auto p-5 space-y-3">{children}</div>
         <div className="shrink-0 border-t border-slate-100 p-4 flex gap-2 items-center flex-wrap">{pie}</div>
@@ -139,7 +141,8 @@ export function Material({ perfil, aviso }: { perfil: Perfil; aviso: (t: string)
 
 /* ============================ Promociones ============================ */
 type Hist = { fecha: string; por: string; accion: string; comentario?: string }
-type Camp = { id: string; codigo: string | null; nombre: string; inicio: string | null; fin: string | null; estado: string; items: unknown[]; combos: unknown[]; preventa: boolean; comentario: string | null; historial: Hist[] }
+type ItemPromo = { id: string; desc?: number | null; descPropuesto?: number | null; unidades?: number | null; nota?: string; ofertaId?: string }
+type Camp = { id: string; codigo: string | null; nombre: string; inicio: string | null; fin: string | null; estado: string; items: ItemPromo[]; combos: unknown[]; preventa: boolean; comentario: string | null; historial: Hist[] }
 const COLOR_P: Record<string, [string, string]> = { Borrador: ['#64748b', '#f1f5f9'], 'En aprobación': ['#a16207', '#fff8eb'], Devuelta: ['#c2410c', '#fff1e6'], Aprobada: ['#04896f', '#ecfaf5'], Rechazada: ['#c0392b', '#fdecea'], Cancelada: ['#64748b', '#f1f5f9'] }
 
 export function Promociones({ perfil, aviso }: { perfil: Perfil; aviso: (t: string) => void }) {
@@ -178,16 +181,104 @@ export function Promociones({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
             <p className="text-[11px] text-slate-400">{(c.items ?? []).length} producto{(c.items ?? []).length === 1 ? '' : 's'} · {(c.combos ?? []).length} combo{(c.combos ?? []).length === 1 ? '' : 's'}</p>
           </article>) })}
       </div>
-      {abierta && <DetalleCampana c={abierta} aprobar={aprobar} editar={crear} cerrar={() => setAbierta(null)} mover={mover} />}
+      {abierta && <DetalleCampana c={abierta} perfil={perfil} aprobar={aprobar} editar={crear} cerrar={() => setAbierta(null)} mover={mover} />}
       {nueva && <NuevaCampana perfil={perfil} cerrar={() => setNueva(false)} hecho={() => { setNueva(false); cargar(); aviso('Campaña creada.') }} aviso={aviso} />}
     </section>
   )
 }
 
-function DetalleCampana({ c, aprobar, editar, cerrar, mover }: { c: Camp; aprobar: boolean; editar: boolean; cerrar: () => void; mover: (c: Camp, estado: string, comentario?: string) => void }) {
+type ProdPromo = { codigo: string; nombre: string; categoria: string; pvp: number; costo: number | null; enCatalogo: boolean; desc: number; precioFinal: number; margen: number | null }
+const ORDENES_PROMO: [string, string][] = [
+  ['cat', 'Categoría (A-Z)'], ['costo', 'Costo (mayor a menor)'], ['desc', '% Descuento (mayor a menor)'],
+  ['pvp', 'PVP (mayor a menor)'], ['margen', 'Margen (mayor a menor)'], ['nombre', 'Nombre (A-Z)'],
+]
+
+function DetalleCampana({ c, perfil, aprobar, editar, cerrar, mover }: { c: Camp; perfil: Perfil; aprobar: boolean; editar: boolean; cerrar: () => void; mover: (c: Camp, estado: string, comentario?: string) => void }) {
   const [com, setCom] = useState('')
+  const verCostos = puede(perfil, 'promociones', 'ver_costos') || puede(perfil, 'ofertas', 'ver_costos')
+  const [prods, setProds] = useState<ProdPromo[] | null>(null)
+  const [orden, setOrden] = useState('cat')
+  const [generando, setGenerando] = useState(false)
+  const items = c.items ?? []
+
+  useEffect(() => {
+    if (!items.length) { setProds([]); return }
+    let vivo = true
+    const codigos = items.map((i) => i.id)
+    ;(async () => {
+      const { data: p, error } = await supabase.from('productos').select('id,codigo,nombre,pvp,en_catalogo,categoria:categorias(nombre)').in('codigo', codigos).is('deleted_at', null)
+      if (!vivo) return
+      if (error) { setProds([]); return }
+      const prodRows = (p ?? []) as unknown as { id: string; codigo: string; nombre: string; pvp: number | null; en_catalogo: boolean | null; categoria: { nombre: string } | null }[]
+      let costos: Record<string, number> = {}
+      if (verCostos && prodRows.length) {
+        const { data: co } = await supabase.from('productos_costos').select('producto_id,costo').in('producto_id', prodRows.map((x) => x.id)).is('deleted_at', null)
+        costos = Object.fromEntries(((co ?? []) as { producto_id: string; costo: number | null }[]).map((x) => [x.producto_id, Number(x.costo) || 0]))
+      }
+      const porCodigo = new Map(prodRows.map((x) => [x.codigo, x]))
+      const filas: ProdPromo[] = items.map((it) => {
+        const p0 = porCodigo.get(it.id)
+        const pvp = Number(p0?.pvp) || 0, desc = Number(it.desc) || 0, precioFinal = Math.round(pvp * (1 - desc / 100) * 100) / 100
+        const costo = p0 && verCostos ? (costos[p0.id] ?? 0) : null
+        const margen = costo != null && costo > 0 && precioFinal > 0 ? Math.round((precioFinal - costo) / precioFinal * 1000) / 10 : null
+        return { codigo: it.id, nombre: p0?.nombre ?? it.id, categoria: p0?.categoria?.nombre ?? '—', pvp, costo, enCatalogo: !!p0?.en_catalogo, desc, precioFinal, margen }
+      })
+      setProds(filas)
+    })()
+    return () => { vivo = false }
+  }, [items, verCostos])
+
+  const filas = useMemo(() => {
+    if (!prods) return []
+    const cmp: Record<string, (a: ProdPromo, b: ProdPromo) => number> = {
+      cat: (a, b) => a.categoria.localeCompare(b.categoria, 'es') || a.nombre.localeCompare(b.nombre, 'es'),
+      costo: (a, b) => (b.costo ?? -1) - (a.costo ?? -1),
+      desc: (a, b) => b.desc - a.desc,
+      pvp: (a, b) => b.pvp - a.pvp,
+      margen: (a, b) => (b.margen ?? -999) - (a.margen ?? -999),
+      nombre: (a, b) => a.nombre.localeCompare(b.nombre, 'es'),
+    }
+    // Visibles en el catálogo público primero, siempre; el criterio elegido decide el resto.
+    return [...prods].sort((a, b) => (Number(b.enCatalogo) - Number(a.enCatalogo)) || cmp[orden](a, b))
+  }, [prods, orden])
+
+  async function exportarPdf() {
+    setGenerando(true)
+    try {
+      const { jsPDF } = await import('jspdf')
+      const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true })
+      const fechaHoy = new Date().toLocaleDateString('es-EC')
+      const cols: [string, number][] = verCostos
+        ? [['Código', 22], ['Producto', 58], ['Categoría', 32], ['PVP', 18], ['Costo', 18], ['Desc %', 16], ['Final', 18], ['Margen', 14]]
+        : [['Código', 24], ['Producto', 78], ['Categoría', 42], ['PVP', 20], ['Desc %', 18], ['Final', 20]]
+      const porPagina = 34
+      const totalPaginas = Math.max(1, Math.ceil(filas.length / porPagina))
+      for (let pagina = 0; pagina < totalPaginas; pagina++) {
+        if (pagina) doc.addPage()
+        doc.setFillColor(11, 37, 69); doc.rect(0, 0, 210, 24, 'F'); doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.text('VIMEDIC', 12, 11); doc.setFontSize(9); doc.text('Promociones | ' + c.nombre, 12, 18)
+        doc.setTextColor(100, 116, 139); doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.text(`${fechaHoy} · ${filas.length} producto(s) · orden: ${ORDENES_PROMO.find(([v]) => v === orden)?.[1] ?? ''}`, 12, 30)
+        let x = 12; const y0 = 38
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(11, 37, 69)
+        cols.forEach(([t, w]) => { doc.text(t, x, y0); x += w })
+        doc.setDrawColor(226, 232, 240); doc.line(12, y0 + 2, 198, y0 + 2)
+        doc.setFont('helvetica', 'normal'); doc.setTextColor(51, 65, 85)
+        const lote = filas.slice(pagina * porPagina, pagina * porPagina + porPagina)
+        lote.forEach((f, i) => {
+          const y = y0 + 7 + i * 6.8; x = 12
+          const vals = verCostos
+            ? [f.codigo, f.nombre.slice(0, 34), f.categoria.slice(0, 20), money(f.pvp), f.costo != null ? money(f.costo) : '—', f.desc + '%', money(f.precioFinal), f.margen != null ? f.margen + '%' : '—']
+            : [f.codigo, f.nombre.slice(0, 46), f.categoria.slice(0, 26), money(f.pvp), f.desc + '%', money(f.precioFinal)]
+          vals.forEach((v, k) => { doc.text(String(v), x, y); x += cols[k][1] })
+        })
+        doc.setFontSize(7); doc.setTextColor(148, 163, 184); doc.text(`${pagina + 1} / ${totalPaginas}`, 195, 290, { align: 'right' })
+      }
+      doc.save(`VIMEDIC-Promo-${(c.codigo || c.nombre).replace(/[^a-z0-9]+/gi, '-')}.pdf`)
+    } catch (e) { alert((e as Error).message) }
+    setGenerando(false)
+  }
+
   return (
-    <Ventana titulo={c.nombre} cerrar={cerrar} pie={<>
+    <Ventana titulo={c.nombre} ancha cerrar={cerrar} pie={<>
       {editar && ['Borrador', 'Devuelta'].includes(c.estado) && <button className="btn btn-primary" onClick={() => mover(c, 'En aprobación')}><Send />Enviar a aprobación</button>}
       {aprobar && c.estado === 'En aprobación' && <>
         <button className="btn" style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => mover(c, 'Rechazada', com.trim())}>Rechazar</button>
@@ -197,7 +288,33 @@ function DetalleCampana({ c, aprobar, editar, cerrar, mover }: { c: Camp; aproba
       <p className="text-[11px] text-slate-500">{c.codigo} · {fecha(c.inicio)} → {fecha(c.fin)}{c.preventa ? ' · Preventa' : ''} · <b>{c.estado}</b></p>
       {c.comentario && <p className="text-xs rounded-lg p-2.5 bg-amber-50 text-amber-800">Comentario: {c.comentario}</p>}
       {aprobar && c.estado === 'En aprobación' && <textarea className="inp w-full" rows={2} placeholder="Comentario para quien envió la campaña" value={com} onChange={(e) => setCom(e.target.value)} />}
-      <p className="text-[11px] text-slate-500">{(c.items ?? []).length} productos en promoción. Los precios y descuentos por producto se cargan desde el módulo <b>Ofertas</b>.</p>
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <p className="text-[11px] text-slate-500 mr-auto">{items.length} producto{items.length === 1 ? '' : 's'} en promoción.</p>
+        <select className="inp" style={{ width: 'auto' }} value={orden} onChange={(e) => setOrden(e.target.value)}>{ORDENES_PROMO.map(([v, t]) => (!verCostos && (v === 'costo' || v === 'margen')) ? null : <option key={v} value={v}>{t}</option>)}</select>
+        <button className="btn btn-sm" disabled={!filas.length || generando} onClick={exportarPdf}><FileDown className="w-3.5 h-3.5" />{generando ? 'Generando…' : 'Exportar PDF'}</button>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 overflow-hidden">
+        {!prods && <p className="p-4 text-center text-xs text-slate-400">Cargando productos…</p>}
+        {prods && !filas.length && <p className="p-4 text-center text-xs text-slate-400">Esta campaña todavía no tiene productos.</p>}
+        {filas.length > 0 && (
+          <div className="overflow-x-auto"><table className="tbl">
+            <thead><tr><th>Producto</th><th>Categoría</th><th className="num">PVP</th>{verCostos && <th className="num">Costo</th>}<th className="num">Desc.</th><th className="num">Precio final</th>{verCostos && <th className="num">Margen</th>}</tr></thead>
+            <tbody>{filas.map((f) => (
+              <tr key={f.codigo}>
+                <td><b className="text-slate-700">{f.nombre}</b><br /><span className="text-[10px] text-slate-400 font-mono-spec">{f.codigo}{!f.enCatalogo ? ' · No está en el catálogo' : ''}</span></td>
+                <td className="text-slate-500">{f.categoria}</td>
+                <td className="num">{money(f.pvp)}</td>
+                {verCostos && <td className="num">{f.costo != null ? money(f.costo) : '—'}</td>}
+                <td className="num font-semibold" style={{ color: f.desc ? 'var(--amber)' : undefined }}>{f.desc ? f.desc + '%' : '—'}</td>
+                <td className="num font-semibold">{money(f.precioFinal)}</td>
+                {verCostos && <td className="num">{f.margen != null ? f.margen + '%' : '—'}</td>}
+              </tr>))}</tbody>
+          </table></div>
+        )}
+      </div>
+
       <div><p className="text-[10px] font-bold uppercase text-slate-400 mb-1.5">Historial</p>
         {!(c.historial ?? []).length && <p className="text-[11px] text-slate-400">Sin movimientos.</p>}
         <ul className="space-y-1.5">{[...(c.historial ?? [])].reverse().map((h, i) => <li key={i} className="text-[11px] text-slate-600"><b>{h.accion}</b> · {h.por} · {new Date(h.fecha).toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' })}{h.comentario ? ' — ' + h.comentario : ''}</li>)}</ul></div>
