@@ -361,7 +361,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
             {res.map((c) => {
               const bloqueado = ajeno(c)
               return (
-                <button key={c.id} type="button" className={'w-full text-left px-3 py-2 hover:bg-slate-50' + (bloqueado ? ' opacity-60' : '')} onClick={() => elegirCliente(c)}>
+                <button key={c.id} type="button" className={'w-full text-left px-3 py-2 hover:bg-slate-50' + (bloqueado ? ' opacity-60' : '')} onMouseDown={(e) => e.preventDefault()} onClick={() => elegirCliente(c)}>
                   <p className="text-xs font-semibold text-slate-800 truncate flex items-center gap-1.5">{bloqueado && <Lock className="w-3 h-3 shrink-0" style={{ color: 'var(--red)' }} />}{c.nombre}{!bloqueado && c.tipo_cliente?.toUpperCase() === 'DIS' && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white" style={{ background: '#7c3aed' }}>{etiquetaDis(c)}</span>}</p>
                   <p className={'text-[10px] truncate ' + (bloqueado ? 'font-bold' : 'text-slate-500')} style={bloqueado ? { color: 'var(--red)' } : undefined}>
                     {bloqueado ? 'Asignado a: ' + (nombreAsesor(c.asesor_id) || 'otro asesor') + ' — no editable' : <>{c.identificacion || 'Sin cédula'} · {c.ciudad || 'Sin ciudad'}{c.asesor_id ? ' · Asesor: ' + nombreAsesor(c.asesor_id) : <> · <span style={{ color: 'var(--red)' }}>Sin asesor</span></>}</>}
@@ -560,7 +560,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
               const n = carrito.find((x) => x.id === p.id)?.cantidad ?? 0
               const base = precioBase(p, cliente)
               return (
-                <button key={p.id} type="button" onClick={() => agregar(p)} className={'ns-prod group text-left bg-white border border-slate-200 rounded-2xl overflow-hidden hover:shadow-md transition flex flex-col ' + (n ? 'is-added' : '')}>
+                <button key={p.id} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => agregar(p)} className={'ns-prod group text-left bg-white border border-slate-200 rounded-2xl overflow-hidden hover:shadow-md transition flex flex-col ' + (n ? 'is-added' : '')}>
                   <div className="relative aspect-[4/3] bg-slate-50">
                     <span className="ns-added">✓ Agregado<b className="ns-added-q">{n > 1 ? ' ×' + n : ''}</b></span>
                     <img loading="lazy" src={imagen(p.imagen_url, 240)} onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} className="w-full h-full object-contain p-2" alt="" />
