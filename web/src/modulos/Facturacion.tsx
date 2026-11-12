@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ArrowDown, ArrowUp, BadgeCheck, Boxes, Building2, Clock, CreditCard, Download, Eye, FileCheck2, FilePenLine, FilePlus2, FileUp, Folder, Hash, History, Inbox,
+  ArrowDown, ArrowUp, BadgeCheck, Boxes, Building2, Clock, CreditCard, Download, Eye, FileCheck2, FilePenLine, FilePlus2, FileUp, Folder, Gift, Hash, History, Inbox,
   Layers, Link2, List, Lock, Megaphone, Package, Plus, Printer, Receipt, ReceiptText, RefreshCw, Search, ShieldCheck, SlidersHorizontal, Trash2, Truck, TriangleAlert, Upload, X,
 } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
@@ -15,8 +15,9 @@ type Fila = {
   uuid: string; id: string; empresa: 'VIMEDIC' | 'FEMEDICS'; identificacion: string; estado: string; fechaGanado: string; creado: string; numeroFactura: string; medio: string; nota: string
   datosCompletos: boolean; facturaUrl: string; actaUrl: string; actaConformidadUrl: string; guiaEnvioUrl: string; guiaDespachoUrl: string; total: number; pe: Pe; cliente: string; email: string; telefono: string
   asesor: string; esEnvio: boolean; items?: Linea[]; historial?: { fecha: string; por: string; accion: string; detalle?: string }[]
+  obsequioId: string | null; obsequioNombre: string; obsequioImagen: string
 }
-const COLS = 'id,codigo,empresa,identificacion,estado,fecha_ganado,created_at,numero_contifico,medio_captacion_venta,observacion,datos_completos,pdf_url,acta_garantia_url,acta_conformidad_url,guia_envio_url,guia_despacho_url,total,pago_entrega,cliente:clientes(nombre,email,telefono),cotizacion:cotizaciones(nombre,email,telefono),asesor:empleados!asesor_id(nombre)'
+const COLS = 'id,codigo,empresa,identificacion,estado,fecha_ganado,created_at,numero_contifico,medio_captacion_venta,observacion,datos_completos,pdf_url,acta_garantia_url,acta_conformidad_url,guia_envio_url,guia_despacho_url,total,pago_entrega,obsequio_id,obsequio:obsequios(nombre,imagen_url),cliente:clientes(nombre,email,telefono),cotizacion:cotizaciones(nombre,email,telefono),asesor:empleados!asesor_id(nombre)'
 const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
 const PAGE_SIZE = 20
 
@@ -44,6 +45,7 @@ function mapear(x: Record<string, any>): Fila { // eslint-disable-line @typescri
     numeroFactura: x.numero_contifico ?? '', medio: x.medio_captacion_venta ?? '', nota: x.observacion ?? '', datosCompletos: x.datos_completos !== false, facturaUrl: x.pdf_url ?? '',
     actaUrl: x.acta_garantia_url ?? '', actaConformidadUrl: x.acta_conformidad_url ?? '', guiaEnvioUrl: x.guia_envio_url ?? '', guiaDespachoUrl: x.guia_despacho_url ?? '', total: Number(x.total) || 0, pe,
     cliente: cli.nombre ?? (x.cotizacion?.nombre ?? ''), email: cli.email ?? '', telefono: cli.telefono ?? '', asesor: x.asesor?.nombre ?? '', esEnvio: pe.entrega === 'Envío',
+    obsequioId: x.obsequio_id ?? null, obsequioNombre: x.obsequio?.nombre ?? '', obsequioImagen: x.obsequio?.imagen_url ?? '',
   }
 }
 type Filtros = { asesor: string; medio: string; desde: string; hasta: string; chips: Record<string, boolean>; agrupar: string }
@@ -72,6 +74,7 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
   const [guiaEnvio, setGuiaEnvio] = useState<Fila | null>(null)
   const [guiaDespacho, setGuiaDespacho] = useState<Fila | null>(null)
   const [acta, setActa] = useState<Fila | null>(null)
+  const [obsequioModal, setObsequioModal] = useState<Fila | null>(null)
   const filtrosRef = useRef<HTMLDivElement>(null)
   const peticion = useRef(0)
   const esPc = typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches
@@ -205,6 +208,7 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
     if (qa === 'guiaEnvio') { setGuiaEnvio(r); return }
     if (qa === 'guiaDespacho') { setGuiaDespacho(r); return }
     if (qa === 'acta') { setActa(r); return }
+    if (qa === 'obsequio') { setObsequioModal(r); return }
     if (qa === 'nc') { setNotasCredito(r); return }
   }
 
@@ -230,7 +234,7 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
 
   const fila = (r: Fila) => {
     const ts = fechaTs(r), monto = totalFila(r)
-    const alerta = !r.datosCompletos || (r.estado === 'Facturado' && !r.guiaDespachoUrl), esFm = r.empresa === 'FEMEDICS'
+    const alerta = !r.datosCompletos || (r.estado === 'Facturado' && (!r.guiaDespachoUrl || !r.obsequioId)), esFm = r.empresa === 'FEMEDICS'
     let acc: React.ReactNode
     if (r.estado === 'Pendiente') acc = !r.datosCompletos
       ? <span className="text-[10px] font-bold text-red-600" title="Faltan datos de pago/entrega"><TriangleAlert className="w-4 h-4" /></span>
@@ -255,6 +259,7 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
           <span className={'fx-doc ' + (r.actaUrl ? 'ok' : '')} title="Acta de garantía"><FileCheck2 /></span>
           <span className={'fx-doc ' + (r.guiaDespachoUrl ? 'ok' : 'warn')} title="Guía de despacho"><Boxes /></span>
           <span className={'fx-doc ' + (r.guiaEnvioUrl ? 'ok' : '')} title="Guía de envío (etiqueta)"><Truck /></span>
+          <span className={'fx-doc ' + (r.obsequioId ? 'ok' : r.estado === 'Facturado' ? 'warn' : '')} title="Obsequio de evangelización"><Gift /></span>
         </div>
         <div className="flex justify-end lg:justify-start"><span className={'fx-st ' + (r.estado === 'Facturado' ? 'f' : 'p')}>{r.estado || '—'}</span></div>
         <div className="fx-lg justify-end">{acc}</div>
@@ -381,6 +386,7 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
       {guiaEnvio && <ModalGuiaEnvio r={guiaEnvio} cerrar={() => setGuiaEnvio(null)} guardado={() => { setGuiaEnvio(null); aviso('Guía de envío generada.'); cargar(filtro); cargarStats(); setItems({}) }} />}
       {guiaDespacho && <ModalGuiaDespacho r={conItems(guiaDespacho) ?? guiaDespacho} cerrar={() => setGuiaDespacho(null)} aviso={aviso} guardado={() => { setGuiaDespacho(null); cargar(filtro); cargarStats(); setItems({}) }} />}
       {acta && <ModalActaGarantia r={conItems(acta) ?? acta} cerrar={() => setActa(null)} aviso={aviso} guardado={() => { setActa(null); cargar(filtro); cargarStats(); setItems({}) }} />}
+      {obsequioModal && <ModalObsequio r={conItems(obsequioModal) ?? obsequioModal} cerrar={() => setObsequioModal(null)} aviso={aviso} guardado={() => { setObsequioModal(null); cargar(filtro); setItems({}) }} />}
     </div>
   )
 }
@@ -404,6 +410,7 @@ function PanelLateral(r: Fila | null, accion: (qa: string, r: Fila) => void, img
     acts.push(r.guiaEnvioUrl ? act('verGuiaEnvio', Truck, '#c98a1f', 'Ver etiqueta envío') : act('guiaEnvio', Truck, '#64748b', 'Generar etiqueta envío'))
   }
   if (r.actaConformidadUrl) acts.push(act('conformidad', BadgeCheck, '#17a9ba', 'Conformidad'))
+  if (r.estado === 'Facturado' || r.obsequioId) acts.push(act('obsequio', Gift, '#ec4899', r.obsequioId ? 'Cambiar obsequio' : 'Elegir obsequio'))
   if (r.numeroFactura) acts.push(act('nc', ReceiptText, '#7c3aed', 'Notas crédito'))
   const lineas = r.items
   let sSub = 0, sDesc = 0, sIva = 0, sTot = 0, uds = 0
@@ -552,6 +559,18 @@ function Detalle({ r, perfil, puedeEditar, cerrar, accion, facturar, aviso, reca
                 <div className="pm-doc"><p className="pm-doc-h"><span className="ic" style={{ ['--c' as string]: '#04896f' }}><FileCheck2 /></span>Acta de entrega / garantía</p>
                   {full.actaUrl ? <button type="button" className="pm-btn ok w-full" onClick={() => accion('verActa', full)}>Ver acta .pdf</button> : <button type="button" className="pm-btn solid w-full" style={{ background: '#04896f' }} onClick={() => accion('acta', full)}>Generar acta</button>}</div>
               )}
+              <div className="pm-doc">
+                <p className="pm-doc-h"><span className="ic" style={{ ['--c' as string]: '#ec4899' }}><Gift /></span>Obsequio de evangelización <span className="text-red-600">*</span></p>
+                {full.obsequioId ? (
+                  <div className="flex items-center gap-2">
+                    {full.obsequioImagen ? <img src={imagen(full.obsequioImagen, 80)} className="w-9 h-9 rounded-lg object-cover border border-slate-200 shrink-0" alt="" onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} /> : <span className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center shrink-0"><Gift className="w-4 h-4 text-slate-300" /></span>}
+                    <span className="text-[11.5px] font-semibold text-slate-700 flex-1 truncate">{full.obsequioNombre}</span>
+                    {puedeEditar && <button type="button" className="pm-btn !h-9 !px-2.5 shrink-0" onClick={() => accion('obsequio', full)}>Cambiar</button>}
+                  </div>
+                ) : puedeEditar ? (
+                  <button type="button" className="pm-btn solid w-full" style={{ background: '#ec4899' }} onClick={() => accion('obsequio', full)}>Elegir obsequio</button>
+                ) : <p className="text-[11px] text-slate-400">Sin obsequio asignado.</p>}
+              </div>
               {(full.estado === 'Facturado' || full.guiaDespachoUrl) && (
                 <div className="pm-doc"><p className="pm-doc-h"><span className="ic" style={{ ['--c' as string]: '#c0392b' }}><Boxes /></span>Guía de despacho <span className="text-red-600">*</span></p>
                   {full.guiaDespachoUrl ? <button type="button" className="pm-btn warn w-full" onClick={() => accion('verGuiaDespacho', full)}>Ver guía</button> : <button type="button" className="pm-btn solid w-full" style={{ background: '#c0392b' }} onClick={() => accion('guiaDespacho', full)}>Generar guía de despacho</button>}</div>
@@ -1320,6 +1339,91 @@ function ModalActaGarantia({ r, cerrar, aviso, guardado }: { r: Fila; cerrar: ()
         <div className="shrink-0 border-t border-slate-200 bg-white p-4 flex items-center gap-2">
           <button type="button" onClick={cerrar} className="h-11 px-4 rounded-2xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50">Cancelar</button>
           <button type="button" onClick={generar} disabled={guardando} className="flex-1 h-11 rounded-2xl text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: '#04896f' }}><Printer className="w-4 h-4" />{guardando ? 'Generando…' : 'Generar acta'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ============================ Obsequio de evangelización ============================ */
+type Obsequio = { id: string; nombre: string; imagen_url: string | null }
+function ModalObsequio({ r, cerrar, aviso, guardado }: { r: Fila; cerrar: () => void; aviso: (t: string) => void; guardado: () => void }) {
+  const [lista, setLista] = useState<Obsequio[] | null>(null)
+  const [yaEntregados, setYaEntregados] = useState<Set<string>>(new Set())
+  const [guardando, setGuardando] = useState<string | null>(null)
+  const [nuevoNombre, setNuevoNombre] = useState('')
+  const [nuevoImagen, setNuevoImagen] = useState('')
+  const [creando, setCreando] = useState(false)
+  useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') cerrar() }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [cerrar])
+
+  const cargar = useCallback(() => {
+    supabase.from('obsequios').select('id,nombre,imagen_url').eq('activo', true).order('nombre').then(({ data }) => setLista((data as Obsequio[]) ?? []))
+    if (r.identificacion) {
+      supabase.from('facturas').select('obsequio_id').eq('identificacion', r.identificacion).neq('id', r.uuid).not('obsequio_id', 'is', null).is('deleted_at', null)
+        .then(({ data }) => setYaEntregados(new Set(((data as { obsequio_id: string }[]) ?? []).map((x) => x.obsequio_id))))
+    }
+  }, [r.identificacion, r.uuid])
+  useEffect(() => { cargar() }, [cargar])
+
+  async function elegir(id: string) {
+    setGuardando(id)
+    const { error } = await supabase.from('facturas').update({ obsequio_id: id }).eq('id', r.uuid)
+    setGuardando(null)
+    if (error) { aviso('No se pudo asignar: ' + error.message); return }
+    guardado()
+  }
+
+  async function crear() {
+    const nombre = nuevoNombre.trim()
+    if (!nombre) return
+    setCreando(true)
+    const { data, error } = await supabase.from('obsequios').insert({ id: crypto.randomUUID(), nombre, imagen_url: nuevoImagen.trim() || null }).select('id').single()
+    if (error) { aviso('No se pudo agregar: ' + error.message); setCreando(false); return }
+    setNuevoNombre(''); setNuevoImagen(''); cargar()
+    if (data) await elegir((data as { id: string }).id)
+    setCreando(false)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-[2px] z-[60] flex items-center justify-center p-0 sm:p-4 overlay" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
+      <div className="modal-panel bg-[#f6f9fc] sm:rounded-3xl shadow-2xl w-full h-full sm:h-auto sm:max-w-lg sm:max-h-[88vh] flex flex-col overflow-hidden">
+        <div className="shrink-0 px-5 py-4 text-white" style={{ background: 'linear-gradient(135deg,var(--navy),var(--primary))' }}>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-white/70 flex items-center gap-1.5"><Gift className="w-3.5 h-3.5" />Obsequio de evangelización</span>
+            <button type="button" onClick={cerrar} className="w-8 h-8 rounded-xl bg-white/15 hover:bg-white/25 flex items-center justify-center" aria-label="Cerrar"><X className="w-4 h-4" /></button>
+          </div>
+          <h3 className="font-display font-bold text-lg leading-snug mt-1.5">{r.cliente || 'Venta'}</h3>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3">
+          {lista === null && <p className="text-xs text-slate-400 text-center py-6">Cargando…</p>}
+          {lista && !lista.length && <p className="text-xs text-slate-400 text-center py-6">Todavía no hay obsequios en el catálogo. Agrega el primero abajo.</p>}
+          {lista && lista.length > 0 && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {lista.map((o) => {
+                const repetido = yaEntregados.has(o.id), actual = r.obsequioId === o.id
+                return (
+                  <button type="button" key={o.id} disabled={guardando === o.id} onClick={() => elegir(o.id)}
+                    className={'rounded-xl border p-2 text-left relative' + (actual ? ' border-emerald-400' : ' border-slate-200 bg-white hover:border-slate-300')}
+                    style={actual ? { background: '#ecfdf5' } : undefined}>
+                    <div className="aspect-square rounded-lg bg-slate-100 overflow-hidden mb-1.5 flex items-center justify-center">
+                      {o.imagen_url ? <img src={imagen(o.imagen_url, 200)} alt="" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} /> : <Gift className="w-5 h-5 text-slate-300" />}
+                    </div>
+                    <p className="text-[11px] font-semibold text-slate-700 leading-snug line-clamp-2">{o.nombre}</p>
+                    {repetido && <span className="absolute top-1 right-1 text-[8.5px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: '#fef3c7', color: '#92400e' }}>Ya entregado</span>}
+                    {actual && <span className="absolute top-1 left-1 text-[8.5px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500 text-white">Actual</span>}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+          <div className="fi-sec">
+            <div className="fi-sec-h"><span className="fi-num" style={{ background: '#ec4899' }}><Plus className="w-3.5 h-3.5" /></span><div className="flex-1"><b>Agregar obsequio nuevo</b><small>Si el regalo no está en la lista</small></div></div>
+            <div className="grid grid-cols-1 gap-2">
+              <input type="text" value={nuevoNombre} onChange={(e) => setNuevoNombre(e.target.value)} placeholder="Nombre del obsequio *" className="fi-in" />
+              <input type="url" value={nuevoImagen} onChange={(e) => setNuevoImagen(e.target.value)} placeholder="Enlace de la foto (opcional)" className="fi-in" />
+              <button type="button" onClick={crear} disabled={creando || !nuevoNombre.trim()} className="pm-btn solid h-10 rounded-xl text-xs font-bold disabled:opacity-60" style={{ background: '#ec4899' }}>{creando ? 'Agregando…' : 'Agregar y asignar'}</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
