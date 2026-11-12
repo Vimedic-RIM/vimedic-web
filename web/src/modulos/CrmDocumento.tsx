@@ -268,24 +268,23 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
         empaqueCaja: caja, empaqueArmado: armado, empaqueStretch: stretch, cartaGarantia: garantia, flete, fletePaga,
       }
       const redondo = (n: number) => Math.round(n * 100) / 100
-      // El código de la venta puede coincidir con una factura ya migrada o ya enviada antes
-      // (comparten el mismo código): se actualiza esa fila en vez de intentar duplicarla, y si
-      // ya estaba Facturada no se toca — se avisa en vez de fallar en silencio.
-      const { data: facturaExistente, error: errBuscar } = await supabase.from('facturas').select('id,estado,numero_contifico').eq('codigo', codigo).is('deleted_at', null).maybeSingle()
-      if (errBuscar) { setError('No se pudo verificar Facturación: ' + errBuscar.message); setGuardando(false); return }
-      if (facturaExistente && facturaExistente.estado === 'Facturado') {
-        setError('Esta venta ya fue facturada antes' + (facturaExistente.numero_contifico ? ' (factura N.º ' + facturaExistente.numero_contifico + ')' : '') + '. Revísala en Facturación.')
+      // El insert/update en "facturas" no lo hace el navegador directo (su RLS solo deja escribir
+      // a quien tiene permiso del módulo Facturación): lo hace esta función con privilegios propios,
+      // igual que crearRegistroFacturacion_ en la app original. Ella decide si crea la fila o
+      // actualiza una ya existente con el mismo código (migrada o reenviada), y si ya estaba
+      // Facturada no la toca — avisa en vez de fallar en silencio.
+      const { data: rpcRes, error: errFact } = await supabase.rpc('enviar_venta_a_facturacion', {
+        p_codigo: codigo, p_empresa: empresa, p_cotizacion_id: id, p_cliente_id: cliente?.id ?? null,
+        p_identificacion: cliente?.identificacion ?? (lead.identificacion || null), p_asesor_id: asesorId || null,
+        p_medio: medio, p_observacion: nota.trim() || null, p_items: items, p_pago_entrega: pe,
+        p_subtotal: redondo(subtotal), p_iva: redondo(ivaTotal), p_total: redondo(total),
+      })
+      if (errFact) { setError('No se pudo enviar a Facturación: ' + errFact.message); setGuardando(false); return }
+      const resFact = rpcRes as { success: boolean; ya_facturado?: boolean; numero_contifico?: string } | null
+      if (resFact && resFact.ya_facturado) {
+        setError('Esta venta ya fue facturada antes' + (resFact.numero_contifico ? ' (factura N.º ' + resFact.numero_contifico + ')' : '') + '. Revísala en Facturación.')
         setGuardando(false); return
       }
-      const datosFactura = {
-        codigo, empresa, cliente_id: cliente?.id ?? null, identificacion: cliente?.identificacion ?? (lead.identificacion || null), cotizacion_id: id,
-        asesor_id: asesorId || null, estado: 'Pendiente', fecha_ganado: new Date().toISOString().slice(0, 10), medio_captacion_venta: medio, observacion: nota.trim() || null,
-        datos_completos: true, items, pago_entrega: pe, subtotal: redondo(subtotal), iva: redondo(ivaTotal), total: redondo(total), total_neto: redondo(total),
-      }
-      const { error: errFact } = facturaExistente
-        ? await supabase.from('facturas').update(datosFactura).eq('id', facturaExistente.id)
-        : await supabase.from('facturas').insert({ id: crypto.randomUUID(), ...datosFactura })
-      if (errFact) { setError('No se pudo enviar a Facturación: ' + errFact.message); setGuardando(false); return }
     }
     const codigoFinal = codigo
     id = ''; codigo = ''
