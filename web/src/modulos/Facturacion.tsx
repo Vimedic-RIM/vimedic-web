@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowDown, ArrowUp, BadgeCheck, Boxes, Building2, Clock, CreditCard, Download, Eye, FileCheck2, FilePenLine, FilePlus2, FileUp, Folder, Hash, History, Inbox,
-  Layers, Link2, List, Lock, Megaphone, Package, Printer, Receipt, ReceiptText, RefreshCw, Search, SlidersHorizontal, Truck, TriangleAlert, Upload, X,
+  Layers, Link2, List, Lock, Megaphone, Package, Plus, Printer, Receipt, ReceiptText, RefreshCw, Search, ShieldCheck, SlidersHorizontal, Trash2, Truck, TriangleAlert, Upload, X,
 } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
@@ -71,6 +71,7 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
   const [notasCredito, setNotasCredito] = useState<Fila | null>(null)
   const [guiaEnvio, setGuiaEnvio] = useState<Fila | null>(null)
   const [guiaDespacho, setGuiaDespacho] = useState<Fila | null>(null)
+  const [acta, setActa] = useState<Fila | null>(null)
   const filtrosRef = useRef<HTMLDivElement>(null)
   const peticion = useRef(0)
   const esPc = typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches
@@ -197,14 +198,14 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
       })
     }
     if (qa === 'verFactura' && r.facturaUrl) return abrir(r.facturaUrl)
-    if (qa === 'verActa' && r.actaUrl) return abrir(r.actaUrl)
+    if (qa === 'verActa' && r.actaUrl) return abrirDelBucket(r.actaUrl)
     if (qa === 'verGuiaEnvio' && r.guiaEnvioUrl) return abrirDelBucket(r.guiaEnvioUrl)
     if (qa === 'verGuiaDespacho' && r.guiaDespachoUrl) return abrirDelBucket(r.guiaDespachoUrl)
     if (qa === 'conformidad' && r.actaConformidadUrl) return abrir(r.actaConformidadUrl)
     if (qa === 'guiaEnvio') { setGuiaEnvio(r); return }
     if (qa === 'guiaDespacho') { setGuiaDespacho(r); return }
+    if (qa === 'acta') { setActa(r); return }
     if (qa === 'nc') { setNotasCredito(r); return }
-    aviso('Generar actas se está migrando: sigue disponible en la app actual.')
   }
 
   function exportarCsv() {
@@ -379,6 +380,7 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
       {notasCredito && <ModalNotasCredito r={notasCredito} cerrar={() => setNotasCredito(null)} aviso={aviso} />}
       {guiaEnvio && <ModalGuiaEnvio r={guiaEnvio} cerrar={() => setGuiaEnvio(null)} guardado={() => { setGuiaEnvio(null); aviso('Guía de envío generada.'); cargar(filtro); cargarStats(); setItems({}) }} />}
       {guiaDespacho && <ModalGuiaDespacho r={conItems(guiaDespacho) ?? guiaDespacho} cerrar={() => setGuiaDespacho(null)} aviso={aviso} guardado={() => { setGuiaDespacho(null); cargar(filtro); cargarStats(); setItems({}) }} />}
+      {acta && <ModalActaGarantia r={conItems(acta) ?? acta} cerrar={() => setActa(null)} aviso={aviso} guardado={() => { setActa(null); cargar(filtro); cargarStats(); setItems({}) }} />}
     </div>
   )
 }
@@ -1098,6 +1100,226 @@ function ModalGuiaDespacho({ r, cerrar, aviso, guardado }: { r: Fila; cerrar: ()
         <div className="shrink-0 border-t border-slate-200 bg-white p-4 flex items-center gap-2">
           <button type="button" onClick={cerrar} className="h-11 px-4 rounded-2xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50">Cancelar</button>
           <button type="button" onClick={generar} disabled={guardando || cargando || !desp} className="flex-1 h-11 rounded-2xl text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: '#c0392b' }}><Printer className="w-4 h-4" />{guardando ? 'Generando…' : 'Generar guía'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ============================ Acta de entrega / garantía ============================ */
+type EquipoActa = { key: string; codigo: string; nombre: string; cantidad: number; series: string[]; sinGarantia: boolean; extra: boolean }
+const equipoDesdeLinea = (it: Linea, i: number): EquipoActa => {
+  const cant = Math.max(1, Math.abs(it.cantidad) || 1)
+  return { key: 'L' + i, codigo: it.codigo || '', nombre: it.nombre, cantidad: cant, series: Array(cant).fill(''), sinGarantia: false, extra: false }
+}
+
+function ModalActaGarantia({ r, cerrar, aviso, guardado }: { r: Fila; cerrar: () => void; aviso: (t: string) => void; guardado: () => void }) {
+  const [equipos, setEquipos] = useState<EquipoActa[]>((r.items ?? []).map(equipoDesdeLinea))
+  const [cliente, setCliente] = useState({
+    nombre: r.cliente || '', ciudad: r.pe.ciudad || '', direccion: r.pe.direccionEnvio || r.pe.direccionEntregaLocal || '',
+    telefono: r.pe.telefonoDestinatario || r.pe.telefonoEntregaLocal || r.telefono || '', email: r.email || '',
+  })
+  const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10))
+  const [garantiaCant, setGarantiaCant] = useState('1')
+  const [garantiaUnidad, setGarantiaUnidad] = useState<'anios' | 'meses'>('anios')
+  const [mantObs, setMantObs] = useState<string[]>([])
+  const [anexo, setAnexo] = useState(false)
+  const [anexoManual, setAnexoManual] = useState(false)
+  const [nuevoNombre, setNuevoNombre] = useState('')
+  const [nuevoCodigo, setNuevoCodigo] = useState('')
+  const [nuevoCant, setNuevoCant] = useState('1')
+  const [error, setError] = useState('')
+  const [guardando, setGuardando] = useState(false)
+  useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') cerrar() }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [cerrar])
+
+  const meses = garantiaUnidad === 'anios' ? (Number(garantiaCant) || 0) * 12 : (Number(garantiaCant) || 0)
+  const nMant = Math.min(20, Math.floor(meses / 6))
+  useEffect(() => { setMantObs((prev) => Array.from({ length: nMant }, (_, i) => prev[i] || '')) }, [nMant])
+
+  const { reg, tot } = equipos.reduce((a, e) => ({ reg: a.reg + e.series.filter((s) => s.trim()).length, tot: a.tot + e.cantidad }), { reg: 0, tot: 0 })
+  useEffect(() => { if (!anexoManual) setAnexo(reg < tot) }, [reg, tot, anexoManual])
+  const conGarantia = equipos.filter((e) => !e.sinGarantia).length
+  const duracionTxt = meses > 0 ? (garantiaUnidad === 'anios' ? `${garantiaCant} año${Number(garantiaCant) === 1 ? '' : 's'}` : `${garantiaCant} mes${Number(garantiaCant) === 1 ? '' : 'es'}`) : ''
+
+  function setSerie(key: string, idx: number, v: string) {
+    setEquipos((es) => es.map((e) => (e.key === key ? { ...e, series: e.series.map((s, i) => (i === idx ? v : s)) } : e)))
+  }
+  function setSerieBulk(key: string, texto: string) {
+    const partes = texto.split(/\r?\n|,|;/).map((x) => x.trim()).filter(Boolean)
+    setEquipos((es) => es.map((e) => (e.key === key ? { ...e, series: Array.from({ length: e.cantidad }, (_, i) => partes[i] || '') } : e)))
+  }
+  function toggleSinGarantia(key: string) { setEquipos((es) => es.map((e) => (e.key === key ? { ...e, sinGarantia: !e.sinGarantia } : e))) }
+  function quitarEquipo(key: string) { setEquipos((es) => es.filter((e) => e.key !== key)) }
+  function agregarEquipo() {
+    const nombre = nuevoNombre.trim()
+    const cant = Math.max(1, Math.min(999, parseInt(nuevoCant, 10) || 1))
+    if (!nombre) return
+    if (equipos.filter((e) => e.extra).length >= 30) { aviso('Puedes añadir hasta 30 equipos adicionales al acta.'); return }
+    setEquipos((es) => [...es, { key: 'X' + Date.now(), codigo: nuevoCodigo.trim(), nombre, cantidad: cant, series: Array(cant).fill(''), sinGarantia: false, extra: true }])
+    setNuevoNombre(''); setNuevoCodigo(''); setNuevoCant('1')
+  }
+
+  async function generar() {
+    setError('')
+    if (!cliente.nombre.trim()) { setError('Indica el nombre del cliente.'); return }
+    if (!equipos.length) { setError('Añade al menos un equipo al acta.'); return }
+    const cantN = Number(garantiaCant)
+    if (!Number.isFinite(cantN) || cantN < 0 || (garantiaUnidad === 'anios' && cantN > 10) || (garantiaUnidad === 'meses' && cantN > 120)) {
+      setError('La garantía debe ser de 0 a 10 años (o de 0 a 120 meses).'); return
+    }
+    setGuardando(true)
+    try {
+      const esc = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      const marca = r.empresa === 'FEMEDICS' ? 'FEMEDICS' : 'VIMEDIC'
+      const numeroActa = 'ACT-' + (r.numeroFactura || r.id).replace(/[^\w-]+/g, '')
+      const filasEquipos = equipos.map((e) => {
+        const seriesTxt = e.series.filter((s) => s.trim()).join(', ') || (e.cantidad > 1 ? '(ver anexo)' : '—')
+        return `<tr>
+          <td style="padding:6px;border-bottom:1px solid #e2e8f0;font-family:monospace;font-size:10px">${esc(e.codigo)}</td>
+          <td style="padding:6px;border-bottom:1px solid #e2e8f0">${esc(e.nombre)}</td>
+          <td style="padding:6px;border-bottom:1px solid #e2e8f0;text-align:center">${e.cantidad}</td>
+          <td style="padding:6px;border-bottom:1px solid #e2e8f0;font-size:10.5px">${esc(seriesTxt)}</td>
+          <td style="padding:6px;border-bottom:1px solid #e2e8f0;text-align:center">${e.sinGarantia ? 'Sin garantía' : duracionTxt || '—'}</td>
+        </tr>`
+      }).join('')
+      const anexoHtml = anexo ? `<div style="page-break-before:always">
+          <h3 style="font-size:13px;color:#0b2545">Anexo de números de serie</h3>
+          ${equipos.map((e) => `<p style="font-size:11px;margin:6px 0"><b>${esc(e.codigo)} · ${esc(e.nombre)}</b><br>${e.series.map((s, i) => `${i + 1}. ${esc(s) || '—'}`).join(' &nbsp; ')}</p>`).join('')}
+        </div>` : ''
+      const mantHtml = nMant > 0 ? `<h3 style="font-size:13px;color:#0b2545;margin-top:18px">Plan de mantenimiento preventivo</h3>
+        <table style="width:100%;border-collapse:collapse;margin:8px 0">
+          <thead><tr style="background:#0b2545;color:#fff"><th style="padding:6px;text-align:left">Mantenimiento</th><th style="padding:6px;text-align:left">Observación</th></tr></thead>
+          <tbody>${mantObs.map((o, i) => `<tr><td style="padding:6px;border-bottom:1px solid #e2e8f0">Mantenimiento ${i + 1} (mes ${(i + 1) * 6})</td><td style="padding:6px;border-bottom:1px solid #e2e8f0">${esc(o)}</td></tr>`).join('')}</tbody>
+        </table>` : ''
+      const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Acta de entrega ${esc(numeroActa)}</title>
+        <style>@page{size:A4;margin:14mm}html{background:#e2e8f0}body{font-family:Arial,sans-serif;color:#0b2545;font-size:13px;margin:0 auto;padding:14mm;width:210mm;min-height:297mm;box-sizing:border-box;background:#fff;box-shadow:0 0 0 1px #cbd5e1}@media print{html{background:#fff}body{width:auto;min-height:0;margin:0;padding:0;box-shadow:none}}</style></head>
+        <body>
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #055c9d;padding-bottom:10px;margin-bottom:14px">
+            <div><b style="font-size:22px;color:#055c9d">${marca}</b><br><span style="font-size:13px;font-weight:bold">ACTA DE ENTREGA Y GARANTÍA</span></div>
+            <div style="text-align:right;font-size:11px"><b>${esc(numeroActa)}</b><br>${esc(new Date(fecha + 'T00:00:00').toLocaleDateString('es-EC'))}</div>
+          </div>
+          <p><b>Factura:</b> ${esc(r.numeroFactura || '—')} &nbsp; <b>Asesor comercial:</b> ${esc(r.asesor)}</p>
+          <p><b>Cliente:</b> ${esc(cliente.nombre)} &nbsp; <b>C.I./RUC:</b> ${esc(r.identificacion)}</p>
+          <p><b>Ciudad:</b> ${esc(cliente.ciudad) || '—'} &nbsp; <b>Dirección:</b> ${esc(cliente.direccion) || '—'}</p>
+          <p><b>Teléfono:</b> ${esc(cliente.telefono) || '—'} &nbsp; <b>Email:</b> ${esc(cliente.email) || '—'}</p>
+          <table style="width:100%;border-collapse:collapse;margin:14px 0">
+            <thead><tr style="background:#0b2545;color:#fff"><th style="padding:6px;text-align:left">Código</th><th style="padding:6px;text-align:left">Equipo</th><th style="padding:6px;text-align:center">Cant.</th><th style="padding:6px;text-align:left">N° de serie</th><th style="padding:6px;text-align:center">Garantía</th></tr></thead>
+            <tbody>${filasEquipos}</tbody>
+          </table>
+          <p style="margin-top:10px">${duracionTxt ? `Se entrega <b>Carta de Garantía de ${esc(duracionTxt)}</b> para ${conGarantia} equipo(s), con firma electrónica de la empresa.` : 'Sin garantía: esta acta es de entera satisfacción.'} El cliente declara recibir los equipos arriba descritos a su entera satisfacción, en buen estado y funcionamiento.</p>
+          ${mantHtml}
+          <div style="display:flex;justify-content:space-between;margin-top:48px;font-size:11px">
+            <div style="width:45%;text-align:center;border-top:1px solid #94a3b8;padding-top:4px">${esc(cliente.nombre)}<br>Cliente (recibí conforme)</div>
+            <div style="width:45%;text-align:center;border-top:1px solid #94a3b8;padding-top:4px">${esc(marca)}<br>Firma electrónica de la empresa</div>
+          </div>
+          <p style="margin-top:18px;font-size:9px;color:#64748b;text-align:center">${esc(numeroActa)}</p>
+          ${anexoHtml}
+        </body></html>`
+
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+      const ruta = 'guias/' + numeroActa + '-' + Date.now() + '.html'
+      const { error: errSubir } = await supabase.storage.from('despachos').upload(ruta, blob, { contentType: 'text/html', upsert: true })
+      if (errSubir) { setError('No se pudo guardar el acta: ' + errSubir.message); setGuardando(false); return }
+      window.open(URL.createObjectURL(blob), '_blank', 'noopener')
+
+      const acta_datos = { cliente, fecha, garantiaCant: cantN, garantiaUnidad, anexo, mantObs, equipos: equipos.map((e) => ({ codigo: e.codigo, nombre: e.nombre, cantidad: e.cantidad, series: e.series, sinGarantia: e.sinGarantia, extra: e.extra })) }
+      const { error: errUpd } = await supabase.from('facturas').update({ acta_garantia_url: ruta, acta_datos }).eq('id', r.uuid)
+      if (errUpd) { setError('Acta generada, pero no se pudo guardar el enlace: ' + errUpd.message); setGuardando(false); return }
+
+      await supabase.rpc('registrar_bitacora', { p_modulo: 'facturacion', p_accion: 'generar_acta', p_factura: r.uuid, p_comentario: 'Acta ' + numeroActa + ' generada.' })
+      aviso('Acta ' + numeroActa + ' generada.')
+      guardado()
+    } catch (e) {
+      setError('No se pudo generar el acta: ' + (e as Error).message)
+      setGuardando(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-[2px] z-[60] flex items-center justify-center p-0 sm:p-4 overlay" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
+      <div className="modal-panel bg-[#f6f9fc] sm:rounded-3xl shadow-2xl w-full h-full sm:h-auto sm:max-w-2xl sm:max-h-[92vh] flex flex-col overflow-hidden">
+        <div className="shrink-0 px-5 py-4 text-white" style={{ background: 'linear-gradient(135deg,var(--navy),var(--primary))' }}>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-white/70 flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5" />Acta de entrega / garantía</span>
+            <button type="button" onClick={cerrar} className="w-8 h-8 rounded-xl bg-white/15 hover:bg-white/25 flex items-center justify-center" aria-label="Cerrar"><X className="w-4 h-4" /></button>
+          </div>
+          <h3 className="font-display font-bold text-lg leading-snug mt-1.5">{r.cliente || 'Venta'}</h3>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3">
+          <div className="fi-sec">
+            <div className="fi-sec-h"><span className="fi-num" style={{ background: '#94a3b8' }}><Lock className="w-3.5 h-3.5" /></span><div className="flex-1"><b>Datos del sistema</b><small>Bloqueados, vienen de la factura</small></div></div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              <div className="fi-ro"><small>Factura</small><b>{r.numeroFactura || '—'}</b></div>
+              <div className="fi-ro"><small>C.I./RUC</small><b>{r.identificacion || '—'}</b></div>
+              <div className="fi-ro"><small>Asesor</small><b>{r.asesor || '—'}</b></div>
+            </div>
+          </div>
+
+          <div className="fi-sec">
+            <div className="fi-sec-h"><span className="fi-num" style={{ background: '#04896f' }}>1</span><div className="flex-1"><b>Datos del cliente</b><small>Puedes corregirlos antes de generar</small></div></div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <input type="text" value={cliente.nombre} onChange={(e) => setCliente((c) => ({ ...c, nombre: e.target.value }))} placeholder="Nombre del cliente *" className="fi-in sm:col-span-2" />
+              <input type="text" value={cliente.ciudad} onChange={(e) => setCliente((c) => ({ ...c, ciudad: e.target.value }))} placeholder="Ciudad" className="fi-in" />
+              <input type="text" value={cliente.telefono} onChange={(e) => setCliente((c) => ({ ...c, telefono: e.target.value }))} placeholder="Teléfono" className="fi-in" />
+              <input type="text" value={cliente.direccion} onChange={(e) => setCliente((c) => ({ ...c, direccion: e.target.value }))} placeholder="Dirección" className="fi-in sm:col-span-2" />
+              <input type="email" value={cliente.email} onChange={(e) => setCliente((c) => ({ ...c, email: e.target.value }))} placeholder="Email" className="fi-in sm:col-span-2" />
+              <label className="fi-lab">Fecha del acta<input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className="fi-in" /></label>
+            </div>
+          </div>
+
+          <div className="fi-sec">
+            <div className="fi-sec-h"><span className="fi-num" style={{ background: '#04896f' }}>2</span><div className="flex-1"><b>Garantía</b><small>{reg} / {tot} series registradas</small></div></div>
+            <div className="grid grid-cols-2 gap-2">
+              <input type="number" min="0" max={garantiaUnidad === 'anios' ? 10 : 120} value={garantiaCant} onChange={(e) => setGarantiaCant(e.target.value)} className="fi-in" />
+              <select value={garantiaUnidad} onChange={(e) => setGarantiaUnidad(e.target.value as 'anios' | 'meses')} className="fi-in"><option value="anios">Años</option><option value="meses">Meses</option></select>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-2">{duracionTxt ? `Se entrega Carta de Garantía de ${duracionTxt} para ${conGarantia} equipo(s), con firma electrónica de la empresa.` : 'Sin garantía: el acta queda solo de entera satisfacción.'}</p>
+            {nMant > 0 && (
+              <div className="mt-2 space-y-1.5">
+                <p className="text-[11px] font-semibold text-slate-600">Plan de mantenimiento ({nMant} visita{nMant === 1 ? '' : 's'})</p>
+                {mantObs.map((o, i) => (
+                  <input key={i} type="text" value={o} onChange={(e) => setMantObs((m) => m.map((x, idx) => (idx === i ? e.target.value : x)))} placeholder={`Mantenimiento ${i + 1} (mes ${(i + 1) * 6}) · observación opcional`} className="fi-in" />
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="fi-sec">
+            <div className="fi-sec-h"><span className="fi-num" style={{ background: '#04896f' }}>3</span><div className="flex-1"><b>Equipos y números de serie</b><small>Cantidad bloqueada · agrega las series que tengas</small></div></div>
+            <div className="space-y-2">
+              {equipos.map((e) => (
+                <div key={e.key} className="fi-item">
+                  <div className="flex items-center gap-2">
+                    {e.codigo && <span className="font-mono-spec text-[10px] text-slate-400 flex items-center gap-1"><Lock className="w-2.5 h-2.5" />{e.codigo}</span>}
+                    <span className="text-xs font-semibold text-slate-700 truncate flex-1">{e.nombre}</span>
+                    <span className="text-xs font-bold text-slate-500">× {e.cantidad}</span>
+                    {e.extra && <button type="button" onClick={() => quitarEquipo(e.key)} className="w-6 h-6 rounded-lg text-red-500 hover:bg-red-50 flex items-center justify-center shrink-0" title="Quitar"><Trash2 className="w-3.5 h-3.5" /></button>}
+                  </div>
+                  <label className="flex items-center gap-1.5 text-[10.5px] font-semibold text-slate-500 mt-1.5"><input type="checkbox" checked={e.sinGarantia} onChange={() => toggleSinGarantia(e.key)} className="w-3.5 h-3.5" /> Sin garantía</label>
+                  {e.cantidad <= 12
+                    ? <div className="grid gap-1.5 mt-1.5" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(110px,1fr))' }}>
+                        {e.series.map((s, i) => <input key={i} type="text" value={s} onChange={(ev) => setSerie(e.key, i, ev.target.value)} placeholder={`Serie ${i + 1}`} className={'fi-in !mt-0' + (s.trim() ? ' lk-ok' : '')} />)}
+                      </div>
+                    : <textarea value={e.series.join('\n')} onChange={(ev) => setSerieBulk(e.key, ev.target.value)} placeholder={`Una serie por línea (${e.cantidad} unidades)`} rows={4} className="fi-in mt-1.5" />}
+                </div>
+              ))}
+              {!equipos.length && <p className="text-xs text-slate-400 text-center py-2">Sin equipos en la factura.</p>}
+            </div>
+            <div className="mt-2 grid grid-cols-[1fr_90px_70px_auto] gap-1.5 items-center">
+              <input type="text" value={nuevoNombre} onChange={(e) => setNuevoNombre(e.target.value)} placeholder="Añadir otro equipo…" className="fi-in !mt-0" />
+              <input type="text" value={nuevoCodigo} onChange={(e) => setNuevoCodigo(e.target.value)} placeholder="Código" className="fi-in !mt-0" />
+              <input type="number" min="1" max="999" value={nuevoCant} onChange={(e) => setNuevoCant(e.target.value)} className="fi-in !mt-0" />
+              <button type="button" onClick={agregarEquipo} className="h-[34px] px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center gap-1 text-[11px] font-bold shrink-0"><Plus className="w-3.5 h-3.5" />Añadir</button>
+            </div>
+            <label className="flex items-center gap-1.5 text-[10.5px] font-semibold text-slate-500 mt-2">
+              <input type="checkbox" checked={anexo} onChange={(e) => { setAnexo(e.target.checked); setAnexoManual(true) }} className="w-3.5 h-3.5" /> Incluir anexo de números de serie
+            </label>
+          </div>
+          {error && <p className="fi-err">{error}</p>}
+        </div>
+        <div className="shrink-0 border-t border-slate-200 bg-white p-4 flex items-center gap-2">
+          <button type="button" onClick={cerrar} className="h-11 px-4 rounded-2xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50">Cancelar</button>
+          <button type="button" onClick={generar} disabled={guardando} className="flex-1 h-11 rounded-2xl text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: '#04896f' }}><Printer className="w-4 h-4" />{guardando ? 'Generando…' : 'Generar acta'}</button>
         </div>
       </div>
     </div>
