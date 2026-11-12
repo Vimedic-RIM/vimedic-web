@@ -154,6 +154,7 @@ export function Promociones({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
   const [abierta, setAbierta] = useState<Camp | null>(null)
   const [nueva, setNueva] = useState(false)
   const crear = puede(perfil, 'marketing', 'crear'), aprobar = puede(perfil, 'marketing', 'aprobar')
+  const puedeEliminar = puede(perfil, 'marketing', 'eliminar') || puede(perfil, 'promociones', 'eliminar')
   const cargar = useCallback(() => {
     supabase.from('promo_campanas').select('id,codigo,nombre,inicio,fin,estado,items,combos,preventa,comentario,historial').is('deleted_at', null).order('inicio', { ascending: false }).limit(200)
       .then(({ data, error }) => { if (error) setError(error.message); else { setError(''); setLista((data as unknown as Camp[]) ?? []) } })
@@ -168,6 +169,12 @@ export function Promociones({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
     if (error) { aviso('No se pudo guardar: ' + error.message); return }
     aviso('Campaña: ' + estado.toLowerCase() + '.'); setAbierta(null); cargar()
   }
+  async function eliminar(c: Camp) {
+    if (!confirm(`¿Eliminar "${c.nombre}" (${c.codigo})? No se podrá deshacer desde aquí.`)) return
+    const { error } = await supabase.from('promo_campanas').update({ deleted_at: new Date().toISOString() }).eq('id', c.id)
+    if (error) { aviso('No se pudo eliminar: ' + error.message); return }
+    aviso('Campaña eliminada.'); setAbierta(null); cargar()
+  }
   if (error) return <div className="card p-6 text-sm text-amber-800 bg-amber-50 border-amber-200">{error}</div>
   if (!lista) return <p className="text-xs text-slate-400">Cargando…</p>
   return (
@@ -177,14 +184,15 @@ export function Promociones({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
       {!lista.length && <div className="card p-10 text-center text-sm text-slate-400">No hay campañas. Crea la primera (por ejemplo, Black Friday).</div>}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
         {lista.map((c) => { const [col, bg] = COLOR_P[c.estado] ?? COLOR_P.Borrador; return (
-          <article key={c.id} className="card p-4 cursor-pointer hover:shadow-md" onClick={() => setAbierta(c)}>
-            <div className="flex items-center gap-2"><BadgePercent className="w-4 h-4 text-[var(--amber)]" /><span className="font-mono-spec text-[11px] text-slate-400">{c.codigo}</span><span className="pill ml-auto" style={{ background: bg, color: col }}>{c.estado}</span></div>
+          <article key={c.id} className="card p-4 cursor-pointer hover:shadow-md relative" onClick={() => setAbierta(c)}>
+            {puedeEliminar && <button type="button" title="Eliminar campaña" className="absolute top-3 right-3 w-6 h-6 rounded-lg grid place-items-center text-slate-300 hover:text-red-600 hover:bg-red-50" onClick={(e) => { e.stopPropagation(); eliminar(c) }}><Trash2 className="w-3.5 h-3.5" /></button>}
+            <div className="flex items-center gap-2 pr-7"><BadgePercent className="w-4 h-4 text-[var(--amber)]" /><span className="font-mono-spec text-[11px] text-slate-400">{c.codigo}</span><span className="pill ml-auto" style={{ background: bg, color: col }}>{c.estado}</span></div>
             <p className="text-sm font-bold text-slate-800 mt-1.5">{c.nombre}</p>
             <p className="text-[11px] text-slate-500 mt-1">{fecha(c.inicio)} → {fecha(c.fin)}{c.preventa ? ' · Preventa' : ''}</p>
             <p className="text-[11px] text-slate-400">{(c.items ?? []).length} producto{(c.items ?? []).length === 1 ? '' : 's'} · {(c.combos ?? []).length} combo{(c.combos ?? []).length === 1 ? '' : 's'}</p>
           </article>) })}
       </div>
-      {abierta && <DetalleCampana c={abierta} perfil={perfil} aprobar={aprobar} editar={crear} cerrar={() => setAbierta(null)} mover={mover} />}
+      {abierta && <DetalleCampana c={abierta} perfil={perfil} aprobar={aprobar} editar={crear} puedeEliminar={puedeEliminar} cerrar={() => setAbierta(null)} mover={mover} eliminar={eliminar} />}
       {nueva && <NuevaCampana perfil={perfil} cerrar={() => setNueva(false)} hecho={() => { setNueva(false); cargar(); aviso('Campaña creada.') }} aviso={aviso} />}
     </section>
   )
@@ -196,7 +204,7 @@ const ORDENES_PROMO: [string, string][] = [
   ['pvp', 'PVP (mayor a menor)'], ['margen', 'Margen (mayor a menor)'], ['nombre', 'Nombre (A-Z)'],
 ]
 
-function DetalleCampana({ c, perfil, aprobar, editar, cerrar, mover }: { c: Camp; perfil: Perfil; aprobar: boolean; editar: boolean; cerrar: () => void; mover: (c: Camp, estado: string, comentario?: string) => void }) {
+function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mover, eliminar }: { c: Camp; perfil: Perfil; aprobar: boolean; editar: boolean; puedeEliminar: boolean; cerrar: () => void; mover: (c: Camp, estado: string, comentario?: string) => void; eliminar: (c: Camp) => void }) {
   const [com, setCom] = useState('')
   const verCostos = puede(perfil, 'promociones', 'ver_costos') || puede(perfil, 'ofertas', 'ver_costos')
   const [prods, setProds] = useState<ProdPromo[] | null>(null)
@@ -292,7 +300,8 @@ function DetalleCampana({ c, perfil, aprobar, editar, cerrar, mover }: { c: Camp
         <button className="btn" style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => mover(c, 'Rechazada', com.trim())}>Rechazar</button>
         <button className="btn" onClick={() => { if (!com.trim()) { alert('Escribe qué se debe corregir.'); return } mover(c, 'Devuelta', com.trim()) }}>Devolver</button>
         <button className="btn btn-primary" onClick={() => mover(c, 'Aprobada', com.trim())}><Check />Aprobar</button></>}
-      {editar && ['Aprobada', 'Borrador'].includes(c.estado) && <button className="btn ml-auto" style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => { if (confirm('¿Cancelar esta campaña?')) mover(c, 'Cancelada') }}><Trash2 />Cancelar campaña</button>}</>}>
+      {editar && ['Aprobada', 'Borrador'].includes(c.estado) && <button className={'btn' + (puedeEliminar ? '' : ' ml-auto')} style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => { if (confirm('¿Cancelar esta campaña?')) mover(c, 'Cancelada') }}><X />Cancelar campaña</button>}
+      {puedeEliminar && <button className="btn ml-auto" style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => eliminar(c)}><Trash2 />Eliminar</button>}</>}>
       <p className="text-[11px] text-slate-500">{c.codigo} · {fecha(c.inicio)} → {fecha(c.fin)}{c.preventa ? ' · Preventa' : ''} · <b>{c.estado}</b></p>
       {c.comentario && <p className="text-xs rounded-lg p-2.5 bg-amber-50 text-amber-800">Comentario: {c.comentario}</p>}
       {aprobar && c.estado === 'En aprobación' && <textarea className="inp w-full" rows={2} placeholder="Comentario para quien envió la campaña" value={com} onChange={(e) => setCom(e.target.value)} />}
