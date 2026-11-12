@@ -60,7 +60,8 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
   const [f, setF] = useState<Filtros>(FILTROS0)
   const [panelFiltros, setPanelFiltros] = useState(false)
   const [orden, setOrden] = useState<{ k: string; d: number; tocado?: boolean }>({ k: 'fecha', d: -1 })
-  const [pagina, setPagina] = useState(1)
+  const [limite, setLimite] = useState(PAGE_SIZE)
+  const centinela = useRef<HTMLDivElement>(null)
   const [selId, setSelId] = useState<string | null>(null)
   const [stats, setStats] = useState({ facturados: 0, pendientes: 0, guias: 0, actas: 0, notas: 0 })
   const [statsListas, setStatsListas] = useState(false)
@@ -150,9 +151,7 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
     if (f.agrupar === 'mes') { const ts = fechaTs(r); if (!ts) return 'Sin fecha'; const dd = new Date(ts); return MESES[dd.getMonth()] + ' ' + dd.getFullYear() }
     return ''
   }
-  const totalPaginas = Math.max(1, Math.ceil(visibles.length / PAGE_SIZE))
-  const pag = Math.min(Math.max(1, pagina), totalPaginas)
-  const pagina_ = visibles.slice((pag - 1) * PAGE_SIZE, pag * PAGE_SIZE)
+  const pagina_ = visibles.slice(0, limite)
 
   /* Productos de la fila seleccionada (se piden al seleccionar, como el original) */
   const [items, setItems] = useState<Record<string, Fila>>({})
@@ -226,7 +225,7 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
       <span className="ic"><Icon /></span><div className="min-w-0"><b>{val}</b><small>{lab}</small></div>
     </div>
   )
-  const irChip = (k: string) => { setFiltro('ALL'); setF((x) => ({ ...x, chips: { ...x.chips, [k]: !x.chips[k] } })); setPagina(1) }
+  const irChip = (k: string) => { setFiltro('ALL'); setF((x) => ({ ...x, chips: { ...x.chips, [k]: !x.chips[k] } })); setLimite(PAGE_SIZE) }
 
   const fila = (r: Fila) => {
     const ts = fechaTs(r), monto = totalFila(r)
@@ -276,9 +275,14 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
     ))
   }
 
-  const nums: (number | '…')[] = []
-  for (let i = 1; i <= totalPaginas; i++) { if (i === 1 || i === totalPaginas || Math.abs(i - pag) <= 1) nums.push(i); else if (nums[nums.length - 1] !== '…') nums.push('…') }
-  const pg = (lbl: React.ReactNode, to: number, on: boolean, dis: boolean) => <button type="button" key={String(lbl) + to} className={'fx-pg' + (on ? ' on' : '')} disabled={dis} onClick={() => { setPagina(to); document.getElementById('fx-lista')?.scrollIntoView({ block: 'start', behavior: 'smooth' }) }}>{lbl}</button>
+  // Scroll infinito: al acercarse al final de la lista ya cargada, se revela más.
+  useEffect(() => {
+    const el = centinela.current
+    if (!el) return
+    const obs = new IntersectionObserver((entradas) => { if (entradas[0]?.isIntersecting) setLimite((l) => l + PAGE_SIZE) }, { rootMargin: '600px' })
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [visibles.length])
 
   return (
     <div className="vm-fact">
@@ -290,7 +294,7 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
           </div>
           <div className="order-3 lg:order-2 w-full lg:w-auto flex items-center gap-2 pb-1 lg:pb-0">
             <div className="relative flex-1 lg:flex-none">
-              <input type="text" value={buscar} onChange={(e) => { setBuscar(e.target.value); setPagina(1) }} placeholder="Buscar cliente, RUC, asesor, factura..." autoComplete="off"
+              <input type="text" value={buscar} onChange={(e) => { setBuscar(e.target.value); setLimite(PAGE_SIZE) }} placeholder="Buscar cliente, RUC, asesor, factura..." autoComplete="off"
                 className="w-full lg:w-64 xl:w-80 pl-8 pr-3 py-2 rounded-lg bg-white/10 text-white placeholder:text-white/55 text-xs focus:outline-none focus:ring-2 focus:ring-white/40" />
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-white/60" />
             </div>
@@ -301,17 +305,17 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
               </button>
               {panelFiltros && (
                 <div className="absolute left-0 top-full mt-2 z-[90] w-[320px] max-w-[calc(100vw-24px)] bg-white rounded-2xl shadow-2xl border border-slate-100 p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
-                  <div className="flex items-center justify-between"><p className="text-xs font-bold text-slate-800">Filtros y agrupación</p><button type="button" className="text-[11px] font-bold" style={{ color: 'var(--primary)' }} onClick={() => { setF(FILTROS0); setPagina(1) }}>Limpiar</button></div>
+                  <div className="flex items-center justify-between"><p className="text-xs font-bold text-slate-800">Filtros y agrupación</p><button type="button" className="text-[11px] font-bold" style={{ color: 'var(--primary)' }} onClick={() => { setF(FILTROS0); setLimite(PAGE_SIZE) }}>Limpiar</button></div>
                   <div className="grid grid-cols-2 gap-2">
-                    <label className="fx-lab">Asesor<select className="fx-in" value={f.asesor} onChange={(e) => { setF({ ...f, asesor: e.target.value }); setPagina(1) }}><option value="">Todos</option>{asesores.map((a) => <option key={a}>{a}</option>)}</select></label>
-                    <label className="fx-lab">Medio<select className="fx-in" value={f.medio} onChange={(e) => { setF({ ...f, medio: e.target.value }); setPagina(1) }}><option value="">Todos</option>{medios.map((a) => <option key={a}>{a}</option>)}</select></label>
-                    <label className="fx-lab">Desde<input type="date" className="fx-in" value={f.desde} onChange={(e) => { setF({ ...f, desde: e.target.value }); setPagina(1) }} /></label>
-                    <label className="fx-lab">Hasta<input type="date" className="fx-in" value={f.hasta} onChange={(e) => { setF({ ...f, hasta: e.target.value }); setPagina(1) }} /></label>
+                    <label className="fx-lab">Asesor<select className="fx-in" value={f.asesor} onChange={(e) => { setF({ ...f, asesor: e.target.value }); setLimite(PAGE_SIZE) }}><option value="">Todos</option>{asesores.map((a) => <option key={a}>{a}</option>)}</select></label>
+                    <label className="fx-lab">Medio<select className="fx-in" value={f.medio} onChange={(e) => { setF({ ...f, medio: e.target.value }); setLimite(PAGE_SIZE) }}><option value="">Todos</option>{medios.map((a) => <option key={a}>{a}</option>)}</select></label>
+                    <label className="fx-lab">Desde<input type="date" className="fx-in" value={f.desde} onChange={(e) => { setF({ ...f, desde: e.target.value }); setLimite(PAGE_SIZE) }} /></label>
+                    <label className="fx-lab">Hasta<input type="date" className="fx-in" value={f.hasta} onChange={(e) => { setF({ ...f, hasta: e.target.value }); setLimite(PAGE_SIZE) }} /></label>
                   </div>
                   <div><p className="fx-lab mb-1.5">Mostrar solo</p>
-                    <div className="flex flex-wrap gap-1.5">{Object.entries(NOMBRES_CHIP).map(([k, t]) => <button key={k} type="button" className={'fx-chip' + (f.chips[k] ? ' active' : '')} onClick={() => { setF({ ...f, chips: { ...f.chips, [k]: !f.chips[k] } }); setPagina(1) }}>{t}</button>)}</div></div>
+                    <div className="flex flex-wrap gap-1.5">{Object.entries(NOMBRES_CHIP).map(([k, t]) => <button key={k} type="button" className={'fx-chip' + (f.chips[k] ? ' active' : '')} onClick={() => { setF({ ...f, chips: { ...f.chips, [k]: !f.chips[k] } }); setLimite(PAGE_SIZE) }}>{t}</button>)}</div></div>
                   <label className="fx-lab">Agrupar por
-                    <select className="fx-in" value={f.agrupar} onChange={(e) => { setF({ ...f, agrupar: e.target.value }); setPagina(1) }}>
+                    <select className="fx-in" value={f.agrupar} onChange={(e) => { setF({ ...f, agrupar: e.target.value }); setLimite(PAGE_SIZE) }}>
                       <option value="">Sin agrupar</option><option value="asesor">Asesor</option><option value="mes">Mes</option><option value="medio">Medio de captación</option><option value="estado">Estado</option><option value="cliente">Cliente</option>
                     </select></label>
                 </div>
@@ -329,8 +333,8 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
       <main className="w-full px-3 sm:px-5 py-4">
         <div className="flex items-center gap-2 flex-wrap mb-3">
           <div className="fx-seg">
-            <button className={'tab' + (filtro === 'Pendiente' ? ' active' : '')} type="button" onClick={() => { setFiltro('Pendiente'); setPagina(1); setBuscar('') }}><Clock />Pendientes<span className="fx-n">{stats.pendientes}</span></button>
-            <button className={'tab' + (filtro === 'ALL' ? ' active' : '')} type="button" onClick={() => { setFiltro('ALL'); setPagina(1); setBuscar('') }}><Layers />Todos<span className="fx-n">{stats.pendientes + stats.facturados}</span></button>
+            <button className={'tab' + (filtro === 'Pendiente' ? ' active' : '')} type="button" onClick={() => { setFiltro('Pendiente'); setLimite(PAGE_SIZE); setBuscar('') }}><Clock />Pendientes<span className="fx-n">{stats.pendientes}</span></button>
+            <button className={'tab' + (filtro === 'ALL' ? ' active' : '')} type="button" onClick={() => { setFiltro('ALL'); setLimite(PAGE_SIZE); setBuscar('') }}><Layers />Todos<span className="fx-n">{stats.pendientes + stats.facturados}</span></button>
           </div>
           <div className="flex items-center gap-1.5 flex-wrap">
             {f.asesor && <span className="fx-pill-f">Asesor: {f.asesor}<button type="button" aria-label="Quitar" onClick={() => setF({ ...f, asesor: '' })}>×</button></span>}
@@ -343,8 +347,8 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 mb-3">
-          {kpi(Receipt, '#055c9d', '#eaf3fb', stats.facturados, 'Facturas totales', () => { setFiltro('ALL'); setPagina(1) })}
-          {kpi(Clock, '#c98a1f', '#fff5e6', stats.pendientes, 'Pendientes por facturar', () => { setFiltro('Pendiente'); setPagina(1) })}
+          {kpi(Receipt, '#055c9d', '#eaf3fb', stats.facturados, 'Facturas totales', () => { setFiltro('ALL'); setLimite(PAGE_SIZE) })}
+          {kpi(Clock, '#c98a1f', '#fff5e6', stats.pendientes, 'Pendientes por facturar', () => { setFiltro('Pendiente'); setLimite(PAGE_SIZE) })}
           {kpi(Boxes, '#c0392b', '#fdecea', stats.guias, 'Guías pendientes', () => irChip('guia'))}
           {kpi(FileCheck2, '#04896f', '#e7f6f2', stats.actas, 'Actas pendientes', () => irChip('sinActa'))}
           {kpi(ReceiptText, '#7c3aed', '#f3eefe', stats.notas, 'Notas de crédito')}
@@ -358,12 +362,12 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
               <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 text-right"><span className="fx-act-lbl">Acción</span></span>
             </div>
             <div>{cuerpoLista()}</div>
-            {visibles.length > PAGE_SIZE && (
+            {visibles.length > 0 && (
               <div className="fx-pager">
-                <span className="fx-pg-info">{(pag - 1) * PAGE_SIZE + 1}–{Math.min(visibles.length, pag * PAGE_SIZE)} de {visibles.length}</span>
-                <div className="fx-pg-n">{pg('‹', pag - 1, false, pag <= 1)}{nums.map((x, i) => (x === '…' ? <span key={'g' + i} className="fx-pg-gap">…</span> : pg(x, x, x === pag, false)))}{pg('›', pag + 1, false, pag >= totalPaginas)}</div>
+                <span className="fx-pg-info">{Math.min(visibles.length, limite)} de {visibles.length}</span>
               </div>
             )}
+            {visibles.length > limite && <div ref={centinela} className="py-6 text-center text-[11px] text-slate-400">Cargando más facturas…</div>}
           </div>
           <aside className="fx-side">{PanelLateral(conItems(sel), accion, imgPorCodigo)}</aside>
         </div>
