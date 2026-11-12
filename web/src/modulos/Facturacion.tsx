@@ -166,6 +166,20 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
   useEffect(() => { if (sel) cargarItems(sel) }, [sel, cargarItems])
   const conItems = (r: Fila | null) => (r ? items[r.uuid] ?? r : null)
 
+  // Imágenes de respaldo: si la línea no trae imagen propia (facturas antiguas migradas), se busca
+  // por código en productos — así cualquier listado de productos de Facturación muestra foto.
+  const [imgPorCodigo, setImgPorCodigo] = useState<Record<string, string>>({})
+  useEffect(() => {
+    const todas = [conItems(sel), conItems(detalle)].filter(Boolean) as Fila[]
+    const faltan = [...new Set(todas.flatMap((f) => (f.items ?? []).filter((l) => !l.imagen && l.codigo && !imgPorCodigo[l.codigo!]).map((l) => l.codigo as string)))]
+    if (!faltan.length) return
+    supabase.from('productos').select('codigo,imagen_url').in('codigo', faltan).then(({ data }) => {
+      const m: Record<string, string> = {}
+      for (const p of (data as { codigo: string; imagen_url: string | null }[]) ?? []) if (p.imagen_url) m[p.codigo] = p.imagen_url
+      if (Object.keys(m).length) setImgPorCodigo((x) => ({ ...x, ...m }))
+    })
+  }, [sel, detalle, items]) // eslint-disable-line react-hooks/exhaustive-deps
+
   function accion(qa: string, r: Fila) {
     if (qa === 'detalle') { setDetalle(conItems(r)); return }
     if (qa === 'factura') { if (!r.datosCompletos) return; setFactura(conItems(r)); return }
@@ -351,11 +365,11 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
               </div>
             )}
           </div>
-          <aside className="fx-side">{PanelLateral(conItems(sel), accion)}</aside>
+          <aside className="fx-side">{PanelLateral(conItems(sel), accion, imgPorCodigo)}</aside>
         </div>
       </main>
 
-      {detalle && <Detalle r={conItems(detalle) ?? detalle} perfil={perfil} puedeEditar={puedeEditar} cerrar={() => setDetalle(null)} accion={accion}
+      {detalle && <Detalle r={conItems(detalle) ?? detalle} perfil={perfil} puedeEditar={puedeEditar} cerrar={() => setDetalle(null)} accion={accion} imgPorCodigo={imgPorCodigo}
         facturar={(r) => { setDetalle(null); setFactura(conItems(r)) }} aviso={aviso} recargar={() => { cargar(filtro); cargarStats(); setItems({}) }} />}
       {factura && <ModalFactura r={factura} perfil={perfil} cerrar={() => setFactura(null)} aviso={aviso} guardado={() => { setFactura(null); aviso('Factura registrada.'); cargar(filtro); cargarStats(); setItems({}) }} />}
       {notasCredito && <ModalNotasCredito r={notasCredito} cerrar={() => setNotasCredito(null)} aviso={aviso} />}
@@ -366,7 +380,7 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
 }
 
 /* ============================ Panel lateral ============================ */
-function PanelLateral(r: Fila | null, accion: (qa: string, r: Fila) => void) {
+function PanelLateral(r: Fila | null, accion: (qa: string, r: Fila) => void, imgPorCodigo: Record<string, string>) {
   if (!r) return <div className="p-10 text-center text-xs text-slate-400">Selecciona un registro para ver su resumen.</div>
   const monto = totalFila(r)
   const act = (qa: string, Icono: typeof Receipt, color: string, label: string, off?: boolean) => (
@@ -413,8 +427,9 @@ function PanelLateral(r: Fila | null, accion: (qa: string, r: Fila) => void) {
             const c = calc(l)
             return (
               <div key={k} className="flex items-center gap-2.5 py-2.5 border-b border-slate-100 last:border-0">
-                {l.imagen ? <img loading="lazy" src={imagen(l.imagen, 120)} onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} className="w-11 h-11 rounded-xl object-cover bg-slate-50 border border-slate-100 shrink-0" alt="" />
-                  : <span className="w-11 h-11 rounded-xl bg-slate-100 text-slate-300 flex items-center justify-center shrink-0"><Package className="w-5 h-5" /></span>}
+                {(() => { const img = l.imagen || (l.codigo ? imgPorCodigo[l.codigo] : undefined); return img
+                  ? <img loading="lazy" src={imagen(img, 120)} onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} className="w-11 h-11 rounded-xl object-cover bg-slate-50 border border-slate-100 shrink-0" alt="" />
+                  : <span className="w-11 h-11 rounded-xl bg-slate-100 text-slate-300 flex items-center justify-center shrink-0"><Package className="w-5 h-5" /></span> })()}
                 <div className="min-w-0 flex-1"><p className="text-[12px] font-semibold text-slate-800 leading-snug line-clamp-2">{l.nombre}</p>
                   {l.observacion && <p className="mt-1 text-[10.5px] rounded-lg px-2 py-0.5 inline-block" style={{ background: '#fffaf0', border: '1px solid #f2dfb9', color: '#7b5a1e' }}>{l.observacion}</p>}
                   <p className="text-[10px] text-slate-400 mt-0.5">{l.codigo || ''} · {c.cantidad} × {money(c.precio)}{c.descuentoPct ? <> · <span style={{ color: 'var(--amber)' }}>−{c.descuentoPct}%</span></> : null} · {c.conIva ? 'IVA 15%' : 'IVA 0%'}</p></div>
@@ -438,8 +453,8 @@ function PanelLateral(r: Fila | null, accion: (qa: string, r: Fila) => void) {
 }
 
 /* ============================ Detalle de venta ============================ */
-function Detalle({ r, perfil, puedeEditar, cerrar, accion, facturar, aviso, recargar }: {
-  r: Fila; perfil: Perfil; puedeEditar: boolean; cerrar: () => void; accion: (qa: string, r: Fila) => void; facturar: (r: Fila) => void; aviso: (t: string) => void; recargar: () => void
+function Detalle({ r, perfil, puedeEditar, cerrar, accion, facturar, aviso, recargar, imgPorCodigo }: {
+  r: Fila; perfil: Perfil; puedeEditar: boolean; cerrar: () => void; accion: (qa: string, r: Fila) => void; facturar: (r: Fila) => void; aviso: (t: string) => void; recargar: () => void; imgPorCodigo: Record<string, string>
 }) {
   const [full, setFull] = useState<Fila>(r)
   useEffect(() => {
@@ -490,7 +505,9 @@ function Detalle({ r, perfil, puedeEditar, cerrar, accion, facturar, aviso, reca
                 const c = calc(l)
                 return (
                   <div key={k} className="pm-prod">
-                    {l.imagen ? <img loading="lazy" src={imagen(l.imagen, 120)} alt="" onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} /> : <span className="ph"><Package className="w-5 h-5" /></span>}
+                    {(() => { const img = l.imagen || (l.codigo ? imgPorCodigo[l.codigo] : undefined); return img
+                      ? <img loading="lazy" src={imagen(img, 120)} alt="" onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} />
+                      : <span className="ph"><Package className="w-5 h-5" /></span> })()}
                     <div className="min-w-0 flex-1">
                       <p className="text-[12.5px] font-bold text-slate-800 leading-snug"><span className="font-mono-spec text-[10.5px] text-slate-400 mr-1.5">{l.codigo || 'Sin ID'}</span>{l.nombre}</p>
                       <p className="text-[11px] text-slate-500 mt-0.5 flex flex-wrap gap-x-2"><span>{money(c.precio)} c/u</span>{c.descuentoPct ? <span style={{ color: 'var(--amber)' }}>−{String(Math.round(c.descuentoPct * 100) / 100).replace('.', ',')}%</span> : null}<span>{c.conIva ? 'IVA 15%' : 'IVA 0%'}</span></p>
