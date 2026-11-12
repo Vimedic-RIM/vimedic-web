@@ -2,8 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { BadgePercent, Check, FileDown, FolderUp, Megaphone, Plus, Send, Trash2, X } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
+import { imagen as imgUrl } from './Inventario'
 
 const money = (n: number) => '$' + (Number(n) || 0).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+async function aDataUrl(url: string): Promise<string> { try { const b = await (await fetch(url)).blob(); if (b.size > 4 * 1048576) return ''; return await new Promise<string>((ok) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.onerror = () => ok(''); r.readAsDataURL(b) }) } catch { return '' } }
+const txtPdf = (v: unknown) => String(v ?? '').replace(/[\u{1F000}-\u{1FFFF}☀-➿️‍]/gu, '').replace(/[^\x20-\x7E -ÿ\n]/g, ' ').replace(/ +/g, ' ').trim()
 
 const normalize = (v: unknown) => String(v || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 function Ventana({ titulo, cerrar, children, pie, ancha }: { titulo: string; cerrar: () => void; children: React.ReactNode; pie: React.ReactNode; ancha?: boolean }) {
@@ -187,7 +190,7 @@ export function Promociones({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
   )
 }
 
-type ProdPromo = { codigo: string; nombre: string; categoria: string; pvp: number; costo: number | null; enCatalogo: boolean; desc: number; precioFinal: number; margen: number | null }
+type ProdPromo = { codigo: string; nombre: string; categoria: string; pvp: number; costo: number | null; enCatalogo: boolean; imagen: string; desc: number; precioFinal: number; margen: number | null }
 const ORDENES_PROMO: [string, string][] = [
   ['cat', 'Categoría (A-Z)'], ['costo', 'Costo (mayor a menor)'], ['desc', '% Descuento (mayor a menor)'],
   ['pvp', 'PVP (mayor a menor)'], ['margen', 'Margen (mayor a menor)'], ['nombre', 'Nombre (A-Z)'],
@@ -206,10 +209,10 @@ function DetalleCampana({ c, perfil, aprobar, editar, cerrar, mover }: { c: Camp
     let vivo = true
     const codigos = items.map((i) => i.id)
     ;(async () => {
-      const { data: p, error } = await supabase.from('productos').select('id,codigo,nombre,pvp,en_catalogo,categoria:categorias(nombre)').in('codigo', codigos).is('deleted_at', null)
+      const { data: p, error } = await supabase.from('productos').select('id,codigo,nombre,pvp,en_catalogo,imagen_url,categoria:categorias(nombre)').in('codigo', codigos).is('deleted_at', null)
       if (!vivo) return
       if (error) { setProds([]); return }
-      const prodRows = (p ?? []) as unknown as { id: string; codigo: string; nombre: string; pvp: number | null; en_catalogo: boolean | null; categoria: { nombre: string } | null }[]
+      const prodRows = (p ?? []) as unknown as { id: string; codigo: string; nombre: string; pvp: number | null; en_catalogo: boolean | null; imagen_url: string | null; categoria: { nombre: string } | null }[]
       let costos: Record<string, number> = {}
       if (verCostos && prodRows.length) {
         const { data: co } = await supabase.from('productos_costos').select('producto_id,costo').in('producto_id', prodRows.map((x) => x.id)).is('deleted_at', null)
@@ -221,7 +224,7 @@ function DetalleCampana({ c, perfil, aprobar, editar, cerrar, mover }: { c: Camp
         const pvp = Number(p0?.pvp) || 0, desc = Number(it.desc) || 0, precioFinal = Math.round(pvp * (1 - desc / 100) * 100) / 100
         const costo = p0 && verCostos ? (costos[p0.id] ?? 0) : null
         const margen = costo != null && costo > 0 && precioFinal > 0 ? Math.round((precioFinal - costo) / precioFinal * 1000) / 10 : null
-        return { codigo: it.id, nombre: p0?.nombre ?? it.id, categoria: p0?.categoria?.nombre ?? '—', pvp, costo, enCatalogo: !!p0?.en_catalogo, desc, precioFinal, margen }
+        return { codigo: it.id, nombre: p0?.nombre ?? it.id, categoria: p0?.categoria?.nombre ?? '—', pvp, costo, enCatalogo: !!p0?.en_catalogo, imagen: p0?.imagen_url ?? '', desc, precioFinal, margen }
       })
       setProds(filas)
     })()
@@ -248,31 +251,36 @@ function DetalleCampana({ c, perfil, aprobar, editar, cerrar, mover }: { c: Camp
       const { jsPDF } = await import('jspdf')
       const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true })
       const fechaHoy = new Date().toLocaleDateString('es-EC')
-      const cols: [string, number][] = verCostos
-        ? [['Código', 22], ['Producto', 58], ['Categoría', 32], ['PVP', 18], ['Costo', 18], ['Desc %', 16], ['Final', 18], ['Margen', 14]]
-        : [['Código', 24], ['Producto', 78], ['Categoría', 42], ['PVP', 20], ['Desc %', 18], ['Final', 20]]
-      const porPagina = 34
-      const totalPaginas = Math.max(1, Math.ceil(filas.length / porPagina))
+      const fotos = new Map<string, string | null>()
+      const totalPaginas = Math.max(1, Math.ceil(filas.length / 6))
+      let faltan = 0
       for (let pagina = 0; pagina < totalPaginas; pagina++) {
+        const lote = filas.slice(pagina * 6, pagina * 6 + 6)
+        for (let k = 0; k < lote.length; k += 3) {
+          await Promise.all(lote.slice(k, k + 3).map(async (f) => { if (fotos.has(f.codigo)) return; fotos.set(f.codigo, f.imagen ? (await aDataUrl(imgUrl(f.imagen, 600))) || null : null) }))
+        }
         if (pagina) doc.addPage()
-        doc.setFillColor(11, 37, 69); doc.rect(0, 0, 210, 24, 'F'); doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.text('VIMEDIC', 12, 11); doc.setFontSize(9); doc.text('Promociones | ' + c.nombre, 12, 18)
-        doc.setTextColor(100, 116, 139); doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.text(`${fechaHoy} · ${filas.length} producto(s) · orden: ${ORDENES_PROMO.find(([v]) => v === orden)?.[1] ?? ''}`, 12, 30)
-        let x = 12; const y0 = 38
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(11, 37, 69)
-        cols.forEach(([t, w]) => { doc.text(t, x, y0); x += w })
-        doc.setDrawColor(226, 232, 240); doc.line(12, y0 + 2, 198, y0 + 2)
-        doc.setFont('helvetica', 'normal'); doc.setTextColor(51, 65, 85)
-        const lote = filas.slice(pagina * porPagina, pagina * porPagina + porPagina)
+        doc.setFillColor(11, 37, 69); doc.rect(0, 0, 210, 27, 'F'); doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(17); doc.text('VIMEDIC', 12, 12); doc.setFontSize(10); doc.text(c.nombre, 12, 20)
+        doc.setTextColor(100, 116, 139); doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.text(`${fechaHoy} · ${filas.length} producto(s) en promoción`, 12, 34)
         lote.forEach((f, i) => {
-          const y = y0 + 7 + i * 6.8; x = 12
-          const vals = verCostos
-            ? [f.codigo, f.nombre.slice(0, 34), f.categoria.slice(0, 20), money(f.pvp), f.costo != null ? money(f.costo) : '—', f.desc + '%', money(f.precioFinal), f.margen != null ? f.margen + '%' : '—']
-            : [f.codigo, f.nombre.slice(0, 46), f.categoria.slice(0, 26), money(f.pvp), f.desc + '%', money(f.precioFinal)]
-          vals.forEach((v, k) => { doc.text(String(v), x, y); x += cols[k][1] })
+          const x = 12 + (i % 2) * 95, y = 40 + Math.floor(i / 2) * 79, w = 91, h = 75
+          doc.setDrawColor(226, 232, 240); doc.setFillColor(255, 255, 255); doc.roundedRect(x, y, w, h, 3, 3, 'FD')
+          const foto = fotos.get(f.codigo)
+          if (foto) { try { const prop = doc.getImageProperties(foto), s = Math.min(34 / prop.width, 31 / prop.height); doc.addImage(foto, prop.fileType, x + 4 + (34 - prop.width * s) / 2, y + 3 + (31 - prop.height * s) / 2, prop.width * s, prop.height * s, undefined, 'FAST') } catch { faltan++; doc.setFontSize(7); doc.setTextColor(100, 116, 139); doc.text('Imagen no disponible', x + 4, y + 19) } }
+          else { faltan++; doc.setFontSize(7); doc.setTextColor(100, 116, 139); doc.text('Sin imagen disponible', x + 4, y + 19) }
+          if (f.desc > 0) { doc.setFillColor(194, 65, 12); doc.roundedRect(x + w - 24, y + 4, 20, 10, 2, 2, 'F'); doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text(`-${f.desc}%`, x + w - 14, y + 10.5, { align: 'center' }) }
+          doc.setTextColor(11, 37, 69); doc.setFont('helvetica', 'bold'); doc.setFontSize(9)
+          doc.text(doc.splitTextToSize(txtPdf(f.nombre), 45).slice(0, 4), x + 41, y + 8)
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(100, 116, 139); doc.text(txtPdf(f.codigo) + (f.categoria !== '—' ? ' · ' + txtPdf(f.categoria) : ''), x + 41, y + 32)
+          if (f.desc > 0) { doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(148, 163, 184); const antes = `Antes: ${money(f.pvp)}`; doc.text(antes, x + 4, y + 44); const aw = doc.getTextWidth(antes); doc.setDrawColor(148, 163, 184); doc.line(x + 4, y + 43, x + 4 + aw, y + 43) }
+          doc.setFont('helvetica', 'bold'); doc.setTextColor(194, 65, 12); doc.setFontSize(13); doc.text(`${money(f.precioFinal)}`, x + 4, y + 53)
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(100, 116, 139); doc.text('+ IVA', x + 4 + doc.getTextWidth(money(f.precioFinal)) + 2, y + 53)
+          doc.setFontSize(7); doc.setTextColor(71, 85, 105); doc.text(`Válido hasta ${fecha(c.fin)}`, x + 4, y + 62)
         })
-        doc.setFontSize(7); doc.setTextColor(148, 163, 184); doc.text(`${pagina + 1} / ${totalPaginas}`, 195, 290, { align: 'right' })
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(100, 116, 139); doc.text('Precios sujetos a disponibilidad de stock. Consulta con tu asesor VIMEDIC.', 12, 284); doc.text(`${pagina + 1} / ${totalPaginas}`, 195, 284, { align: 'right' })
       }
       doc.save(`VIMEDIC-Promo-${(c.codigo || c.nombre).replace(/[^a-z0-9]+/gi, '-')}.pdf`)
+      if (faltan) setTimeout(() => alert(`${faltan} producto(s) sin imagen disponible.`), 300)
     } catch (e) { alert((e as Error).message) }
     setGenerando(false)
   }
