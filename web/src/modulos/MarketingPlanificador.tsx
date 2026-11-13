@@ -11,7 +11,7 @@ import { llamar } from './MarketingIntegraciones'
    subido directo a Zernio); borradores; redacción con IA. Lo que publica Asistente o Audiovisual
    espera al coordinador (pestaña Revisión). Las cargas siguen en segundo plano. */
 
-export type PiezaMin = { id: string; titulo: string; tipo: string; estado: string; url: string; producto: string; mime?: string; notas?: string; productoId?: string }
+export type PiezaMin = { id: string; titulo: string; tipo: string; estado: string; url: string; producto: string; mime?: string; notas?: string; productoId?: string; enlace?: string; mini?: string }
 type Detalle = { plataforma: string; estado: string; url: string; error: string }
 type Post = {
   id: string; contenido: string; estado: string; fecha: string; programada: string; creado: string; publicado: string; plataformas: string[]
@@ -185,11 +185,17 @@ export function Planificador({ perfil, piezas, piezaInicial, limpiarPieza, irCon
     } catch (e) { poner(antes); aviso((e as Error).message) }
     setMoviendo('')
   }
-  const zonaDrop = (id: string, activa: boolean, alSoltar: (postId: string) => void) => activa ? {
+  const zonaDrop = (id: string, activa: boolean, dia: string, hora?: number) => activa ? {
     onDragOver: (e: React.DragEvent) => { if (!arrastrando) return; e.preventDefault(); if (sobre !== id) setSobre(id) },
     onDragLeave: () => setSobre((s) => (s === id ? '' : s)),
-    onDrop: (e: React.DragEvent) => { e.preventDefault(); setSobre(''); const pid = e.dataTransfer.getData('text/plain'); if (pid) alSoltar(pid) },
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault(); setSobre(''); setArrastrando('')
+      const av = e.dataTransfer.getData('text/av')
+      if (av) { const pz = piezas.find((x) => x.id === av); if (pz) setComposer({ modo: 'new', pieza: pz, dia, hora: hora ?? 10 }); return }
+      const pid = e.dataTransfer.getData('text/plain'); if (pid) reprogramar(pid, dia, hora)
+    },
   } : {}
+  const listos = useMemo(() => piezas.filter((x) => x.estado === 'Listo' && (x.enlace || x.url)), [piezas])
 
   async function borrar(p: Post) {
     if (!confirm('¿Eliminar esta publicación de Zernio?')) return
@@ -246,7 +252,7 @@ export function Planificador({ perfil, piezas, piezaInicial, limpiarPieza, irCon
                   const items = (por[id] ?? []).sort((a, b) => Date.parse(a.fecha) - Date.parse(b.fecha))
                   return (
                     <div key={id} className={'slot' + (pasado ? ' past' : '') + (sobre === id ? ' drop' : '')} onClick={() => { if (!pasado && crear) setComposer({ modo: 'new', dia: k, hora: h }) }}
-                      {...zonaDrop(id, !pasado, (pid) => reprogramar(pid, k, h))}>
+                      {...zonaDrop(id, !pasado, k, h)}>
                       {k === hoy && h === ahora.h && <div className="now-line" style={{ top: Math.round((ahora.m / 60) * 100) + '%' }} />}
                       {crear && <span className="slot-add">+ {hm(h, 0)}</span>}
                       {items.map((p) => chip(p))}
@@ -271,7 +277,7 @@ export function Planificador({ perfil, piezas, piezaInicial, limpiarPieza, irCon
           const pasado = k < hoy
           return (
             <div key={k} className={'mday' + (k.slice(0, 7) !== primero.slice(0, 7) ? ' out' : '') + (k === hoy ? ' today' : '') + (pasado ? ' past' : '') + (sobre === k ? ' drop' : '')}
-              onClick={() => { if (!pasado && crear) setComposer({ modo: 'new', dia: k, hora: 10 }) }} {...zonaDrop(k, !pasado, (pid) => reprogramar(pid, k))}>
+              onClick={() => { if (!pasado && crear) setComposer({ modo: 'new', dia: k, hora: 10 }) }} {...zonaDrop(k, !pasado, k)}>
               <span className="mnum">{Number(k.slice(8))}</span>
               {items.map((p) => chip(p))}
             </div>
@@ -319,6 +325,26 @@ export function Planificador({ perfil, piezas, piezaInicial, limpiarPieza, irCon
         {crear && vista !== 'list' && posts && posts.length > 0 && ' · Arrastra una publicación pendiente para cambiar su fecha; toca un espacio libre para crear una.'}
         {rol.requiere && ' · Tus publicaciones las aprueba Coordinación antes de salir (los borradores no).'}
       </p>
+      {crear && !error && listos.length > 0 && (
+        <div className="card p-3 mb-3">
+          <p className="text-[11px] font-bold text-slate-600 mb-2">🎬 Listo para publicar ({listos.length}) <span className="font-normal text-slate-400">· arrastra al calendario o toca para programar</span></p>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {listos.slice(0, 20).map((pz) => (
+              <button key={pz.id} type="button" draggable onClick={() => setComposer({ modo: 'new', pieza: pz })}
+                onDragStart={(e) => { e.dataTransfer.setData('text/av', pz.id); e.dataTransfer.effectAllowed = 'copy'; setArrastrando('av:' + pz.id) }}
+                onDragEnd={() => { setArrastrando(''); setSobre('') }}
+                className="shrink-0 text-left rounded-xl border border-slate-200 overflow-hidden bg-white" style={{ width: 144, cursor: 'grab' }} title={'Programar: ' + pz.titulo}>
+                <div className="relative bg-slate-100" style={{ aspectRatio: '16/9' }}>
+                  {pz.mini && <img src={pz.mini} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none' }} />}
+                  {esVideoPieza(pz) && <span className="absolute inset-0 grid place-items-center text-white text-xs" style={{ textShadow: '0 1px 3px #000a' }}>▶</span>}
+                </div>
+                <p className="text-[11px] font-semibold text-slate-700 truncate px-2 pt-1.5">{pz.titulo}</p>
+                <p className="text-[10px] font-bold px-2 pb-1.5 flex items-center gap-1" style={{ color: 'var(--primary)' }}><CalendarClock className="w-3 h-3" />Programar</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {error && (
         <div className="card p-6 text-center"><p className="text-sm font-bold text-slate-700">No se pudo conectar con Zernio</p><p className="text-xs text-slate-500 mt-1">{error}</p>
           {puede(perfil, 'marketing', 'administrar') && <button type="button" className="btn btn-primary mt-3" onClick={irConfig}><Plug />Ir a Configuración</button>}</div>
@@ -424,7 +450,7 @@ function Composer({ modo, post, dia, hora, pieza: piezaIni, cuentas, piezas, rol
   const solicitud = useRef(uuid())
   const [previa, setPrevia] = useState('')
   const pieza = piezas.find((x) => x.id === piezaId) ?? (piezaIni && piezaIni.id === piezaId ? piezaIni : null)
-  const elegibles = useMemo(() => piezas.filter((x) => x.url && MIME_OK.test(x.mime || (esVideoPieza(x) ? 'video/mp4' : 'image/jpeg')) && ['Listo', 'Programado', 'Publicado', 'En edición'].includes(x.estado)), [piezas])
+  const elegibles = useMemo(() => piezas.filter((x) => (x.enlace || x.url) && MIME_OK.test(x.mime || (esVideoPieza(x) ? 'video/mp4' : 'image/jpeg')) && ['Listo', 'Programado', 'Publicado', 'En edición'].includes(x.estado)), [piezas])
 
   useEffect(() => { if (!archivo) { setPrevia(''); return } const u = URL.createObjectURL(archivo); setPrevia(u); return () => URL.revokeObjectURL(u) }, [archivo])
   // Buscador de productos para la IA (visibles al público primero).
@@ -494,7 +520,7 @@ function Composer({ modo, post, dia, hora, pieza: piezaIni, cuentas, piezas, rol
     encolar(titulo, async (prog) => {
       let media: { url: string; type: string } | null = null
       if (f) { prog(0.05, 'Subiendo multimedia…'); media = await subirAZernio(f, prog) }
-      else if (pz) media = { url: pz.url, type: esVideoPieza(pz) ? 'video' : 'image' }
+      else if (pz) media = { url: pz.enlace || pz.url, type: esVideoPieza(pz) ? 'video' : 'image' }
       prog(0.8, 'Enviando a Zernio…')
       return llamar('zernio_crear', {
         requestId, cuentas: cuentasSel, redesTexto, contenido, formato, fechaISO, borrador: esBorrador, media,
@@ -541,8 +567,9 @@ function Composer({ modo, post, dia, hora, pieza: piezaIni, cuentas, piezas, rol
     } finally { setIaOcupada('') }
   }
 
-  const mediaPrevia = archivo ? previa : pieza?.url ?? (editar ? httpsUrl(post!.imagen) : '')
-  const previaVideo = archivo ? archivo.type.startsWith('video/') : pieza ? esVideoPieza(pieza) : editar && post!.tipoMedia === 'video'
+  // De Audiovisual se muestra la miniatura (los videos de Drive no se reproducen fuera de Drive).
+  const mediaPrevia = archivo ? previa : pieza ? (pieza.mini || (esVideoPieza(pieza) ? '' : pieza.url)) : editar ? httpsUrl(post!.imagen) : ''
+  const previaVideo = archivo ? archivo.type.startsWith('video/') : pieza ? false : editar && post!.tipoMedia === 'video'
 
   return (
     <Ventana ancho={980} titulo={editar ? 'Editar publicación' : 'Nueva publicación'} cerrar={cerrar}
@@ -603,7 +630,8 @@ function Composer({ modo, post, dia, hora, pieza: piezaIni, cuentas, piezas, rol
         <aside className="cmp-prev">
           <div className="flex items-center gap-1.5 px-3 py-2 border-b border-slate-100"><span className="flex gap-0.5">{plats.map((x, i) => <Punto key={x + i} p={x} />)}</span>
             <span className="text-[10.5px] font-semibold text-slate-500 ml-auto">{borrador ? 'Borrador' + (fecha ? ' · ' + fecha.replace('T', ' ') : '') : fecha ? keyLabel(fecha.slice(0, 10), { weekday: 'short', day: 'numeric', month: 'short' }) + ' · ' + fecha.slice(11, 16) : 'Publicar ahora'}</span></div>
-          <div className="cmp-media">{mediaPrevia ? (previaVideo ? <video src={mediaPrevia} muted controls playsInline /> : <img src={mediaPrevia} alt="" />) : <span className="text-xs">Sin imagen ni video</span>}</div>
+          <div className="cmp-media relative">{mediaPrevia ? (previaVideo ? <video src={mediaPrevia} muted controls playsInline /> : <img src={mediaPrevia} alt="" />) : <span className="text-xs">{pieza ? '🎬 ' + pieza.titulo : 'Sin imagen ni video'}</span>}
+            {!archivo && pieza && esVideoPieza(pieza) && mediaPrevia && <span className="absolute inset-0 grid place-items-center pointer-events-none"><span className="w-12 h-12 rounded-full grid place-items-center text-white" style={{ background: '#0000008c' }}>▶</span></span>}</div>
           <p className="p-3 text-[11.5px] whitespace-pre-wrap" style={{ color: texto ? '#1e293b' : '#94a3b8', overflowWrap: 'anywhere', maxHeight: 260, overflowY: 'auto' }}>{texto || 'Tu texto aparecerá aquí…'}</p>
         </aside>
       </div>

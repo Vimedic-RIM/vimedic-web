@@ -2,12 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity, AlertCircle, Award, BadgePercent, BookOpen, CalendarDays, CalendarRange, CheckCircle2, ClipboardCheck, Clapperboard, DollarSign, Download, FileText, Filter, FolderUp,
   GalleryHorizontal as Gallery, Image as ImageIcon, Images, LayoutDashboard, Lightbulb, ListChecks, Megaphone, PenLine, PieChart, Receipt, RefreshCw, Search, Send, ShoppingBag, Smartphone, Palette,
-  Target, TrendingUp, Trash2, UploadCloud, UserCheck, Users, Video, X, Settings,
+  Target, TrendingUp, Trash2, UploadCloud, UserCheck, Users, Video, X, Settings, Copy,
 } from 'lucide-react'
 import { Configuracion, Biblioteca, Revision } from './MarketingIntegraciones'
 import { Planificador } from './MarketingPlanificador'
 import { Anuncios, Material, Promociones } from './MarketingExtra'
-import { SubirMaterial, PapeleraAv } from './MarketingArchivos'
+import { SubirMaterial, PapeleraAv, BuscadorProducto, useEquipo, type ProdBusq } from './MarketingArchivos'
+import { miniaturaAv, enlaceZernio, esVideoAv, idDrive, fotogramaVideo, guardarMiniatura, prepararPortada, subirArchivoAv } from './audiovisualMedios'
 import { Chart, registerables, type ChartConfiguration } from 'chart.js'
 import { supabase, type Perfil } from '../supabase'
 import { agrupar } from '../tiempoReal'
@@ -64,7 +65,7 @@ const AV_ICON: Record<string, typeof ImageIcon> = { Foto: ImageIcon, Video: Vide
 type Venta = { f: string; id: string; cliente: string; asesor: string; medio: string; numero: string; estado: string; base: number; total: number; items: [string, number, number][]; canal: string }
 type Prof = { f: string; monto: number }
 type Lead = { f: string; medio: string; anuncio: string }
-type Av = { id: string; codigo: string; fecha: string; titulo: string; tipo: string; estado: string; campana: string; notas: string; responsable: string; responsableId: string | null; producto: string; productoId: string | null; tamano: number | null; url: string; mime: string }
+type Av = { id: string; codigo: string; fecha: string; titulo: string; tipo: string; estado: string; campana: string; notas: string; responsable: string; responsableId: string | null; producto: string; productoId: string | null; tamano: number | null; url: string; mime: string; driveId: string | null; enlace: string | null; miniId: string | null; miniUrl: string | null }
 type Datos = { ventas: Venta[]; proformas: Prof[]; leads: Lead[] }
 
 /* Supabase devuelve como máximo 1.000 filas por consulta: se pide por tandas hasta traer todo. */
@@ -135,7 +136,7 @@ export default function Marketing({ perfil, aviso, accion, limpiarAccion }: { pe
       paginar((a, z) => supabase.from('facturas').select('codigo,estado,created_at,fecha_ganado,numero_contifico,medio_captacion_venta,subtotal,total,items,cliente:clientes(nombre),cotizacion:cotizaciones(nombre),asesor:empleados!asesor_id(nombre)', { count: 'exact' }).eq('empresa', 'VIMEDIC').is('deleted_at', null).or('fecha_ganado.gte.' + desde12.slice(0, 10) + ',and(fecha_ganado.is.null,created_at.gte.' + desde12 + ')').order('id').range(a, z)),
       paginar((a, z) => supabase.from('cotizaciones').select('fecha,total', { count: 'exact' }).eq('empresa', 'VIMEDIC').is('deleted_at', null).gte('fecha', desde12).order('id').range(a, z)),
       paginar((a, z) => supabase.from('leads').select('fecha,medio_captacion,anuncio', { count: 'exact' }).eq('empresa', 'VIMEDIC').is('deleted_at', null).gte('fecha', desde12).order('id').range(a, z)),
-      supabase.from('audiovisual').select('id,codigo,fecha,titulo,tipo,estado,campana,notas,responsable_id,tamano_mb,archivo_url,mime,producto_id,responsable:empleados!responsable_id(nombre),producto:productos(codigo,nombre)').is('deleted_at', null).order('fecha', { ascending: false }).limit(1000),
+      supabase.from('audiovisual').select('id,codigo,fecha,titulo,tipo,estado,campana,notas,responsable_id,tamano_mb,archivo_url,mime,producto_id,archivo_drive_id,enlace_publico,miniatura_id,miniatura_url,responsable:empleados!responsable_id(nombre),producto:productos(codigo,nombre)').is('deleted_at', null).order('fecha', { ascending: false }).limit(1000),
       supabase.from('catalogos_generados').select('fecha,cliente_texto,formato,precios,segmentos,n_productos,paginas,asesor:empleados!asesor_id(nombre)').is('deleted_at', null).gte('fecha', desde12).order('fecha', { ascending: false }).limit(1000),
     ])
     const err = f.error || c.error || l.error || a.error
@@ -157,6 +158,7 @@ export default function Marketing({ perfil, aviso, accion, limpiarAccion }: { pe
     setAv(((a.data ?? []) as R[]).map((x) => ({
       id: x.id, codigo: x.codigo ?? '', fecha: x.fecha, titulo: x.titulo, tipo: x.tipo ?? '', estado: x.estado, campana: x.campana ?? '', notas: x.notas ?? '', responsable: x.responsable?.nombre ?? '', responsableId: x.responsable_id,
       producto: x.producto ? `${x.producto.codigo ?? ''} · ${x.producto.nombre}` : '', productoId: x.producto_id ?? null, tamano: x.tamano_mb, url: x.archivo_url ?? '', mime: x.mime ?? '',
+      driveId: x.archivo_drive_id ?? null, enlace: x.enlace_publico ?? null, miniId: x.miniatura_id ?? null, miniUrl: x.miniatura_url ?? null,
     })))
     setCatalogos(((cg.data ?? []) as R[]).map((x) => ({ f: x.fecha, asesor: x.asesor?.nombre ?? '—', cliente: x.cliente_texto ?? '', formato: x.formato ?? '', precios: x.precios ?? '', segmentos: x.segmentos ?? '', n: Number(x.n_productos) || 0, paginas: Number(x.paginas) || 0 })))
     setActualizado('Actualizado ' + new Date().toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' }))
@@ -394,7 +396,7 @@ export default function Marketing({ perfil, aviso, accion, limpiarAccion }: { pe
 
         {tab === 'audiovisual' && <Audiovisual piezas={av} cargando={cargando} puedeCrear={puedeCrear} puedeEliminar={puede(perfil, 'marketing', 'eliminar')} recargar={cargarDatos} abrirIdea={() => setNuevaIdea(true)} abrir={setPiezaAbierta} aviso={aviso} subir={() => setSubir(true)} papelera={() => setPapelera(true)} />}
 
-        {tab === 'planificador' && <Planificador perfil={perfil} piezas={(av ?? []).map((a) => ({ id: a.id, titulo: a.titulo, tipo: a.tipo, estado: a.estado, url: a.url, producto: a.producto, mime: a.mime, notas: a.notas, productoId: a.productoId ?? undefined }))} piezaInicial={piezaProgramar ? { id: piezaProgramar.id, titulo: piezaProgramar.titulo, tipo: piezaProgramar.tipo, estado: piezaProgramar.estado, url: piezaProgramar.url, producto: piezaProgramar.producto, mime: piezaProgramar.mime, notas: piezaProgramar.notas, productoId: piezaProgramar.productoId ?? undefined } : null} limpiarPieza={() => setPiezaProgramar(null)} irConfig={() => setTab('configuracion')} aviso={aviso} alSincronizar={cargarDatos} abrirAlEntrar={abrirPublicacion} consumirAbrir={() => setAbrirPublicacion(false)} />}
+        {tab === 'planificador' && <Planificador perfil={perfil} piezas={(av ?? []).map((a) => ({ id: a.id, titulo: a.titulo, tipo: a.tipo, estado: a.estado, url: a.url, producto: a.producto, mime: a.mime, notas: a.notas, productoId: a.productoId ?? undefined, enlace: enlaceZernio(a), mini: miniaturaAv(a, 480) }))} piezaInicial={piezaProgramar ? { id: piezaProgramar.id, titulo: piezaProgramar.titulo, tipo: piezaProgramar.tipo, estado: piezaProgramar.estado, url: piezaProgramar.url, producto: piezaProgramar.producto, mime: piezaProgramar.mime, notas: piezaProgramar.notas, productoId: piezaProgramar.productoId ?? undefined, enlace: enlaceZernio(piezaProgramar), mini: miniaturaAv(piezaProgramar, 480) } : null} limpiarPieza={() => setPiezaProgramar(null)} irConfig={() => setTab('configuracion')} aviso={aviso} alSincronizar={cargarDatos} abrirAlEntrar={abrirPublicacion} consumirAbrir={() => setAbrirPublicacion(false)} />}
         {tab === 'biblioteca' && <Biblioteca perfil={perfil} aviso={aviso} />}
         {tab === 'revision' && <Revision perfil={perfil} aviso={aviso} />}
         {tab === 'configuracion' && puedeAdmin && <Configuracion aviso={aviso} alCambiar={() => undefined} />}
@@ -416,7 +418,7 @@ export default function Marketing({ perfil, aviso, accion, limpiarAccion }: { pe
       {subir && <SubirMaterial perfil={perfil} cerrar={() => setSubir(false)} hecho={() => { cargarDatos(); aviso('Material subido.') }} />}
       {papelera && <PapeleraAv cerrar={() => setPapelera(false)} restaurado={cargarDatos} />}
       {nuevaIdea && <ModalIdea perfil={perfil} cerrar={() => setNuevaIdea(false)} guardado={() => { setNuevaIdea(false); aviso('Idea registrada.'); cargarDatos() }} />}
-      {piezaAbierta && <ModalPieza programar={puedeCrear ? () => { setPiezaProgramar(piezaAbierta); setPiezaAbierta(null); setTab('planificador') } : undefined} pieza={piezaAbierta} puedeEditar={puede(perfil, 'marketing', 'editar')} cerrar={() => setPiezaAbierta(null)} guardado={() => { setPiezaAbierta(null); cargarDatos() }} aviso={aviso} />}
+      {piezaAbierta && <ModalPieza puedeEliminar={puede(perfil, 'marketing', 'eliminar') || puede(perfil, 'marketing', 'editar')} programar={puedeCrear ? () => { setPiezaProgramar(piezaAbierta); setPiezaAbierta(null); setTab('planificador') } : undefined} pieza={piezaAbierta} puedeEditar={puede(perfil, 'marketing', 'editar')} cerrar={() => setPiezaAbierta(null)} guardado={() => { setPiezaAbierta(null); cargarDatos() }} aviso={aviso} />}
     </div>
   )
 }
@@ -456,8 +458,9 @@ function Audiovisual({ piezas, cargando, puedeCrear, puedeEliminar, recargar, ab
       <div key={it.id} className="av-card" draggable={compacta} onClick={() => abrir(it)}
         onDragStart={(e) => { e.dataTransfer.setData('text/plain', it.id) }}>
         <div className={'relative bg-slate-100 overflow-hidden ' + (compacta ? 'aspect-video' : 'aspect-square')}>
-          {it.url && !esVideo(it) ? <img loading="lazy" src={it.url} alt="" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} />
-            : <span className="grid place-items-center w-full h-full text-slate-300"><Ico className="w-8 h-8" /></span>}
+          <span className="absolute inset-0 grid place-items-center text-slate-300"><Ico className="w-8 h-8" /></span>
+          {miniaturaAv(it, compacta ? 360 : 480) && <img loading="lazy" src={miniaturaAv(it, compacta ? 360 : 480)} alt="" className="absolute inset-0 w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none' }} />}
+          {esVideo(it) && it.url && <span className="absolute inset-0 grid place-items-center pointer-events-none"><span className="w-9 h-9 rounded-full grid place-items-center text-sm text-white" style={{ background: '#0000008c' }}>▶</span></span>}
           <span className="absolute left-2 top-2 pill" style={{ background: '#fffffff0', color: col }}>{it.estado || '—'}</span>
           <span className="absolute right-2 top-2 w-6 h-6 rounded-lg bg-white/90 grid place-items-center text-slate-600" title={it.tipo}><Ico className="w-3.5 h-3.5" /></span>
         </div>
@@ -466,6 +469,23 @@ function Audiovisual({ piezas, cargando, puedeCrear, puedeEliminar, recargar, ab
       </div>
     )
   }
+  const hechas = useRef(new Set<string>())
+  useEffect(() => {
+    if (!puedeCrear || !piezas) return
+    const faltan = piezas.filter((i) => esVideo(i) && /\/storage\/v1\/object\/public\//.test(i.url) && !i.miniUrl && !i.miniId && !hechas.current.has(i.id)).slice(0, 4)
+    if (!faltan.length) return
+    let vivo = true
+    ;(async () => {
+      let n = 0
+      for (const i of faltan) {
+        hechas.current.add(i.id)
+        const b = await fotogramaVideo(i.url)
+        if (b && vivo) { await guardarMiniatura(i.id, b).then(() => n++).catch(() => undefined) }
+      }
+      if (n && vivo) recargar()
+    })()
+    return () => { vivo = false }
+  }, [piezas, puedeCrear]) // eslint-disable-line react-hooks/exhaustive-deps
   async function mover(id: string, nuevo: string) {
     const it = lista.find((x) => x.id === id)
     if (!it || it.estado === nuevo) return
@@ -527,50 +547,128 @@ function Ventana({ titulo, cerrar, children, pie }: { titulo: string; cerrar: ()
   )
 }
 function ModalIdea({ perfil, cerrar, guardado }: { perfil: Perfil; cerrar: () => void; guardado: () => void }) {
-  const [t, setT] = useState(''); const [tipo, setTipo] = useState('Foto'); const [campana, setCampana] = useState(''); const [notas, setNotas] = useState('')
+  const [t, setT] = useState(''); const [tipo, setTipo] = useState('Video'); const [campana, setCampana] = useState(''); const [notas, setNotas] = useState('')
+  const [prod, setProd] = useState<ProdBusq | null>(null); const [resp, setResp] = useState(perfil.id); const [fechaI, setFechaI] = useState(ecHoy())
   const [error, setError] = useState(''); const [guardando, setGuardando] = useState(false)
+  const equipo = useEquipo()
   async function guardar() {
     if (!t.trim()) { setError('Escribe un título para la idea.'); return }
     setGuardando(true)
-    const { error } = await supabase.from('audiovisual').insert({ id: crypto.randomUUID(), codigo: 'AV-' + crypto.randomUUID().slice(0, 6).toUpperCase(), titulo: t.trim(), tipo, estado: 'Idea', campana: campana.trim() || null, notas: notas.trim() || null, responsable_id: perfil.id })
+    const { error } = await supabase.from('audiovisual').insert({ id: crypto.randomUUID(), codigo: 'AV-' + crypto.randomUUID().slice(0, 6).toUpperCase(), titulo: t.trim().slice(0, 160), tipo, estado: 'Idea', campana: campana.trim() || null, notas: notas.trim() || null, responsable_id: resp || perfil.id, producto_id: prod?.id ?? null, fecha: fechaI ? fechaI + 'T12:00:00-05:00' : new Date().toISOString() })
     setGuardando(false)
     if (error) { setError(error.message); return }
     guardado()
   }
   return (
-    <Ventana titulo="Nueva idea" cerrar={cerrar} pie={<><p className="text-[11px] flex-1 self-center" style={{ color: '#c0392b' }}>{error}</p><button onClick={guardar} disabled={guardando} className="btn btn-primary">{guardando ? 'Guardando…' : 'Guardar idea'}</button></>}>
+    <Ventana titulo="Nueva idea de contenido" cerrar={cerrar} pie={<><p className="text-[11px] flex-1 self-center" style={{ color: '#c0392b' }}>{error}</p><button onClick={guardar} disabled={guardando} className="btn btn-primary">{guardando ? 'Guardando…' : 'Guardar idea'}</button></>}>
       <label className="block text-[11px] font-bold text-slate-500">Título<input value={t} onChange={(e) => setT(e.target.value)} className="inp w-full mt-1" placeholder="Ej. Reel del autoclave clase B" /></label>
-      <label className="block text-[11px] font-bold text-slate-500">Tipo<select value={tipo} onChange={(e) => setTipo(e.target.value)} className="inp w-full mt-1">{AV_TIPOS.map((x) => <option key={x}>{x}</option>)}</select></label>
-      <label className="block text-[11px] font-bold text-slate-500">Campaña<input value={campana} onChange={(e) => setCampana(e.target.value)} className="inp w-full mt-1" placeholder="Opcional" /></label>
+      <div className="grid grid-cols-2 gap-3">
+        <label className="block text-[11px] font-bold text-slate-500">Tipo<select value={tipo} onChange={(e) => setTipo(e.target.value)} className="inp w-full mt-1">{AV_TIPOS.map((x) => <option key={x}>{x}</option>)}</select></label>
+        <label className="block text-[11px] font-bold text-slate-500">Fecha<input type="date" value={fechaI} onChange={(e) => setFechaI(e.target.value)} className="inp w-full mt-1" /></label>
+      </div>
+      <div className="block text-[11px] font-bold text-slate-500">Producto (opcional)<div className="mt-1"><BuscadorProducto valor={prod} cambiar={setProd} /></div></div>
+      <div className="grid grid-cols-2 gap-3">
+        <label className="block text-[11px] font-bold text-slate-500">Responsable<select value={resp} onChange={(e) => setResp(e.target.value)} className="inp w-full mt-1">{!equipo.some((x) => x.id === perfil.id) && <option value={perfil.id}>{perfil.nombre}</option>}{equipo.map((x) => <option key={x.id} value={x.id}>{x.nombre}</option>)}</select></label>
+        <label className="block text-[11px] font-bold text-slate-500">Campaña<input value={campana} onChange={(e) => setCampana(e.target.value)} className="inp w-full mt-1" placeholder="Opcional" /></label>
+      </div>
       <label className="block text-[11px] font-bold text-slate-500">Notas<textarea value={notas} onChange={(e) => setNotas(e.target.value)} rows={3} className="inp w-full mt-1" /></label>
     </Ventana>
   )
 }
-function ModalPieza({ pieza, puedeEditar, cerrar, guardado, aviso, programar }: { programar?: () => void; pieza: Av; puedeEditar: boolean; cerrar: () => void; guardado: () => void; aviso: (t: string) => void }) {
+
+/* Detalle de una pieza (openAvDetail / avGuardarDetalle / avCambiarPortada / avEliminarPieza del original):
+   vista previa, datos, portada del video, adjuntar o reemplazar el archivo producido, copiar el enlace
+   para Zernio, programar y eliminar (a la papelera). */
+function ModalPieza({ pieza, puedeEditar, puedeEliminar, cerrar, guardado, aviso, programar }: { programar?: () => void; pieza: Av; puedeEditar: boolean; puedeEliminar: boolean; cerrar: () => void; guardado: () => void; aviso: (t: string) => void }) {
   const [t, setT] = useState(pieza.titulo); const [tipo, setTipo] = useState(pieza.tipo || 'Foto'); const [estado, setEstado] = useState(pieza.estado); const [campana, setCampana] = useState(pieza.campana); const [notas, setNotas] = useState(pieza.notas)
+  const [prod, setProd] = useState<ProdBusq | null>(pieza.productoId ? { id: pieza.productoId, codigo: pieza.producto.split(' · ')[0] ?? '', nombre: pieza.producto.split(' · ').slice(1).join(' · ') } : null)
+  const [resp, setResp] = useState(pieza.responsableId ?? ''); const [fechaP, setFechaP] = useState(ecKey(pieza.fecha))
+  const [archivo, setArchivo] = useState<File | null>(null)
+  const [progreso, setProgreso] = useState('')
+  const [mini, setMini] = useState(miniaturaAv(pieza, 900))
   const [guardando, setGuardando] = useState(false)
+  const equipo = useEquipo()
+  const video = esVideoAv(pieza), drive = pieza.driveId || idDrive(pieza.url), enlace = enlaceZernio(pieza)
   async function guardar() {
     setGuardando(true)
-    const { error } = await supabase.from('audiovisual').update({ titulo: t.trim() || pieza.titulo, tipo, estado, campana: campana.trim() || null, notas: notas.trim() || null }).eq('id', pieza.id)
-    setGuardando(false)
-    if (error) { aviso('No se pudo guardar: ' + error.message); return }
-    guardado()
+    const cambios: Record<string, unknown> = { titulo: t.trim().slice(0, 160) || pieza.titulo, tipo, estado, campana: campana.trim() || null, notas: notas.trim() || null, producto_id: prod?.id ?? null, fecha: fechaP ? fechaP + 'T12:00:00-05:00' : pieza.fecha }
+    if (resp) cambios.responsable_id = resp
+    try {
+      if (archivo) {
+        const a = await subirArchivoAv(archivo, (_p, m) => setProgreso(m))
+        Object.assign(cambios, { archivo_url: a.url, archivo_drive_id: a.driveId, enlace_publico: a.enlace, mime: a.mime, tamano_mb: a.tamanoMb, miniatura_url: null, miniatura_id: null })
+        if (estado === 'Idea') cambios.estado = 'Listo'
+      }
+      const { error } = await supabase.from('audiovisual').update(cambios).eq('id', pieza.id)
+      if (error) throw new Error(error.message)
+      if (archivo && archivo.type.startsWith('video/')) { const img = await fotogramaVideo(archivo); if (img) await guardarMiniatura(pieza.id, img).catch(() => undefined) }
+      aviso('Pieza actualizada.'); guardado()
+    } catch (e) { aviso('No se pudo guardar: ' + (e as Error).message) }
+    setGuardando(false); setProgreso('')
+  }
+  async function cambiarPortada(f: File | undefined) {
+    if (!f) return
+    try { setProgreso('Subiendo portada…'); const url = await guardarMiniatura(pieza.id, await prepararPortada(f)); setMini(url); aviso('Portada actualizada.') }
+    catch (e) { aviso((e as Error).message) }
+    setProgreso('')
   }
   async function eliminar() {
+    if (!confirm('¿Eliminar "' + pieza.titulo + '"?\nSe quita de la app; el archivo se conserva. Se puede restaurar desde la Papelera.')) return
     const { error } = await supabase.from('audiovisual').update({ deleted_at: new Date().toISOString() }).eq('id', pieza.id)
     if (error) { aviso('No se pudo eliminar: ' + error.message); return }
     aviso('Pieza enviada a la papelera.'); guardado()
   }
+  const copiar = () => { if (!enlace) return; navigator.clipboard?.writeText(enlace).then(() => aviso('Enlace copiado.'), () => aviso(enlace)) }
+  const col = AV_COLOR[pieza.estado] || '#94a3b8'
   return (
-    <Ventana titulo={pieza.codigo ? `Pieza · ${pieza.codigo}` : 'Pieza'} cerrar={cerrar} pie={<>{programar && <button onClick={programar} className="btn"><Send />Programar</button>}{puedeEditar && <button onClick={eliminar} className="btn" style={{ color: '#b91c1c', borderColor: '#fecaca' }}><Trash2 />Eliminar</button>}<button onClick={guardar} disabled={guardando || !puedeEditar} className="btn btn-primary flex-1 justify-center">{guardando ? 'Guardando…' : 'Guardar cambios'}</button></>}>
-      <label className="block text-[11px] font-bold text-slate-500">Título<input value={t} onChange={(e) => setT(e.target.value)} className="inp w-full mt-1" disabled={!puedeEditar} /></label>
-      <div className="grid grid-cols-2 gap-3">
-        <label className="block text-[11px] font-bold text-slate-500">Tipo<select value={tipo} onChange={(e) => setTipo(e.target.value)} className="inp w-full mt-1" disabled={!puedeEditar}>{AV_TIPOS.map((x) => <option key={x}>{x}</option>)}</select></label>
-        <label className="block text-[11px] font-bold text-slate-500">Estado<select value={estado} onChange={(e) => setEstado(e.target.value)} className="inp w-full mt-1" disabled={!puedeEditar}>{AV_ESTADOS.map((x) => <option key={x}>{x}</option>)}</select></label>
+    <div className="fixed inset-0 bg-slate-900/50 z-[70] flex items-center justify-center p-0 sm:p-4" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
+      <div className="bg-white sm:rounded-2xl shadow-2xl w-full h-full sm:h-auto sm:max-h-[92vh] flex flex-col overflow-hidden" style={{ maxWidth: 940 }}>
+        <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-100 shrink-0">
+          <span className="pill" style={{ background: col + '1A', color: col }}>{pieza.estado}</span>
+          <h3 className="font-display font-bold text-sm text-slate-800 truncate flex-1">{pieza.codigo ? pieza.codigo + ' · ' : ''}{pieza.titulo}</h3>
+          <button onClick={cerrar} className="text-slate-400 hover:text-slate-600" aria-label="Cerrar"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5">
+          <div className="dt-grid">
+            <div className="min-w-0 space-y-3">
+              <label className="block text-[11px] font-bold text-slate-500">Título<input value={t} onChange={(e) => setT(e.target.value)} className="inp w-full mt-1" disabled={!puedeEditar} /></label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block text-[11px] font-bold text-slate-500">Tipo<select value={tipo} onChange={(e) => setTipo(e.target.value)} className="inp w-full mt-1" disabled={!puedeEditar}>{AV_TIPOS.map((x) => <option key={x}>{x}</option>)}</select></label>
+                <label className="block text-[11px] font-bold text-slate-500">Estado<select value={estado} onChange={(e) => setEstado(e.target.value)} className="inp w-full mt-1" disabled={!puedeEditar}>{AV_ESTADOS.map((x) => <option key={x}>{x}</option>)}</select></label>
+              </div>
+              <div className="block text-[11px] font-bold text-slate-500">Producto{puedeEditar ? <div className="mt-1"><BuscadorProducto valor={prod} cambiar={setProd} /></div> : <p className="font-normal text-slate-700 mt-1">{pieza.producto || '—'}</p>}</div>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block text-[11px] font-bold text-slate-500">Fecha<input type="date" value={fechaP} onChange={(e) => setFechaP(e.target.value)} className="inp w-full mt-1" disabled={!puedeEditar} /></label>
+                <label className="block text-[11px] font-bold text-slate-500">Responsable<select value={resp} onChange={(e) => setResp(e.target.value)} className="inp w-full mt-1" disabled={!puedeEditar}><option value="">{pieza.responsable || '—'}</option>{equipo.filter((x) => x.id !== pieza.responsableId).map((x) => <option key={x.id} value={x.id}>{x.nombre}</option>)}</select></label>
+              </div>
+              <label className="block text-[11px] font-bold text-slate-500">Campaña<input value={campana} onChange={(e) => setCampana(e.target.value)} className="inp w-full mt-1" disabled={!puedeEditar} /></label>
+              <label className="block text-[11px] font-bold text-slate-500">Notas (se usan como texto al programar)<textarea value={notas} onChange={(e) => setNotas(e.target.value)} rows={3} className="inp w-full mt-1" disabled={!puedeEditar} /></label>
+              {puedeEditar && <label className="btn" style={{ display: 'inline-flex', cursor: 'pointer' }}><UploadCloud />{archivo ? archivo.name.slice(0, 36) : pieza.url ? 'Reemplazar archivo' : 'Adjuntar archivo producido'}
+                <input type="file" hidden accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime,video/webm" onChange={(e) => setArchivo(e.target.files?.[0] ?? null)} /></label>}
+              <p className="text-[10.5px] text-slate-400">{[pieza.mime, pieza.tamano ? pieza.tamano + ' MB' : '', drive ? 'En Google Drive' : pieza.url ? 'En la app' : 'Sin archivo'].filter(Boolean).join(' · ')}{progreso ? ' · ' + progreso : ''}</p>
+            </div>
+            <div className="av-prev space-y-2">
+              <div className="dt-player">
+                {!pieza.url ? <div className="text-center p-6 text-xs"><Lightbulb className="w-8 h-8 mx-auto mb-2" />Idea sin archivo todavía.<br />Adjunta el archivo producido.</div>
+                  : video ? (drive ? <iframe src={`https://drive.google.com/file/d/${drive}/preview`} allow="autoplay; fullscreen" allowFullScreen title={pieza.titulo} /> : <video src={pieza.url} poster={mini || undefined} controls playsInline preload="metadata" />)
+                  : <img src={mini || pieza.url} alt="" />}
+              </div>
+              {video && pieza.url && puedeEditar && <label className="flex items-center gap-2 text-[11px] font-bold cursor-pointer" style={{ color: 'var(--primary)' }}>
+                {mini && <img src={mini} alt="" className="w-12 h-12 rounded-lg object-cover" onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} />}Cambiar portada
+                <input type="file" hidden accept="image/jpeg,image/png,image/webp" onChange={(e) => cambiarPortada(e.target.files?.[0])} /></label>}
+              <div className="flex gap-2 flex-wrap">
+                {pieza.url && <a className="btn" href={pieza.url} target="_blank" rel="noopener noreferrer"><Download />Abrir archivo</a>}
+                {enlace && <button type="button" className="btn" onClick={copiar} title="Enlace directo que usa Zernio"><Copy />Copiar enlace</button>}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="shrink-0 border-t border-slate-100 p-4 flex gap-2 flex-wrap">
+          {programar && pieza.url && <button onClick={programar} className="btn"><Send />Programar</button>}
+          {puedeEliminar && <button onClick={eliminar} className="btn" style={{ color: '#b91c1c', borderColor: '#fecaca' }}><Trash2 />Eliminar</button>}
+          <button onClick={guardar} disabled={guardando || !puedeEditar} className="btn btn-primary ml-auto">{guardando ? (progreso || 'Guardando…') : 'Guardar cambios'}</button>
+        </div>
       </div>
-      <label className="block text-[11px] font-bold text-slate-500">Campaña<input value={campana} onChange={(e) => setCampana(e.target.value)} className="inp w-full mt-1" disabled={!puedeEditar} /></label>
-      <label className="block text-[11px] font-bold text-slate-500">Notas<textarea value={notas} onChange={(e) => setNotas(e.target.value)} rows={3} className="inp w-full mt-1" disabled={!puedeEditar} /></label>
-      <p className="text-[11px] text-slate-400">{pieza.producto ? 'Producto: ' + pieza.producto + ' · ' : ''}{pieza.responsable ? 'Responsable: ' + pieza.responsable : ''}</p>
-    </Ventana>
+    </div>
   )
 }

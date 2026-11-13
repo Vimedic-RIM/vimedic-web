@@ -120,6 +120,37 @@ Deno.serve(async (req) => {
       const f = await g('/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,webViewLink,size', { method: 'POST', headers: { 'Content-Type': 'multipart/related; boundary=x' }, body: cuerpo })
       return responder({ ok: true, id: f.id, nombre: f.name, enlace: f.webViewLink })
     }
+    /* Archivos grandes (videos de Audiovisual hasta 2 GB, como avIniciarSubida del original): el servidor
+       abre una subida reanudable en Drive y el navegador envía el archivo directo a Google, por partes. */
+    if (accion === 'subida_iniciar') {
+      if (!(await puede(modulo, 'crear')) && !(await puede(modulo, 'editar'))) throw new Falla('No tienes permiso para subir archivos en ese módulo.', 403)
+      const nombre = String(b.nombre || '').replace(/[\\/<>:"|?*]/g, '_').trim().slice(0, 150)
+      const mime = String(b.mime || ''), tamano = Number(b.tamano) || 0
+      if (!nombre || !tamano) throw new Falla('Falta el archivo.')
+      if (tamano > 2 * 1024 * 1024 * 1024) throw new Falla('El archivo supera los 2 GB.')
+      if (modulo === 'marketing' && !/^(image|video)\//.test(mime)) throw new Falla('Solo se admiten fotos y videos.')
+      const padre = await ruta(String(b.carpeta || modulo))
+      const origen = req.headers.get('Origin') || ''
+      const r = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,webViewLink,size,mimeType', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + tk, 'Content-Type': 'application/json; charset=UTF-8', 'X-Upload-Content-Type': mime || 'application/octet-stream', 'X-Upload-Content-Length': String(tamano), ...(origen ? { Origin: origen } : {}) },
+        body: JSON.stringify({ name: nombre, parents: [padre] }),
+      })
+      const sesion = r.headers.get('Location')
+      if (!r.ok || !sesion) { const j = await r.json().catch(() => ({})); throw new Falla('Drive no abrió la subida: ' + (j?.error?.message || r.status)) }
+      return responder({ ok: true, sesion })
+    }
+    /* Enlace público de descarga para que Zernio pueda leer el archivo (avEnlaceDrive_ del original). */
+    if (accion === 'compartir') {
+      if (!(await puede(modulo, 'crear')) && !(await puede(modulo, 'editar'))) throw new Falla('No tienes permiso en ese módulo.', 403)
+      const id = String(b.id || '')
+      if (!/^[\w-]{10,120}$/.test(id)) throw new Falla('Archivo inválido.')
+      const f = await g(`/drive/v3/files/${id}?fields=id,name,mimeType,size,webViewLink&supportsAllDrives=true`)
+      let publico = true, motivo = ''
+      try { await g(`/drive/v3/files/${id}/permissions?supportsAllDrives=true`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'reader', type: 'anyone' }) }) }
+      catch (e) { publico = false; motivo = (e as Error).message }
+      return responder({ ok: true, id: f.id, nombre: f.name, mime: f.mimeType, tamano: Number(f.size) || 0, enlace: f.webViewLink, descarga: publico ? `https://drive.usercontent.google.com/download?id=${f.id}&export=download&confirm=t` : '', publico, motivo })
+    }
     throw new Falla('Acción no reconocida.')
   } catch (e) {
     const f = e as Falla

@@ -877,3 +877,5 @@ body.vm-con-rail .vm-mkt #sideNav{left:calc(var(--vr-w) + 10px)}
 .vm-mkt .mk-cola-i.err{border-left-color:#dc2626}
 .vm-mkt .mk-cola-b{height:4px;border-radius:99px;background:#eef2f7;margin-top:6px;overflow:hidden}
 .vm-mkt .mk-cola-b i{display:block;height:100%;background:var(--primary);transition:width .3s}
+@media (max-width:760px){.vm-mkt .av-prev{order:-1}}
+@media (min-width:640px){.vm-mkt .sm\:h-auto{height:auto}}
