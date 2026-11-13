@@ -416,6 +416,7 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
   const [reordenando, setReordenando] = useState(false)
   const [guardandoOrden, setGuardandoOrden] = useState(false)
   const [papelera, setPapelera] = useState(false)
+  const [gestionCat, setGestionCat] = useState(false)
   const reordRef = useRef(false)
   const arrastrando = useRef<string | null>(null)
   const fabRef = useRef<HTMLButtonElement>(null)
@@ -753,6 +754,7 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
               <button onClick={() => setMostrarInactivos((v) => !v)} className={'flex w-9 h-9 rounded-lg hover:bg-white/20 text-white items-center justify-center transition-colors ' + (mostrarInactivos ? 'bg-white/30' : 'bg-white/10')} title="Mostrar productos inactivos"><EyeOff className="w-4 h-4" /></button>
             )}
             {editar && <button onClick={iniciarOrden} disabled={reordenando} className="flex w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white items-center justify-center transition-colors" title="Reordenar productos"><Move className="w-4 h-4" /></button>}
+            {editar && <button onClick={() => setGestionCat(true)} className="flex w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white items-center justify-center transition-colors" title="Categorías del catálogo"><Tag className="w-4 h-4" /></button>}
             <button onClick={() => { cargarEstado(); cargar(Math.max(LOTE, items.length)) }} className="w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors" title="Actualizar inventario"><RefreshCw className={'w-4 h-4 ' + (cargando ? 'animate-spin' : '')} /></button>
           </div>
         </div>
@@ -910,6 +912,7 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
         />
       )}
       {papelera && <PapeleraProductos cerrar={() => setPapelera(false)} restaurado={() => cargar(Math.max(LOTE, items.length))} />}
+      {gestionCat && <GestionCategorias cerrar={() => setGestionCat(false)} actualizado={cargarCategorias} />}
     </div>
     </EstCtx.Provider>
   )
@@ -944,6 +947,79 @@ function PapeleraProductos({ cerrar, restaurado }: { cerrar: () => void; restaur
             <div key={x.id} className="flex items-center gap-3 py-2.5 border-b border-dashed border-slate-200 last:border-0">
               <div className="min-w-0 flex-1"><p className="text-xs font-bold text-slate-800 truncate">{x.nombre}</p><p className="text-[11px] text-slate-500">{x.codigo} · eliminado {new Date(x.deleted_at).toLocaleDateString('es-EC')}</p></div>
               <button type="button" onClick={() => restaurar(x.id)} className="text-[11px] font-bold px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 flex items-center gap-1"><RotateCcw className="w-3.5 h-3.5" />Restaurar</button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ---------- Gestión de categorías del catálogo: imagen, texto, orden y activo ---------- */
+type CatFila = { id: string; nombre: string; imagen_url: string | null; texto: string | null; orden: number | null; activo: boolean }
+
+function GestionCategorias({ cerrar, actualizado }: { cerrar: () => void; actualizado: () => void }) {
+  const [lista, setLista] = useState<CatFila[] | null>(null)
+  const [error, setError] = useState('')
+  const cargarLista = useCallback(() => {
+    supabase.from('categorias').select('id,nombre,imagen_url,texto,orden,activo').is('deleted_at', null).order('orden', { ascending: true, nullsFirst: false }).order('nombre')
+      .then(({ data, error }) => { if (error) setError(error.message); else setLista((data as CatFila[]) ?? []) })
+  }, [])
+  useEffect(() => { cargarLista() }, [cargarLista])
+
+  async function guardarCampo(id: string, campo: 'imagen_url' | 'texto', valor: string) {
+    const { error } = await supabase.from('categorias').update({ [campo]: valor.trim() || null }).eq('id', id)
+    if (error) { setError(error.message); return }
+    actualizado()
+  }
+  async function alternarActivo(c: CatFila) {
+    const { error } = await supabase.from('categorias').update({ activo: !c.activo }).eq('id', c.id)
+    if (error) { setError(error.message); return }
+    setLista((a) => (a ?? []).map((x) => (x.id === c.id ? { ...x, activo: !x.activo } : x)))
+    actualizado()
+  }
+  async function mover(i: number, dir: -1 | 1) {
+    const a = lista; if (!a) return
+    const j = i + dir
+    if (j < 0 || j >= a.length) return
+    const oi = a[i].orden ?? i, oj = a[j].orden ?? j
+    const [va, vb] = oi === oj ? [j, i] : [oj, oi]
+    const rs = await Promise.all([
+      supabase.from('categorias').update({ orden: va }).eq('id', a[i].id),
+      supabase.from('categorias').update({ orden: vb }).eq('id', a[j].id),
+    ])
+    const fallo = rs.find((r) => r.error)
+    if (fallo?.error) { setError(fallo.error.message); return }
+    const copia = [...a]; copia[i] = { ...a[j], orden: vb }; copia[j] = { ...a[i], orden: va }
+    setLista(copia); actualizado()
+  }
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-[2px] z-[70] flex items-center justify-center p-4" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[86vh] flex flex-col overflow-hidden">
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100">
+          <div className="flex-1 min-w-0"><b className="block text-base text-slate-800">Categorías del catálogo</b><small className="text-xs text-slate-500">Imagen, texto y orden con el que se muestran en el catálogo público y los catálogos de asesor.</small></div>
+          <button type="button" onClick={cerrar} className="w-9 h-9 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center" aria-label="Cerrar"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="overflow-y-auto px-4 py-3 space-y-2.5">
+          {error && <p className="text-xs text-red-600">{error}</p>}
+          {!lista && !error && <p className="text-xs text-slate-400 py-6 text-center">Cargando…</p>}
+          {lista && !lista.length && <p className="text-xs text-slate-400 py-6 text-center">No hay categorías todavía.</p>}
+          {lista?.map((c, i) => (
+            <div key={c.id} className={'flex gap-3 p-2.5 rounded-xl border border-slate-200' + (c.activo ? '' : ' opacity-50')}>
+              <div className="flex flex-col gap-1 shrink-0">
+                <button type="button" disabled={i === 0} onClick={() => mover(i, -1)} className="w-6 h-6 rounded border border-slate-200 flex items-center justify-center disabled:opacity-30"><ChevronUp className="w-3.5 h-3.5" /></button>
+                <button type="button" disabled={i === lista.length - 1} onClick={() => mover(i, 1)} className="w-6 h-6 rounded border border-slate-200 flex items-center justify-center disabled:opacity-30"><ChevronDown className="w-3.5 h-3.5" /></button>
+              </div>
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <b className="text-xs text-slate-800">{c.nombre}</b>
+                <input type="text" placeholder="Enlace de imagen de la categoría" defaultValue={c.imagen_url ?? ''} onBlur={(e) => guardarCampo(c.id, 'imagen_url', e.target.value)} className="pf-in text-[11px]" />
+                <input type="text" placeholder="Texto o descripción corta" defaultValue={c.texto ?? ''} onBlur={(e) => guardarCampo(c.id, 'texto', e.target.value)} className="pf-in text-[11px]" />
+              </div>
+              <div className="shrink-0 flex flex-col items-center gap-1">
+                <Interruptor activo={c.activo} cambiar={() => alternarActivo(c)} />
+                <small className="text-[10px] text-slate-400">{c.activo ? 'Activa' : 'Oculta'}</small>
+              </div>
             </div>
           ))}
         </div>
@@ -1195,9 +1271,12 @@ export function Interruptor({ activo, cambiar }: { activo: boolean; cambiar: () 
   )
 }
 
+type PrecioPromo = { clave: string; valor: string }
+
 type Campos = {
   codigo: string; codigo_unico: string; nombre: string; marca: string; categoria: string; imagen_url: string
   descripcion: string; pvp: string; precio_dis: string; aplica_iva: boolean; reservaciones: string; en_catalogo: boolean
+  stock_minimo: string; stock_maximo: string; oculto: boolean; precios_promocion: PrecioPromo[]
 }
 
 function Seccion({ n, t, children }: { n: number; t: string; children: React.ReactNode }) {
@@ -1211,6 +1290,7 @@ function FormularioProducto({ id, categorias, cerrar, guardado }: {
   const [f, setF] = useState<Campos | null>(nuevo ? {
     codigo: '', codigo_unico: '', nombre: '', marca: '', categoria: '', imagen_url: '', descripcion: '', pvp: '', precio_dis: '',
     aplica_iva: true, reservaciones: '', en_catalogo: false,
+    stock_minimo: '', stock_maximo: '', oculto: false, precios_promocion: [],
   } : null)
   const [marcas, setMarcas] = useState<string[]>([])
   const [imgError, setImgError] = useState(false)
@@ -1220,7 +1300,7 @@ function FormularioProducto({ id, categorias, cerrar, guardado }: {
   useEffect(() => {
     if (nuevo) return
     supabase.from('productos')
-      .select('codigo,codigo_unico,nombre,marca,imagen_url,descripcion,pvp,precio_dis,aplica_iva,reservaciones,en_catalogo,categoria:categorias(nombre)')
+      .select('codigo,codigo_unico,nombre,marca,imagen_url,descripcion,pvp,precio_dis,aplica_iva,reservaciones,en_catalogo,stock_minimo,stock_maximo,oculto,precios_promocion,categoria:categorias(nombre)')
       .eq('id', id).single()
       .then(({ data, error }) => {
         if (error || !data) { setError(error?.message || 'No se encontró el producto'); return }
@@ -1230,6 +1310,9 @@ function FormularioProducto({ id, categorias, cerrar, guardado }: {
           imagen_url: d.imagen_url ?? '', descripcion: d.descripcion ?? '', pvp: d.pvp == null ? '' : String(d.pvp),
           precio_dis: d.precio_dis == null ? '' : String(d.precio_dis), aplica_iva: d.aplica_iva !== false,
           reservaciones: d.reservaciones ?? '', en_catalogo: !!d.en_catalogo,
+          stock_minimo: d.stock_minimo == null ? '' : String(d.stock_minimo), stock_maximo: d.stock_maximo == null ? '' : String(d.stock_maximo),
+          oculto: !!d.oculto,
+          precios_promocion: Object.entries((d.precios_promocion as Record<string, number>) ?? {}).map(([clave, v]) => ({ clave, valor: String(v) })),
         })
       })
   }, [id, nuevo])
@@ -1263,6 +1346,11 @@ function FormularioProducto({ id, categorias, cerrar, guardado }: {
       }
     }
 
+    const precios_promocion: Record<string, number> = {}
+    for (const { clave, valor } of f.precios_promocion) {
+      const k = clave.trim()
+      if (k) precios_promocion[k] = Number(valor) || 0
+    }
     const datos = {
       nombre, categoria_id,
       descripcion: f.descripcion.trim() || null,
@@ -1274,6 +1362,10 @@ function FormularioProducto({ id, categorias, cerrar, guardado }: {
       aplica_iva: f.aplica_iva,
       en_catalogo: f.en_catalogo,
       imagen_url: f.imagen_url.trim() || null,
+      stock_minimo: f.stock_minimo.trim() === '' ? null : Number(f.stock_minimo) || 0,
+      stock_maximo: f.stock_maximo.trim() === '' ? null : Number(f.stock_maximo) || 0,
+      oculto: f.oculto,
+      precios_promocion,
     }
     const { error } = nuevo
       ? await supabase.from('productos').insert({ id: crypto.randomUUID(), codigo: f.codigo.trim(), ...datos })
@@ -1352,8 +1444,33 @@ function FormularioProducto({ id, categorias, cerrar, guardado }: {
               <Seccion n={5} t="Stock y catálogo">
                 <label className="pf-f"><span>Observaciones de stock</span>
                   <input type="text" placeholder="Ej. Reservado, en reparación…" className="pf-in" value={f.reservaciones} onChange={(e) => set('reservaciones', e.target.value)} /></label>
+                <div className="pf-grid mt-2.5">
+                  <label className="pf-f"><span>Stock mínimo</span>
+                    <input type="number" min="0" inputMode="numeric" placeholder="Alerta de reposición" className="pf-in" value={f.stock_minimo} onChange={(e) => set('stock_minimo', e.target.value)} /></label>
+                  <label className="pf-f"><span>Stock máximo</span>
+                    <input type="number" min="0" inputMode="numeric" placeholder="Tope sugerido" className="pf-in" value={f.stock_maximo} onChange={(e) => set('stock_maximo', e.target.value)} /></label>
+                </div>
                 <div className="pf-sw mt-2.5"><div><p>Visible en catálogo público</p><small>Se muestra en la página web.</small></div>
                   <Interruptor activo={f.en_catalogo} cambiar={() => set('en_catalogo', !f.en_catalogo)} /></div>
+                <div className="pf-sw mt-2.5"><div><p>Oculto</p><small>No aparece en ningún listado de venta (CRM, catálogos de asesor).</small></div>
+                  <Interruptor activo={f.oculto} cambiar={() => set('oculto', !f.oculto)} /></div>
+              </Seccion>
+
+              <Seccion n={6} t="Precios de promoción">
+                <p className="text-[11px] text-slate-500 mb-2">Precios especiales por campaña (ej. Black Friday), independientes del PVP normal.</p>
+                <div className="space-y-2">
+                  {f.precios_promocion.map((pp, i) => (
+                    <div key={i} className="flex gap-2">
+                      <input type="text" placeholder="Nombre de la campaña (ej. black_friday_pvp)" className="pf-in flex-1" value={pp.clave}
+                        onChange={(e) => set('precios_promocion', f.precios_promocion.map((x, k) => k === i ? { ...x, clave: e.target.value } : x))} />
+                      <input type="number" step="0.01" min="0" inputMode="decimal" placeholder="Precio" className="pf-in w-28" value={pp.valor}
+                        onChange={(e) => set('precios_promocion', f.precios_promocion.map((x, k) => k === i ? { ...x, valor: e.target.value } : x))} />
+                      <button type="button" className="pf-img-btn pf-img-del shrink-0" aria-label="Quitar"
+                        onClick={() => set('precios_promocion', f.precios_promocion.filter((_, k) => k !== i))}><Trash2 className="w-4 h-4" /></button>
+                    </div>
+                  ))}
+                  <button type="button" className="pf-img-btn" onClick={() => set('precios_promocion', [...f.precios_promocion, { clave: '', valor: '' }])}>+ Agregar precio de promoción</button>
+                </div>
               </Seccion>
 
               {error && <div className="text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{error}</div>}
