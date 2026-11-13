@@ -33,6 +33,7 @@ type Orden = {
   tecnico: string; tecnicoId: string | null; fechaProgramada: string; falla: string; recepcion: Record<string, string>; diagnostico: string; checklist: Ck[]; mediciones: Med[]; trabajo: string
   repuestos: { id: string; nombre: string; cantidad: number; precio: number }[]; asistentes: { nombre: string; cargo: string; cedula: string }[]; fotos: Foto[]; recomendaciones: string; estadoFinal: string
   proximoMantenimiento: string; horas: number; firma: Record<string, string>; inicio: string; cierre: string; informeN: string; recepcionN: string; repuestosDescontados: boolean; facturacion: string; eventos: Evento[]; actualizado: string
+  linkCliente: string
 }
 type Equipo = {
   id: string; codigo: string; serie: string; producto: string; marca: string; modelo: string; empresa: string; operacion: string; factura: string; facturaId: string | null; cliente: string; identificacion: string; telefono: string
@@ -40,7 +41,7 @@ type Equipo = {
   estado: string; ubicacion: string; notas: string; lote: string; proveedor: string; importacion: string; preventivoVencido: boolean; garantiaEnRiesgo: boolean; codigoProducto: string
 }
 type Tecnico = { id: string | null; nombre: string; tipo: 'Interno' | 'Externo'; empresa: string; email: string; telefono: string; especialidad: string; activo: boolean }
-const COLS_OS = 'id,codigo,fecha,tipo,origen,prioridad,estado,modalidad,cobertura,equipo_id,serie,producto_texto,empresa,cliente_texto,identificacion,contacto,telefono,email,direccion,ciudad,factura_id,factura_texto,asesor_id,tecnico_id,tecnico_texto,fecha_programada,falla_reportada,recepcion,diagnostico,checklist,mediciones,trabajo_realizado,repuestos,asistentes,fotos,recomendaciones,estado_final,proximo_mantenimiento,horas,firma,inicio,cierre,informe_numero,recepcion_numero,repuestos_descontados,facturacion,eventos,updated_at,asesor:empleados!st_ordenes_asesor_id_fkey(nombre)'
+const COLS_OS = 'id,codigo,token,fecha,tipo,origen,prioridad,estado,modalidad,cobertura,equipo_id,serie,producto_texto,empresa,cliente_texto,identificacion,contacto,telefono,email,direccion,ciudad,factura_id,factura_texto,asesor_id,tecnico_id,tecnico_texto,fecha_programada,falla_reportada,recepcion,diagnostico,checklist,mediciones,trabajo_realizado,repuestos,asistentes,fotos,recomendaciones,estado_final,proximo_mantenimiento,horas,firma,inicio,cierre,informe_numero,recepcion_numero,repuestos_descontados,facturacion,eventos,updated_at,asesor:empleados!st_ordenes_asesor_id_fkey(nombre)'
 const COLS_EQ = 'id,codigo,empresa,serie,producto_id,producto_texto,marca,modelo,lote,proveedor_texto,importacion_codigo,factura_id,operacion_codigo,factura_texto,cliente_texto,identificacion,telefono,email,ciudad,direccion,ubicacion,fecha_entrega,garantia_meses,garantia_hasta,plan_mantenimiento,frecuencia_meses,proximo_mantenimiento,estado,notas,asesor:empleados!st_equipos_asesor_id_fkey(nombre),producto:productos!st_equipos_producto_id_fkey(codigo)'
 
 const norm = (v: unknown) => String(v ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -63,6 +64,7 @@ const mapOrden = (x: any): Orden => ({ // eslint-disable-line @typescript-eslint
   fechaProgramada: x.fecha_programada ?? '', falla: x.falla_reportada ?? '', recepcion: objeto(x.recepcion), diagnostico: x.diagnostico ?? '', checklist: arr<Ck>(x.checklist), mediciones: arr<Med>(x.mediciones), trabajo: x.trabajo_realizado ?? '',
   repuestos: arr(x.repuestos), asistentes: arr(x.asistentes), fotos: arr<Foto>(x.fotos), recomendaciones: x.recomendaciones ?? '', estadoFinal: x.estado_final ?? '', proximoMantenimiento: x.proximo_mantenimiento ?? '', horas: Number(x.horas) || 0,
   firma: objeto(x.firma), inicio: x.inicio ?? '', cierre: x.cierre ?? '', informeN: x.informe_numero ?? '', recepcionN: x.recepcion_numero ?? '', repuestosDescontados: !!x.repuestos_descontados, facturacion: x.facturacion ?? '', eventos: arr<Evento>(x.eventos), actualizado: x.updated_at ?? '',
+  linkCliente: x.token ? window.location.origin + '/servicio/?c=' + x.token : '', // seguimiento público del cliente (vmServicioPublico)
 })
 const mapEquipo = (x: any): Equipo => { // eslint-disable-line @typescript-eslint/no-explicit-any
   const hoy = new Date(), hasta = x.garantia_hasta ? new Date(x.garantia_hasta + 'T23:59:59') : null, prox = x.proximo_mantenimiento ? new Date(x.proximo_mantenimiento + 'T12:00:00') : null
@@ -660,7 +662,8 @@ function PanelOrden({ id, perfil, externo, editar, tecnicos, aviso, cerrar, abri
             {o.estado === 'Finalizada' && <div className="grid grid-cols-2 gap-2 mt-3"><button className="btn btn-ok" onClick={() => descargar('informe')}><FileText />Descargar informe {o.informeN}</button><button className="btn btn-wa" onClick={() => setHoja('mensajes')}><MessageCircle />Enviar por WhatsApp</button></div>}</div>) })()}
         {hist.length > 0 && <div className="sec"><h3><History />Servicios anteriores de este equipo</h3>{hist.map((x) => <div key={x.id} className="py-2 border-b border-slate-100 flex gap-2 items-center text-sm cursor-pointer" onClick={() => salir(() => abrirOrden(x.id))}><span className="flex-1">{x.tipo} · <span className="text-slate-500 text-xs">{dfecha(x.cierre || x.fecha)} · {x.estadoFinal || x.estado}</span></span></div>)}</div>}
         <div className="sec"><h3><List />Línea de tiempo</h3>{[...o.eventos].reverse().map((ev, i) => <div key={i} className="ev"><span className="text-slate-400 shrink-0 w-28">{dhora(ev.fecha)}</span><span className="flex-1">{ev.nota} <span className="text-slate-400">— {ev.por}</span></span></div>)}
-          <p className="text-[10.5px] text-slate-400 mt-2">El enlace público de seguimiento para el cliente se activa con la página pública (pendiente de migrar).</p></div>
+          {o.linkCliente ? <p className="text-[11px] text-slate-500 mt-2">El cliente ve lo marcado como público en <a className="text-[var(--acc)] font-semibold" href={o.linkCliente} target="_blank" rel="noopener noreferrer">su enlace de seguimiento</a> <button type="button" className="text-[var(--acc)] font-semibold underline" onClick={() => { navigator.clipboard?.writeText(o.linkCliente).then(() => aviso('Enlace copiado'), () => aviso(o.linkCliente)) }}>Copiar</button></p>
+            : <p className="text-[10.5px] text-slate-400 mt-2">Esta orden aún no tiene enlace de seguimiento.</p>}</div>
 
         {!cerrado && editar && (
           <div className="acciones"><div className="flex gap-2 flex-wrap">
@@ -801,11 +804,13 @@ function Finalizar({ o, eq, W, cerrar, listo }: { o: Orden; eq: Equipo | null; W
 function Mensajes({ o, eq, cerrar, registrar }: { o: Orden; eq: Equipo | null; cerrar: () => void; registrar: (t: string) => void }) {
   const n = String(o.contacto || o.cliente || '').split(' ')[0], marca = o.empresa === 'FEMEDICS' ? 'FEMEDICS' : 'VIMEDIC', e = `${o.producto} (serie ${o.serie})`
   const f = o.fechaProgramada ? new Date(o.fechaProgramada).toLocaleDateString('es-EC', { weekday: 'long', day: 'numeric', month: 'long' }) + (hm(o.fechaProgramada) ? ' a las ' + hm(o.fechaProgramada) : '') : ''
+  // Enlace de seguimiento del cliente (como en el original, va en cada mensaje)
+  const link = o.linkCliente
   const pl: Record<string, [string, string]> = {
-    agendado: ['Servicio agendado', `Hola ${n}, le saluda el departamento de Servicio Técnico de ${marca}. Su servicio de ${o.tipo.toLowerCase()} para el equipo ${e} quedó agendado para el ${f}${o.tecnico ? ' con el técnico ' + o.tecnico.split(' ')[0] : ''}.`],
-    camino: ['Técnico en camino', `Hola ${n}, el técnico de ${marca} va en camino para atender su equipo ${e}.`],
-    repuesto: ['Esperando repuesto', `Hola ${n}, estamos esperando un repuesto para su equipo ${e}. Le avisaremos apenas llegue.`],
-    informe: ['Servicio finalizado', `Hola ${n}, finalizamos el servicio de ${o.tipo.toLowerCase()} de su equipo ${e}. Le haremos llegar el informe técnico.`],
+    agendado: ['Servicio agendado', `Hola ${n}, le saluda el departamento de Servicio Técnico de ${marca}. Su servicio de ${o.tipo.toLowerCase()} para el equipo ${e} quedó agendado para el ${f}${o.tecnico ? ' con el técnico ' + o.tecnico.split(' ')[0] : ''}.${link ? ' Puede ver el avance aquí: ' + link : ''}`],
+    camino: ['Técnico en camino', `Hola ${n}, el técnico de ${marca} va en camino para atender su equipo ${e}.${link ? ' Seguimiento: ' + link : ''}`],
+    repuesto: ['Esperando repuesto', `Hola ${n}, estamos esperando un repuesto para su equipo ${e}. Le avisaremos apenas llegue.${link ? ' Seguimiento: ' + link : ''}`],
+    informe: ['Servicio finalizado + informe', link ? `Hola ${n}, finalizamos el servicio de ${o.tipo.toLowerCase()} de su equipo ${e}. Aquí puede ver y descargar el informe técnico: ${link}` : `Hola ${n}, finalizamos el servicio de ${o.tipo.toLowerCase()} de su equipo ${e}. Le haremos llegar el informe técnico.`],
     preventivo: ['Recordatorio de mantenimiento', `Hola ${n}, le recordamos que su equipo ${e} tiene programado su mantenimiento preventivo${eq?.proximo ? ' para el ' + new Date(eq.proximo + 'T12:00:00').toLocaleDateString('es-EC', { day: 'numeric', month: 'long' }) : ''}${eq?.garantia === 'Vigente' ? ', necesario para mantener la garantía vigente' : ''}. ¿Coordinamos la visita?`],
   }
   const sug = ({ Recibida: o.tipo === 'Mantenimiento preventivo' ? 'preventivo' : 'agendado', Agendada: 'agendado', 'En proceso': 'camino', 'Esperando aprobación': 'agendado', 'Esperando repuesto': 'repuesto', Finalizada: 'informe' } as Record<string, string>)[o.estado] || 'agendado'

@@ -16,8 +16,8 @@ Estados: ✅ existe en la app nueva · 🆕 recuperado en esta auditoría · ⚠
 6. ✅ Clientes
 7. ✅ Agenda
 8. ✅ Bodega y Logística
-9. ⏭️ **Servicio Técnico** (siguiente)
-10. Importaciones, Artículos, Adquisiciones y Recepción
+9. ✅ Servicio Técnico
+10. ⏭️ **Importaciones, Artículos, Adquisiciones y Recepción** (siguiente)
 11. Empleados y Solicitudes del personal (módulo nuevo de la versión 4)
 12. Talento Humano y Financiero
 13. Catálogos, Ofertas y Promociones
@@ -371,3 +371,33 @@ Archivos: `Bodega.gs`, `Logistica.gs`, `Aviso Guia.gs`.
 | `vmRec*` (bandeja de recepción en Bodega, revisión de equipos por partes) | Llegada, revisión, Servicio Técnico, informe y cierre de importaciones | ⏭️ | Vuelta 10 (Importaciones y Recepción) |
 
 Probado en la base de pruebas, dentro de una transacción que se deshace al final: encuesta como visitante anónimo (datos, validaciones, guardar, corregir, aviso al asesor con enlace a la cotización), serie sin revisar bloqueada, serie de la Bodega principal pasa a "Vendida", historial del CRM al despachar y al entregar.
+
+---
+
+## 9. Servicio Técnico — Issue #18
+
+Pantalla: `ServicioTecnicoVista.html` (28 funciones de Servicio Técnico, más documentos técnicos `dt*` y la bandeja de
+recepción `vmRec*`). Archivo: `ServicioTecnico.gs`.
+
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `vmStInicial`, `vmStDetalle` | Pestañas (inventario con observaciones, por agendar, agendadas, en proceso, mis órdenes, finalizadas, equipos, técnicos) y detalle | ✅ | `ServicioTecnico.tsx` |
+| `vmStCrearOrden`, `vmStAgendar`, `vmStIniciar` (GPS), `vmStEstado` | Crear, agendar, iniciar, esperar repuesto, cancelar con motivo | ✅ | `ServicioTecnico.tsx` |
+| `stAvisarTecnico_` | Aviso al técnico asignado (correo) | ❌ → 🆕 | `app.tg_st_orden_tecnico`: aviso en la campana (interno por nombre, externo por su usuario o correo) |
+| `vmStProtocolo`, `vmStProductos`, `vmStGuardarAvance`, `vmStSubirFoto` | Checklist, mediciones, repuestos, fotos, avance | ✅ | `ServicioTecnico.tsx` |
+| `vmStRecepcion` | Recepción en taller con firma y comprobante | ✅ | `Recepcion` + `servicioInforme.ts` |
+| `vmStFinalizar`, `vmStRegenerarInforme` | Cierre, repuestos que salen del inventario, aviso a Facturación, informe PDF | ✅ | `st_finalizar`, `descargarInforme` |
+| `stEnviarInformeCorreo_` | Informe al cliente por correo | ⚠️ | Por WhatsApp y desde el enlace del cliente; el correo depende del Issue #23 |
+| `vmStMensajeEnviado` | Mensajes de WhatsApp | ✅ + 🆕 | Ahora llevan el enlace de seguimiento, como el original |
+| `vmServicioPublico` | Página del cliente: avance, pasos, novedades, garantía, documentos | ❌ → 🆕 | `servicio_publico` + página `/servicio/?c=` (`ServicioPublico.tsx`). El informe se genera en el navegador del cliente (sin las fotos, que están en un espacio privado) |
+| `stToken_` | Código público de cada orden | ❌ → 🆕 | `app.tg_st_orden_token` |
+| `vmStCotizar`, `vmStRespuestaCotizacion`, `vmServicioResponder` | Cotización de reparación y su aprobación | ➖ | En la versión 4 del original Servicio Técnico ya no cotiza ("la gestión comercial se realiza fuera de este módulo") |
+| `vmStEquipos`, `vmStEquipoDetalle`, `vmStEquipoGuardar`, `vmStRegistrarEquipo`, `vmStVentas` | Hoja de vida del equipo, garantía, plan, registrar desde una factura | ✅ | `st_registrar_equipo`, `ServicioTecnico.tsx` |
+| `vmStSincronizar`, `stDesdeEntrega_` | Equipos desde despachos y entregas; instalación o capacitación automática | ✅ | `st_sincronizar`, `lg_entregar` |
+| `stProgramarPreventivos_` | Órdenes preventivas 15 días antes | ✅ | `st_programar_preventivos` |
+| `vmStTecnicoGuardar` | Técnicos externos | ✅ | `st_tecnicos` |
+| `vmStInventario*` | Inventario con observaciones, seguimiento y evidencias | ✅ | `st_incidencias_inventario` |
+| `dt*` | Documentos técnicos | ✅ | Módulo propio (Marketing › Biblioteca) |
+| `vmRec*` | Recepción de importaciones (resultado de Servicio Técnico) | ⏭️ | Vuelta 10 |
+
+Probado en la base de pruebas, dentro de una transacción que se deshace al final: código creado solo, aviso al técnico (una sola vez), página pública como visitante anónimo, código inválido rechazado y sin acceso directo a las órdenes.
