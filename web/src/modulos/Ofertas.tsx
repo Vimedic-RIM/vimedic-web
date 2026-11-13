@@ -4,6 +4,7 @@ import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
 import { LOGO_BLANCO } from '../catalogoAssets'
 import { ConfirmarEliminar } from './CrmClientes'
+import { useEstadoStock, ChipsStockProceso, type EstadoStock } from '../estadoStock'
 import '../estilos/ofertas.css'
 
 /* ============================ Tipos y utilidades ============================ */
@@ -112,30 +113,8 @@ type Textos = ReturnType<typeof plantillas>
 /* Dónde está el stock que NO es vendible todavía (misma fuente que Inventario: inv_estado_stock):
    por revisar = ya llegó a bodega (importación) y Bodega aún no lo aprueba; en reparación = Servicio Técnico;
    por llegar = en camino. Devuelve null mientras carga o si el usuario no tiene acceso a Inventario. */
-export type EstadoStock = { revision: number; reparacion: number; porLlegar: number }
-export function useEstadoStock(): Record<string, EstadoStock> | null {
-  const [est, setEst] = useState<Record<string, EstadoStock> | null>(null)
-  useEffect(() => {
-    let vivo = true
-    supabase.rpc('inv_estado_stock').then(({ data, error }) => {
-      if (!vivo || error) return
-      const m = (data as { productos?: Record<string, Partial<EstadoStock>> } | null)?.productos ?? {}
-      setEst(Object.fromEntries(Object.entries(m).map(([id, o]) => [id, { revision: Number(o.revision) || 0, reparacion: Number(o.reparacion) || 0, porLlegar: Number(o.porLlegar) || 0 }])))
-    })
-    return () => { vivo = false }
-  }, [])
-  return est
-}
-export function ChipsStockProceso({ e }: { e?: EstadoStock }) {
-  if (!e || (!e.revision && !e.reparacion && !e.porLlegar)) return null
-  return (
-    <>
-      {e.revision > 0 && <span className="pill" title="Ya llegó a bodega y Bodega aún no lo aprueba" style={{ background: '#eef2ff', color: '#4338ca' }}>{e.revision} por revisar</span>}
-      {e.reparacion > 0 && <span className="pill" title="En Servicio Técnico" style={{ background: '#fef3c7', color: '#92400e' }}>{e.reparacion} en reparación</span>}
-      {e.porLlegar > 0 && <span className="pill" title="En camino de una importación" style={{ background: '#e0f2fe', color: '#075985' }}>{e.porLlegar} por llegar</span>}
-    </>
-  )
-}
+// Estado del stock (revisión / reparación / por llegar): vive en ../estadoStock para que el CRM lo use sin cargar Ofertas.
+export { useEstadoStock, ChipsStockProceso, type EstadoStock }
 
 /* ============================ Por aprobar (campañas de Promociones) ============================ */
 type ItemCampana = { id: string; desc?: number | null; descPropuesto?: number | null; unidades?: number | null; nota?: string; estadoAprobacion?: string; descAprobado?: number; ofertaId?: string }

@@ -10,9 +10,15 @@ import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
 import { ClientesLista, Papelera, ConfirmarEliminar } from './CrmClientes'
 import RutasViaticos from './RutasViaticos'
-import CrmDocumento, { type Origen } from './CrmDocumento'
+import CrmDocumento, { type Origen, type InfoGuardado } from './CrmDocumento'
 import { ProformaVisor, enriquecerItems, type DatosDoc } from '../proforma'
+import {
+  ActividadReciente, CampoCaptura, DetalleEstado, EditorEtapas, FormEtapa, NotaConEvidencia, cargarActividad, esMovil, esNegociacion,
+  estadoConIntento, leerVisto, subirCaptura, tipoObservacion, type GestionRef, type ModoEtapa,
+} from './CrmEtapas'
+import { FichaCliente } from './Clientes'
 import '../estilos/crm-original.css'
+import '../estilos/clientes.css'
 
 /* ============================ Tipos y datos ============================ */
 type Etapa = { nombre: string; orden: number; es_final: boolean }
@@ -20,8 +26,10 @@ type Asesor = { id: string; nombre: string }
 type Gestion = {
   key: string; tabla: 'leads' | 'cotizaciones'; id: string; codigo: string; tipo: string; nombre: string; estado: string
   asesorId: string | null; fechaTS: number; ultimaTS: number; proximoTS: number; total: number
-  telefono: string; email: string; identificacion: string; pdfUrl: string; medio: string; interes: string
+  telefono: string; email: string; identificacion: string; pdfUrl: string; medio: string; interes: string; clienteId: string | null
 }
+type PasoEtapa = { g: GestionRef; modo: ModoEtapa; destino: string; titulo?: string; boton?: string; ayuda?: string }
+const refDe = (g: Gestion): GestionRef => ({ tabla: g.tabla, id: g.id, nombre: g.nombre, estado: g.estado, total: g.total })
 type Interaccion = { id: string; fecha: string; tipo: string; nota: string | null; usuario_texto: string | null }
 
 const COLOR_ESTADO: Record<string, string> = {
@@ -78,7 +86,6 @@ const iconoTipo = (t: string) => (t === 'Venta' ? Receipt : t === 'Cotización' 
 
 const abandonado = (g: Gestion) => g.estado === 'Nuevo' && g.fechaTS > 0 && Date.now() - g.fechaTS > 24 * 3600000
 const vencido = (g: Gestion) => g.estado !== 'Nuevo' && g.proximoTS > 0 && g.proximoTS < Date.now() && g.estado !== 'Ganado' && g.estado !== 'Perdido'
-const conIntento = (e: string) => /seguim|contactad|sin resp|intento/i.test(e)
 
 /* ============================ Pantalla principal ============================ */
 export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpiarAccion }: { perfil: Perfil; aviso: (t: string) => void; empresa?: 'VIMEDIC' | 'FEMEDICS'; accion?: string | null; limpiarAccion?: () => void }) {
@@ -113,6 +120,14 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
   const [mover, setMover] = useState<{ key: string; x: number; y: number } | null>(null)
   const [arrastrando, setArrastrando] = useState<string | null>(null)
   const [clienteNuevo, setClienteNuevo] = useState(false)
+  const [paso, setPaso] = useState<PasoEtapa | null>(null)
+  const [pasoTrasProforma, setPasoTrasProforma] = useState<PasoEtapa | null>(null)
+  const [editorEtapas, setEditorEtapas] = useState(false)
+  const [versionEtapas, setVersionEtapas] = useState(0)
+  const [actividad, setActividad] = useState(false)
+  const [nuevasActividad, setNuevasActividad] = useState(0)
+  const [verComo, setVerComo] = useState('')
+  const [fichaCliente, setFichaCliente] = useState<string | null>(null)
   const peticion = useRef(0)
 
   // Acceso directo de la barra lateral (Rail): abre de una vez el formulario pedido.
@@ -129,6 +144,8 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
 
   const crear = puede(perfil, mod, 'crear')
   const eliminar = puede(perfil, mod, 'eliminar')
+  const adminEtapas = perfil.es_superadmin || puede(perfil, 'crm', 'administrar') || puede(perfil, 'marketing', 'administrar')
+  const veTodos = puede(perfil, mod, 'ver_todos')
   const nombres = useMemo(() => new Map(asesores.map((a) => [a.id, a.nombre])), [asesores])
   const estados = etapas.map((e) => e.nombre)
   const colorEstado = (e: string) => COLOR_ESTADO[e] ?? PALETA[Math.max(0, estados.indexOf(e)) % PALETA.length]
@@ -138,10 +155,10 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
     setCargando(true)
     const [l, c] = await Promise.all([
       supabase.from('leads')
-        .select('id,codigo,origen_tipo,fecha,nombre,telefono,email,identificacion,interes,medio_captacion,asesor_id,estado_crm,ultima_actividad,proximo_seguimiento')
+        .select('id,codigo,origen_tipo,fecha,nombre,telefono,email,identificacion,interes,medio_captacion,asesor_id,estado_crm,ultima_actividad,proximo_seguimiento,cliente_id')
         .is('deleted_at', null).eq('empresa', empresa).order('fecha', { ascending: false }).limit(2000),
       supabase.from('cotizaciones')
-        .select('id,codigo,fecha,tipo_registro,nombre,telefono,email,identificacion,asesor_id,estado_crm,ultima_actividad,proximo_seguimiento,total,pdf_url,lead_id,medio_captacion_lead,detalle_equipos')
+        .select('id,codigo,fecha,tipo_registro,nombre,telefono,email,identificacion,asesor_id,estado_crm,ultima_actividad,proximo_seguimiento,total,pdf_url,lead_id,medio_captacion_lead,detalle_equipos,cliente_id')
         .is('deleted_at', null).eq('empresa', empresa).neq('tipo_registro', 'Histórico').order('fecha', { ascending: false }).limit(2000),
     ])
     if (n !== peticion.current) return
@@ -153,7 +170,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
       key: 'cotizaciones:' + x.id, tabla: 'cotizaciones', id: x.id, codigo: x.codigo ?? '', tipo: x.tipo_registro === 'Venta' ? 'Venta' : 'Cotización',
       nombre: x.nombre ?? '', estado: x.estado_crm || 'Nuevo', asesorId: x.asesor_id, fechaTS: ts(x.fecha), ultimaTS: ts(x.ultima_actividad),
       proximoTS: ts(x.proximo_seguimiento), total: Number(x.total) || 0, telefono: x.telefono ?? '', email: x.email ?? '',
-      identificacion: x.identificacion ?? '', pdfUrl: x.pdf_url ?? '', medio: x.medio_captacion_lead ?? '', interes: x.detalle_equipos ?? '',
+      identificacion: x.identificacion ?? '', pdfUrl: x.pdf_url ?? '', medio: x.medio_captacion_lead ?? '', interes: x.detalle_equipos ?? '', clienteId: x.cliente_id ?? null,
     }))
     const deLead: Gestion[] = ((l.data ?? []) as Record<string, any>[]) // eslint-disable-line @typescript-eslint/no-explicit-any
       .filter((x) => !conCotizacion.has(x.id))
@@ -161,7 +178,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
         key: 'leads:' + x.id, tabla: 'leads', id: x.id, codigo: x.codigo ?? '', tipo: TIPO_LEAD[x.origen_tipo] ?? 'Contacto',
         nombre: x.nombre ?? '', estado: x.estado_crm || 'Nuevo', asesorId: x.asesor_id, fechaTS: ts(x.fecha), ultimaTS: ts(x.ultima_actividad),
         proximoTS: ts(x.proximo_seguimiento), total: 0, telefono: x.telefono ?? '', email: x.email ?? '', identificacion: x.identificacion ?? '',
-        pdfUrl: '', medio: x.medio_captacion ?? '', interes: x.interes ?? '',
+        pdfUrl: '', medio: x.medio_captacion ?? '', interes: x.interes ?? '', clienteId: x.cliente_id ?? null,
       }))
     setGestiones([...deLead, ...deCot])
     setCargando(false)
@@ -170,8 +187,14 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
   useEffect(() => {
     supabase.from('etapas_pipeline').select('nombre,orden,es_final').is('deleted_at', null).order('orden')
       .then(({ data }) => { if (data?.length) setEtapas(data as Etapa[]) })
+  }, [versionEtapas])
+  useEffect(() => {
     supabase.from('v_directorio_empleados').select('id,nombre').order('nombre')
       .then(({ data }) => setAsesores((data as Asesor[]) ?? []))
+    // Campana de actividad: cuántas novedades hay desde la última vez que se abrió.
+    const visto = leerVisto(empresa)
+    cargarActividad(empresa, 60, visto ? new Date(visto).toISOString() : new Date(Date.now() - 86400000).toISOString()).then((l) => setNuevasActividad(l.length))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   useEffect(() => { cargar() }, [cargar])
   useEffect(() => {
@@ -193,6 +216,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
     const d = desde ? new Date(desde + 'T00:00:00').getTime() : 0
     const h = hasta ? new Date(hasta + 'T23:59:59').getTime() : 0
     return gestiones.filter((g) => {
+      if (verComo && (verComo === '__sin' ? !!g.asesorId : g.asesorId !== verComo)) return false
       if (tipo !== 'ALL' && g.tipo !== tipo) return false
       if (d && g.fechaTS < d) return false
       if (h && g.fechaTS > h) return false
@@ -200,7 +224,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
       const campo = norm([g.nombre, g.email, g.telefono, nombres.get(g.asesorId ?? '') ?? '', g.codigo, g.identificacion, g.interes].join(' '))
       return q.split(/\s+/).every((p) => campo.includes(p))
     })
-  }, [gestiones, texto, tipo, desde, hasta, nombres])
+  }, [gestiones, texto, tipo, desde, hasta, nombres, verComo])
 
   const alertaDesde = (g: Gestion): number | null => (abandonado(g) ? g.fechaTS : vencido(g) ? g.proximoTS : null)
   const grupos = useMemo(() => {
@@ -246,21 +270,53 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
   }, [filtradas])
   const pendientes = useMemo(() => filtradas.filter((g) => g.estado !== 'Ganado' && g.estado !== 'Perdido' && (Date.now() - g.ultimaTS) / 86400000 >= 3), [filtradas])
 
-  /* ---- Cambiar de etapa ---- */
+  /* ---- Cambiar de etapa: mismas reglas que arrastrar en la app original ----
+     Ganado abre la venta; Contactado / Sin respuesta / Seguimiento / Negociación /
+     Visita / Perdido piden sus datos antes de mover; Perdido no se permite desde Nuevo;
+     "En Negociación" de un contacto sin proforma abre además la cotización. */
   async function cambiarEstado(key: string, nuevo: string) {
     const g = gestiones.find((x) => x.key === key)
     if (!g || g.estado === nuevo) return
     if (g.estado === 'Ganado') { aviso('Esta gestión ya está en Ganado y pasó a facturación: no se puede mover de columna.'); return }
     if (nuevo === 'Ganado') { abrirVenta(g); return }
+    if (nuevo === 'Perdido' && (g.estado || 'Nuevo') === 'Nuevo') { aviso('Aún no se puede marcar como Perdido: primero realiza y registra al menos una gestión (Contactado, Sin respuesta, etc.).'); return }
+    const conDatos = (modo: ModoEtapa) => { setAbierta(null); setPaso({ g: refDe(g), modo, destino: nuevo }) }
+    if (nuevo === 'Contactado') return conDatos('contactado')
+    if (nuevo === 'Perdido') return conDatos('perdido')
+    if (nuevo === 'Visita') return conDatos('visita')
+    if (tipoObservacion(nuevo)) return conDatos('observacion')
+    if (esNegociacion(nuevo) && (g.tipo === 'Cotización' || g.tipo === 'Venta')) return conDatos('negociacion')
     const antes = gestiones
     setGestiones((a) => a.map((x) => (x.key === key ? { ...x, estado: nuevo, ultimaTS: Date.now() } : x)))
-    const { error } = await supabase.from(g.tabla).update({ estado_crm: nuevo, ultima_actividad: new Date().toISOString() }).eq('id', g.id)
+    const { error } = await supabase.rpc('crm_cambiar_estado', { p_tabla: g.tabla, p_id: g.id, p_estado: nuevo })
     if (error) { setGestiones(antes); aviso('No se pudo mover: ' + error.message); return }
-    await supabase.from('interacciones').insert({
-      id: crypto.randomUUID(), codigo: 'INT-' + crypto.randomUUID().slice(0, 8), ref_tipo: g.tipo, ref_codigo: g.codigo || null,
-      [g.tabla === 'leads' ? 'lead_id' : 'cotizacion_id']: g.id, tipo: 'Cambio de Estado',
-      nota: `Estado actualizado a "${nuevo}".`, empleado_id: perfil.id, usuario_texto: perfil.nombre,
-    })
+    if (esNegociacion(nuevo) && g.tabla === 'leads') cotizarDesde(g)
+  }
+  /* El formulario de la etapa ya guardó en la base: la tarjeta se mueve sin esperar la recarga. */
+  function pasoGuardado(p: PasoEtapa, proximoISO: string | null) {
+    const key = p.g.tabla + ':' + p.g.id
+    setGestiones((a) => a.map((x) => (x.key === key ? { ...x, estado: p.modo === 'registro' ? x.estado : p.destino, ultimaTS: Date.now(), proximoTS: proximoISO ? new Date(proximoISO).getTime() : x.proximoTS } : x)))
+    setPaso(null)
+    aviso(p.modo === 'registro' ? 'Seguimiento registrado.' : 'Movida a ' + p.destino + '.')
+    cargar()
+  }
+  const nuevoIntento = (g: Gestion) => setPaso({ g: refDe(g), modo: 'registro', destino: g.estado, titulo: 'Nuevo intento · ' + g.estado, boton: 'Guardar intento' })
+  async function abrirFichaCliente(g: Gestion) {
+    let id = g.clienteId
+    if (!id && g.identificacion) {
+      const { data } = await supabase.from('clientes').select('id').eq('identificacion', g.identificacion).eq('empresa', empresa).is('deleted_at', null).limit(1).maybeSingle()
+      id = (data as { id: string } | null)?.id ?? null
+    }
+    setAbierta(null)
+    if (id) setFichaCliente(id); else { aviso('Esta gestión todavía no tiene un cliente registrado: búscalo o créalo en Clientes.'); setClientes(true) }
+  }
+  async function duplicar(g: Gestion) {
+    const { data, error } = await supabase.from('cotizaciones').select('items').eq('id', g.id).single()
+    const items = ((data as { items?: Record<string, any>[] } | null)?.items ?? []) // eslint-disable-line @typescript-eslint/no-explicit-any
+    if (error || !items.length) { aviso('Esta gestión no tiene productos para duplicar.'); return }
+    setAbierta(null)
+    setDocumento({ modo: 'Cotización', origen: null, items: await enriquecerItems(items as never) as never })
+    aviso(items.length + ' producto(s) cargados en una cotización nueva. Elige el cliente para continuar.')
   }
 
   function abrirVenta(g: Gestion) { setAbierta(null); setDocumento({ modo: 'Venta', origen: { tabla: g.tabla, id: g.id, codigo: g.codigo, nombre: g.nombre, telefono: g.telefono, email: g.email, identificacion: g.identificacion, medio: g.medio } }) }
@@ -278,7 +334,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
       <header className="sticky top-0 z-30 border-b border-slate-200" style={{ background: 'linear-gradient(135deg, var(--navy), var(--primary))' }}>
         <div className="vm-head-pad w-full px-4 sm:pr-5 min-h-14 flex items-center justify-between gap-3 flex-wrap py-1.5">
           <div className="flex sm:hidden items-center justify-between w-full py-1">
-            <button type="button" onClick={(e) => { e.stopPropagation(); setPanelAlertas((v) => !v) }} className="relative bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg transition-colors" title="Seguimientos pendientes">
+            <button type="button" onClick={(e) => { e.stopPropagation(); setActividad(false); setPanelAlertas((v) => !v) }} className="relative bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg transition-colors" title="Seguimientos pendientes">
               <AlarmClock className="w-5 h-5" />
               {pendientes.length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center">{pendientes.length}</span>}
             </button>
@@ -300,7 +356,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
             <div className="relative" id="vmFiltrosWrap">
               <button type="button" onClick={(e) => { e.stopPropagation(); setPanelFiltros((v) => !v) }} className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-bold px-3 py-2 rounded-lg transition-colors">
                 <SlidersHorizontal className="w-3.5 h-3.5" /><span>Filtros</span>
-                {(tipo !== 'ALL' || desde || hasta) && <span className="bg-white text-[10px] font-bold rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center" style={{ color: 'var(--primary)' }}>{(tipo !== 'ALL' ? 1 : 0) + (desde || hasta ? 1 : 0)}</span>}
+                {(tipo !== 'ALL' || desde || hasta || verComo) && <span className="bg-white text-[10px] font-bold rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center" style={{ color: 'var(--primary)' }}>{(tipo !== 'ALL' ? 1 : 0) + (desde || hasta ? 1 : 0) + (verComo ? 1 : 0)}</span>}
               </button>
               {panelFiltros && (
                 <div className="absolute left-0 top-full mt-2 w-[340px] bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 z-50" onClick={(e) => e.stopPropagation()}>
@@ -315,8 +371,18 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
                     <label className="text-[10px] font-semibold text-slate-500">Desde<input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="w-full mt-1 text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2" style={{ ['--tw-ring-color' as string]: 'var(--cyan)' }} /></label>
                     <label className="text-[10px] font-semibold text-slate-500">Hasta<input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} className="w-full mt-1 text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2" style={{ ['--tw-ring-color' as string]: 'var(--cyan)' }} /></label>
                   </div>
+                  {veTodos && (
+                    <>
+                      <p className="text-[10px] font-mono-spec uppercase text-slate-400 font-semibold mb-2 mt-3">Ver como asesor</p>
+                      <select value={verComo} onChange={(e) => setVerComo(e.target.value)} className="w-full text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2" style={{ ['--tw-ring-color' as string]: 'var(--cyan)' }}>
+                        <option value="">Todos los asesores</option>
+                        <option value="__sin">Sin asesor asignado</option>
+                        {asesores.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+                      </select>
+                    </>
+                  )}
                   <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
-                    <button type="button" onClick={() => { setTipo('ALL'); setDesde(''); setHasta('') }} className="text-[11px] font-semibold text-slate-500 hover:text-slate-700 underline">Limpiar todo</button>
+                    <button type="button" onClick={() => { setTipo('ALL'); setDesde(''); setHasta(''); setVerComo('') }} className="text-[11px] font-semibold text-slate-500 hover:text-slate-700 underline">Limpiar todo</button>
                     <button type="button" onClick={() => setPanelFiltros(false)} className="text-xs font-bold text-white px-3 py-1.5 rounded-lg" style={{ background: 'var(--primary)' }}>Listo</button>
                   </div>
                 </div>
@@ -334,8 +400,12 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
           </div>
 
           <div className="hidden sm:flex items-center gap-2 ml-auto">
-            {perfil.es_superadmin && <button onClick={() => aviso('La administración de etapas se está migrando.')} className="bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg transition-colors" title="Administrar etapas del pipeline"><Settings className="w-4 h-4" /></button>}
-            <button type="button" onClick={(e) => { e.stopPropagation(); setPanelAlertas((v) => !v) }} className="bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg transition-colors relative" title="Seguimientos pendientes">
+            {adminEtapas && <button onClick={() => setEditorEtapas(true)} className="bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg transition-colors" title="Administrar etapas del pipeline"><Settings className="w-4 h-4" /></button>}
+            <button type="button" onClick={(e) => { e.stopPropagation(); setPanelAlertas(false); setActividad((v) => !v); setNuevasActividad(0) }} className="bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg transition-colors relative" title="Actividad reciente">
+              <Bell className="w-4 h-4" />
+              {nuevasActividad > 0 && <span className="absolute -top-1 -right-1 bg-cyan-500 text-white text-[9px] font-bold rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center" style={{ background: 'var(--cyan)' }}>{nuevasActividad > 9 ? '9+' : nuevasActividad}</span>}
+            </button>
+            <button type="button" onClick={(e) => { e.stopPropagation(); setActividad(false); setPanelAlertas((v) => !v) }} className="bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg transition-colors relative" title="Seguimientos pendientes">
               <AlarmClock className="w-4 h-4" />
               {pendientes.length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center">{pendientes.length}</span>}
             </button>
@@ -361,7 +431,8 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
               {empresa !== 'FEMEDICS' && <button onClick={() => { setMenuMovil(false); aviso('Mensajes se está migrando: sigue disponible en la app actual.') }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><MessageCircle className="w-4 h-4 text-slate-500"  /> Mensajes</button>}
               {eliminar && <button onClick={() => { setMenuMovil(false); setPapelera(true) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><Trash2 className="w-4 h-4 text-slate-500"  /> Papelera</button>}
               <div className="border-t border-slate-100 my-1.5" />
-              {perfil.es_superadmin && <button onClick={() => { setMenuMovil(false); aviso('La administración de etapas se está migrando.') }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><Settings className="w-4 h-4 text-slate-500"  /> Administrar etapas</button>}
+              <button onClick={() => { setMenuMovil(false); setPanelAlertas(false); setActividad(true); setNuevasActividad(0) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><Bell className="w-4 h-4 text-slate-500" /> Actividad reciente{nuevasActividad > 0 ? ` (${nuevasActividad})` : ''}</button>
+              {adminEtapas && <button onClick={() => { setMenuMovil(false); setEditorEtapas(true) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><Settings className="w-4 h-4 text-slate-500"  /> Administrar etapas</button>}
               <button onClick={() => { setMenuMovil(false); cargar() }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><RefreshCw className="w-4 h-4 text-slate-500" /> Actualizar</button>
             </div>
           </div>
@@ -470,7 +541,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
                     {on && <div className="vm-alert-note"><BellRing />Solo alertas · de la más antigua a la más reciente</div>}
                     {items.slice(0, limite).map((g) => (
                       <Tarjeta key={g.key} g={g} asesor={nombres.get(g.asesorId ?? '') ?? 'Sin asignar'} color={colorEstado(g.estado)} arrastrando={arrastrando === g.key}
-                        abrir={() => setAbierta(g.key)}
+                        abrir={() => setAbierta(g.key)} intento={() => nuevoIntento(g)}
                         iniciarArrastre={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', g.key); setArrastrando(g.key) }}
                         finArrastre={() => setArrastrando(null)}
                         mover={(x, y) => setMover({ key: g.key, x, y })} />
@@ -505,31 +576,49 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
         )
       })()}
 
-      {abierta && gestiones.find((x) => x.key === abierta) && (
-        <Ficha g={gestiones.find((x) => x.key === abierta)!} perfil={perfil} asesores={asesores} etapas={estados} colorEstado={colorEstado}
-          cerrar={() => setAbierta(null)} cambiarEstado={cambiarEstado} recargar={cargar} aviso={aviso}
-          mod={mod} empresa={empresa} verProforma={setProforma} editarDoc={(row) => { setAbierta(null); setDocumento({ modo: 'Cotización', origen: null, editar: row }) }} facturar={() => abrirVenta(gestiones.find((x) => x.key === abierta)!)} cotizar={() => cotizarDesde(gestiones.find((x) => x.key === abierta)!)} clientes={() => setClientes(true)} />
-      )}
+      {actividad && <ActividadReciente empresa={empresa} cerrar={() => setActividad(false)} abrir={(k) => { if (gestiones.some((x) => x.key === k)) setAbierta(k); else aviso('Esa gestión ya no está en el pipeline (puede estar en la Papelera o en el histórico).') }} />}
+
+      {abierta && gestiones.find((x) => x.key === abierta) && (() => {
+        const ga = gestiones.find((x) => x.key === abierta)!
+        return (
+          <Ficha g={ga} perfil={perfil} asesores={asesores} etapas={estados} colorEstado={colorEstado}
+            cerrar={() => setAbierta(null)} cambiarEstado={cambiarEstado} recargar={cargar} aviso={aviso}
+            mod={mod} empresa={empresa} verProforma={setProforma} editarDoc={(row) => { setAbierta(null); setDocumento({ modo: 'Cotización', origen: null, editar: row }) }}
+            facturar={() => abrirVenta(ga)} cotizar={() => cotizarDesde(ga)} clientes={() => abrirFichaCliente(ga)}
+            seguimiento={() => setPaso({ g: refDe(ga), modo: 'registro', destino: ga.estado, titulo: 'Registrar seguimiento · ' + ga.estado, boton: 'Guardar seguimiento' })}
+            duplicar={() => duplicar(ga)} />
+        )
+      })()}
       {clientes && <ClientesLista empresa={empresa} perfil={perfil} asesores={asesores} cerrar={() => setClientes(false)} aviso={aviso} abrirNuevo={clienteNuevo} consumirAbrirNuevo={() => setClienteNuevo(false)} />}
+      {fichaCliente && <div className="vm-cli"><FichaCliente id={fichaCliente} perfil={perfil} asesores={asesores} cerrar={() => setFichaCliente(null)} aviso={aviso} cambio={cargar} /></div>}
       {papelera && <Papelera empresa={empresa} cerrar={() => setPapelera(false)} alRestaurar={cargar} aviso={aviso} />}
       {rutasViaticos && <RutasViaticos perfil={perfil} cerrar={() => setRutasViaticos(false)} aviso={aviso} />}
-      {documento && <CrmDocumento empresa={empresa} editar={documento.editar} itemsIniciales={documento.items} modo={documento.modo} perfil={perfil} asesores={asesores} origen={documento.origen} cerrar={() => setDocumento(null)} guardado={(m, doc) => { setDocumento(null); aviso(m); cargar(); setProforma(doc) }} />}
-      {proforma && <ProformaVisor datos={proforma} cerrar={() => setProforma(null)} />}
+      {documento && <CrmDocumento empresa={empresa} editar={documento.editar} itemsIniciales={documento.items} modo={documento.modo} perfil={perfil} asesores={asesores} origen={documento.origen} cerrar={() => setDocumento(null)}
+        guardado={(m, doc, info?: InfoGuardado) => {
+          setDocumento(null); aviso(m); cargar(); setProforma(doc)
+          // Proforma nueva: igual que el original, al cerrar la vista previa se pide registrar el seguimiento (cuándo volver a contactar).
+          if (info && info.nuevo && info.modo === 'Cotización') setPasoTrasProforma({ g: { tabla: 'cotizaciones', id: info.id, nombre: info.nombre, estado: 'Seguimiento', total: info.total }, modo: 'registro', destino: 'Seguimiento', titulo: 'Proforma creada · Seguimiento', boton: 'Guardar seguimiento', ayuda: '¿Cómo la enviaste y cuándo vuelves a contactar al cliente? Queda en el historial y avisa cuando toque el próximo intento.' })
+        }} />}
+      {proforma && <ProformaVisor datos={proforma} cerrar={() => { setProforma(null); if (pasoTrasProforma) { setPaso(pasoTrasProforma); setPasoTrasProforma(null) } }} />}
       {nueva && <NuevaGestion empresa={empresa} perfil={perfil} asesores={asesores} cerrar={() => setNueva(false)} guardado={() => { setNueva(false); aviso('Gestión creada.'); cargar() }} />}
+      {paso && <FormEtapa g={paso.g} modo={paso.modo} destino={paso.destino} titulo={paso.titulo} boton={paso.boton} ayuda={paso.ayuda} aviso={aviso} cerrar={() => setPaso(null)} hecho={(p) => pasoGuardado(paso, p)} />}
+      {editorEtapas && <EditorEtapas etapas={estados} colorEstado={colorEstado} conteo={(e) => gestiones.filter((x) => x.estado === e).length} cerrar={() => setEditorEtapas(false)} guardado={() => { setEditorEtapas(false); setVersionEtapas((v) => v + 1); aviso('Etapas del pipeline guardadas.') }} />}
     </div>
   )
 }
 
 /* ============================ Tarjeta del tablero ============================ */
-function Tarjeta({ g, asesor, color, arrastrando, abrir, iniciarArrastre, finArrastre, mover }: {
-  g: Gestion; asesor: string; color: string; arrastrando: boolean; abrir: () => void
+function Tarjeta({ g, asesor, color, arrastrando, abrir, intento: abrirIntento, iniciarArrastre, finArrastre, mover }: {
+  g: Gestion; asesor: string; color: string; arrastrando: boolean; abrir: () => void; intento: () => void
   iniciarArrastre: (e: React.DragEvent) => void; finArrastre: () => void; mover: (x: number, y: number) => void
 }) {
   const esGanado = g.estado === 'Ganado'
   const venc = vencido(g), aband = abandonado(g)
   const Tipo = iconoTipo(g.tipo)
-  const intento = conIntento(g.estado) && !esGanado
-  const esperaIntento = intento && (g.proximoTS ? g.proximoTS > Date.now() : Date.now() - (g.ultimaTS || g.fechaTS) < 86400000)
+  // "Nuevo intento": se habilita cuando llega la hora del próximo intento; en Contactado sin fecha, a las 24 h de la última gestión.
+  const intento = estadoConIntento(g.estado) && !esGanado && g.estado !== 'Perdido'
+  const sinFechaContactado = !g.proximoTS && /contactad/i.test(g.estado)
+  const esperaIntento = intento && (sinFechaContactado ? Date.now() - (g.ultimaTS || g.fechaTS) < 86400000 : g.proximoTS > Date.now())
   return (
     <div className={'lead-card vm-lead-card-v2 bg-white rounded-lg border border-slate-200 px-2.5 py-1.5 shadow-sm ' + (venc ? 'vm-vencida ' : '') + (aband ? 'vm-abandonada ' : '') + (arrastrando ? 'dragging' : '')}
       draggable={!esGanado} onDragStart={(e) => { if ((e.target as HTMLElement).closest('button,select,input,a')) { e.preventDefault(); return } iniciarArrastre(e) }} onDragEnd={finArrastre} onClick={abrir}>
@@ -555,20 +644,21 @@ function Tarjeta({ g, asesor, color, arrastrando, abrir, iniciarArrastre, finArr
           </div>
         )}
       </div>
-      {g.telefono && (
+      {(g.telefono || (intento && !esperaIntento)) && (
         <div className="vm-mcard-acts sm:hidden">
-          <a href={waLink(g.telefono)} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()} style={{ ['--c' as string]: '#16a34a' }}><MessageCircle />WhatsApp</a>
-          <a href={telLink(g.telefono)} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()} style={{ ['--c' as string]: 'var(--primary)' }}><Phone />Llamar</a>
+          {g.telefono && <a href={waLink(g.telefono)} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()} style={{ ['--c' as string]: '#16a34a' }}><MessageCircle />WhatsApp</a>}
+          {g.telefono && <a href={telLink(g.telefono)} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()} style={{ ['--c' as string]: 'var(--primary)' }}><Phone />Llamar</a>}
+          {intento && !esperaIntento && <button type="button" onClick={(e) => { e.stopPropagation(); abrirIntento() }} style={{ ['--c' as string]: '#7c3aed' }}><Repeat />Intento</button>}
         </div>
       )}
-      {intento && !esperaIntento && <button type="button" className="vm-int-pc" onClick={(e) => { e.stopPropagation(); abrir() }}><Plus />Nuevo intento</button>}
+      {intento && !esperaIntento && <button type="button" className="vm-int-pc" onClick={(e) => { e.stopPropagation(); abrirIntento() }}><Plus />Nuevo intento</button>}
     </div>
   )
 }
 
 /* ============================ Ficha lateral de la gestión ============================ */
-function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado, recargar, aviso, facturar, cotizar, clientes, verProforma, editarDoc, mod, empresa }: {
-  mod: string; empresa: 'VIMEDIC' | 'FEMEDICS'
+function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado, recargar, aviso, facturar, cotizar, clientes, verProforma, editarDoc, mod, empresa, seguimiento, duplicar }: {
+  mod: string; empresa: 'VIMEDIC' | 'FEMEDICS'; seguimiento: () => void; duplicar: () => void
   g: Gestion; perfil: Perfil; asesores: Asesor[]; etapas: string[]; colorEstado: (e: string) => string
   cerrar: () => void; cambiarEstado: (key: string, nuevo: string) => Promise<void>; recargar: () => void; aviso: (t: string) => void; facturar: () => void; cotizar: () => void; clientes: () => void; verProforma: (d: DatosDoc) => void; editarDoc: (row: Record<string, any>) => void // eslint-disable-line @typescript-eslint/no-explicit-any
 }) {
@@ -633,6 +723,11 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
       id: crypto.randomUUID(), codigo: 'INT-' + crypto.randomUUID().slice(0, 8), ref_tipo: g.tipo, ref_codigo: g.codigo || null,
       [campo]: g.id, tipo: 'Cambio de Asesor', nota: `Asesor cambiado a ${asesores.find((a) => a.id === id)?.nombre ?? 'Sin asignar'}.`, empleado_id: perfil.id, usuario_texto: perfil.nombre,
     })
+    // Igual que reassignAdvisor del original: el asesor nuevo se entera ya (aviso interno en Mi Espacio).
+    if (id && id !== perfil.id) {
+      await supabase.from('notificaciones').insert({ id: crypto.randomUUID(), para_id: id, modulo: 'crm', evento: 'reasignacion', tipo: 'aviso',
+        texto: `Te asignaron una gestión: ${g.nombre || 'Sin nombre'}${g.codigo ? ' (' + g.codigo + ')' : ''} — por ${perfil.nombre}.`, entidad: g.tabla, entidad_id: g.id })
+    }
     cargarHistorial(); recargar()
   }
 
@@ -699,6 +794,29 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
     const t = `Hola${g.nombre ? ' ' + g.nombre : ''}, para continuar con su gestión necesitamos sus datos: nombre completo, cédula o RUC, correo electrónico, ciudad y dirección. ¡Gracias!`
     navigator.clipboard?.writeText(t).then(() => aviso('Mensaje copiado: pégalo en el chat del cliente.'))
   }
+
+  /* Editar los datos del contacto (updateLeadFields del original). */
+  const puedeEditar = puede(perfil, mod, 'editar') || g.asesorId === perfil.id
+  const [editando, setEditando] = useState(false)
+  const [datos, setDatos] = useState({ nombre: g.nombre, telefono: g.telefono, email: g.email, identificacion: g.identificacion })
+  useEffect(() => { setDatos({ nombre: g.nombre, telefono: g.telefono, email: g.email, identificacion: g.identificacion }); setEditando(false) }, [g.id, g.nombre, g.telefono, g.email, g.identificacion])
+  async function guardarDatos() {
+    const limpio = { nombre: datos.nombre.trim(), telefono: datos.telefono.trim(), email: datos.email.trim().toLowerCase(), identificacion: datos.identificacion.replace(/\s+/g, '') }
+    if (!limpio.nombre) { aviso('El nombre no puede quedar vacío.'); return }
+    if (limpio.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(limpio.email)) { aviso('El correo no es válido.'); return }
+    if (limpio.identificacion && !/^\d{10}(\d{3})?$/.test(limpio.identificacion)) { aviso('La cédula debe tener 10 dígitos o el RUC 13.'); return }
+    const cambios = (Object.keys(limpio) as (keyof typeof limpio)[]).filter((k) => limpio[k] !== (g[k] ?? ''))
+    if (!cambios.length) { setEditando(false); return }
+    const { error } = await supabase.from(g.tabla).update({ nombre: limpio.nombre, telefono: limpio.telefono || null, email: limpio.email || null, identificacion: limpio.identificacion || null, ultima_actividad: new Date().toISOString() }).eq('id', g.id)
+    if (error) { aviso('No se pudieron guardar los datos: ' + error.message); return }
+    const etiquetas: Record<string, string> = { nombre: 'nombre', telefono: 'teléfono', email: 'correo', identificacion: 'cédula/RUC' }
+    await supabase.from('interacciones').insert({
+      id: crypto.randomUUID(), codigo: 'INT-' + crypto.randomUUID().slice(0, 8), ref_tipo: g.tipo, ref_codigo: g.codigo || null,
+      [campo]: g.id, tipo: 'Datos Actualizados', nota: 'Se actualizó: ' + cambios.map((k) => etiquetas[k]).join(', ') + '.', empleado_id: perfil.id, usuario_texto: perfil.nombre,
+    })
+    setEditando(false); aviso('Datos del contacto actualizados.'); cargarHistorial(); recargar()
+  }
+  const abiertaEtapa = g.estado !== 'Ganado' && g.estado !== 'Perdido'
 
   return (
     <>
@@ -777,6 +895,16 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
           {g.tabla === 'leads' && g.estado !== 'Ganado' && g.estado !== 'Perdido' && (
             <button onClick={cotizar} className="w-full text-sm font-bold py-2.5 rounded-xl border flex items-center justify-center gap-1.5" style={{ borderColor: 'var(--primary)', color: 'var(--primary)' }}><FilePlus2 className="w-4 h-4" /> Crear cotización</button>
           )}
+          <div className="grid grid-cols-2 gap-2">
+            {abiertaEtapa && (
+              <button onClick={seguimiento} className="text-xs font-bold py-2.5 rounded-xl border flex items-center justify-center gap-1.5" style={{ borderColor: '#7c3aed', color: '#7c3aed' }}><Repeat className="w-3.5 h-3.5" /> Registrar seguimiento</button>
+            )}
+            {g.tabla === 'cotizaciones' && puede(perfil, mod, 'crear') && (
+              <button onClick={duplicar} className="text-xs font-bold py-2.5 rounded-xl border flex items-center justify-center gap-1.5" style={{ borderColor: '#0e7490', color: '#0e7490' }} title="Nueva cotización con los mismos productos, precios y descuentos"><Copy className="w-3.5 h-3.5" /> Duplicar cotización</button>
+            )}
+          </div>
+
+          <DetalleEstado historial={historial} estado={g.estado} color={color} />
 
           {g.interes && (
             <div className="vm-dsec" style={{ padding: 12 }}>
@@ -787,12 +915,28 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
 
           <details className="vm-dsec" open>
             <summary><Contact className="w-3.5 h-3.5" />Contacto y cliente</summary>
-            <div className="space-y-1.5 pt-2 text-xs text-slate-700">
-              <p><b>Nombre:</b> {g.nombre || '—'}</p>
-              <p><b>Teléfono:</b> {g.telefono || '—'}</p>
-              <p><b>Correo:</b> {g.email || '—'}</p>
-              <p><b>Cédula / RUC:</b> {g.identificacion || '—'}</p>
-            </div>
+            {editando ? (
+              <div className="space-y-1.5 pt-2">
+                {([['nombre', 'Nombre'], ['telefono', 'Teléfono'], ['email', 'Correo'], ['identificacion', 'Cédula / RUC']] as [keyof typeof datos, string][]).map(([k, t]) => (
+                  <label key={k} className="block text-[10px] font-bold text-slate-500 uppercase">{t}
+                    <input value={datos[k]} onChange={(e) => setDatos({ ...datos, [k]: e.target.value })} inputMode={k === 'telefono' || k === 'identificacion' ? 'numeric' : undefined}
+                      className="w-full mt-0.5 border border-slate-200 rounded-lg p-2 text-xs font-normal normal-case focus:outline-none focus:ring-2" style={{ ['--tw-ring-color' as string]: 'var(--cyan)' }} />
+                  </label>
+                ))}
+                <div className="flex gap-1.5 pt-1">
+                  <button onClick={() => setEditando(false)} className="flex-1 text-xs font-bold py-2 rounded-lg border border-slate-200 text-slate-600">Cancelar</button>
+                  <button onClick={guardarDatos} className="flex-1 text-xs font-bold py-2 rounded-lg text-white" style={{ background: 'var(--teal)' }}>Guardar datos</button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-1.5 pt-2 text-xs text-slate-700">
+                <p><b>Nombre:</b> {g.nombre || '—'}</p>
+                <p><b>Teléfono:</b> {g.telefono || '—'}</p>
+                <p><b>Correo:</b> {g.email || '—'}</p>
+                <p><b>Cédula / RUC:</b> {g.identificacion || '—'}</p>
+                {puedeEditar && g.estado !== 'Ganado' && <button onClick={() => setEditando(true)} className="text-[11px] font-bold flex items-center gap-1" style={{ color: 'var(--primary)' }}><Pencil className="w-3 h-3" /> Editar datos</button>}
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-1.5 mt-3">
               <button onClick={clientes} className="text-xs font-bold py-2 rounded-lg border flex items-center justify-center gap-1.5 transition-colors" style={{ borderColor: '#04896f', color: '#04896f' }}><IdCard className="w-3.5 h-3.5" /> Ficha Cliente</button>
               <button onClick={copiarSolicitud} className="text-xs font-bold py-2 rounded-lg border flex items-center justify-center gap-1.5 transition-colors" style={{ borderColor: '#25D366', color: '#25D366' }}><Copy className="w-3.5 h-3.5" /> Pedir datos</button>
@@ -849,7 +993,7 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
                       <span className="text-[10px] font-bold uppercase font-mono-spec" style={{ color: 'var(--primary)' }}>{i.tipo}</span>
                       <span className="text-[10px] text-slate-400">{new Date(i.fecha).toLocaleString('es-EC')}</span>
                     </div>
-                    <p className="text-xs text-slate-700 mt-0.5" style={{ overflowWrap: 'anywhere' }}>{i.nota}</p>
+                    <NotaConEvidencia nota={i.nota} />
                     {i.usuario_texto && <p className="text-[10px] text-slate-400 mt-0.5">{i.usuario_texto}</p>}
                   </div>
                 </div>
@@ -894,6 +1038,26 @@ function NuevaGestion({ perfil, asesores, cerrar, guardado, empresa }: { empresa
   const [asesorId, setAsesorId] = useState(perfil.id)
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState('')
+  const [anuncio, setAnuncio] = useState('')
+  const [anuncios, setAnuncios] = useState<string[]>([])
+  const [nuevoAnuncio, setNuevoAnuncio] = useState<string | null>(null)
+  const [archivo, setArchivo] = useState<File | null>(null)
+  const [faltaCaptura, setFaltaCaptura] = useState(false)
+  const capturaObligatoria = !esMovil()
+  const puedeAgregarAnuncio = puede(perfil, 'marketing', 'editar')
+  const cambiarArchivo = useCallback((f: File | null) => { setArchivo(f); if (f) setFaltaCaptura(false) }, [])
+  const cargarAnuncios = useCallback(() => {
+    supabase.from('anuncios_activos').select('nombre').is('deleted_at', null).order('nombre').limit(300)
+      .then(({ data }) => setAnuncios(((data ?? []) as { nombre: string }[]).map((a) => a.nombre)))
+  }, [])
+  useEffect(() => { cargarAnuncios() }, [cargarAnuncios])
+  async function guardarAnuncio() {
+    const n = (nuevoAnuncio ?? '').trim()
+    if (!n) return
+    const { error: e } = await supabase.from('anuncios_activos').insert({ id: crypto.randomUUID(), nombre: n })
+    if (e && !/duplicate|unique/i.test(e.message)) { setError('No se pudo agregar el anuncio: ' + e.message); return }
+    setNuevoAnuncio(null); setAnuncio(n); cargarAnuncios()
+  }
 
   useEffect(() => {
     const q = busca.trim().replace(/[,()%*\\]/g, ' ')
@@ -917,6 +1081,7 @@ function NuevaGestion({ perfil, asesores, cerrar, guardado, empresa }: { empresa
 
   async function guardar() {
     if (faltan.length) { setError('Falta: ' + faltan.join(', ') + '.'); return }
+    if (capturaObligatoria && !archivo) { setFaltaCaptura(true); setError('Adjunta la captura o el PDF de respaldo: es obligatorio para la auditoría.'); return }
     setGuardando(true); setError('')
     const ahora = Date.now()
     const proximo = seg === 'custom' ? new Date(fechaCustom + 'T09:00:00').getTime() : ahora + (SEGUIMIENTOS.find((s) => s[0] === seg)?.[2] ?? 0)
@@ -924,13 +1089,15 @@ function NuevaGestion({ perfil, asesores, cerrar, guardado, empresa }: { empresa
     const codigo = 'CON-' + id.slice(0, 6).toUpperCase()
     const { error } = await supabase.from('leads').insert({
       id, codigo, empresa, origen_tipo: 'contacto', nombre, telefono: cliente?.telefono ?? (manual.telefono.trim() || null), email: cliente?.email ?? (manual.email.trim() || null),
-      identificacion: cliente?.identificacion ?? null, cliente_id: cliente?.id ?? null, medio_captacion: medio, interes: interes.trim() || null, canal: canal || null,
+      identificacion: cliente?.identificacion ?? null, cliente_id: cliente?.id ?? null, medio_captacion: medio, interes: interes.trim() || null, canal: canal || null, anuncio: anuncio || null,
       contesto, estado_crm: estadoInicial, asesor_id: asesorId || null, ultima_actividad: new Date(ahora).toISOString(), proximo_seguimiento: new Date(proximo).toISOString(),
     })
     if (error) { setError(error.message); setGuardando(false); return }
+    let captura = ''
+    if (archivo) { try { captura = ' — Captura: ' + (await subirCaptura(archivo, id)) } catch { captura = ' — Captura: no se pudo subir' } }
     await supabase.from('interacciones').insert({
       id: crypto.randomUUID(), codigo: 'INT-' + crypto.randomUUID().slice(0, 8), ref_tipo: 'Contacto', ref_codigo: codigo, lead_id: id, tipo: 'Contacto Registrado',
-      nota: `Gestión creada — Medio: ${medio}${canal ? ' — Canal: ' + canal : ''}${interes.trim() ? ' — Interés: ' + interes.trim() : ''}${contesto === null ? '' : ' — ' + (contesto ? 'Sí contestó' : 'No contestó')}`,
+      nota: `Gestión creada — Medio: ${medio}${anuncio ? ' — Anuncio: ' + anuncio : ''}${canal ? ' — Canal: ' + canal : ''}${interes.trim() ? ' — Interés: ' + interes.trim() : ''}${contesto === null ? '' : ' — ' + (contesto ? 'Sí contestó' : 'No contestó')}${captura}`,
       empleado_id: perfil.id, usuario_texto: perfil.nombre,
     })
     guardado()
@@ -1001,6 +1168,19 @@ function NuevaGestion({ perfil, asesores, cerrar, guardado, empresa }: { empresa
                 {MEDIOS.map(([g, ops]) => <optgroup key={g} label={g}>{ops.map((o) => <option key={o} value={o}>{o}</option>)}</optgroup>)}
               </select>
               <p className="text-[10px] text-slate-400 mt-1">Elige por dónde llegó <b>esta vez</b>, aunque ya sea cliente.</p>
+              <p className="ns-label !mt-3">Anuncio / campaña</p>
+              <select value={anuncio} onChange={(e) => setAnuncio(e.target.value)} className="ns-input">
+                <option value="">Sin anuncio / No aplica</option>
+                {anuncios.map((a) => <option key={a} value={a}>{a}</option>)}
+              </select>
+              {puedeAgregarAnuncio && nuevoAnuncio === null && <button type="button" onClick={() => setNuevoAnuncio('')} className="mt-1.5 text-[10px] font-bold flex items-center gap-1" style={{ color: 'var(--acc)' }}><Plus className="w-3 h-3" /> Agregar anuncio nuevo</button>}
+              {nuevoAnuncio !== null && (
+                <div className="mt-1.5 flex gap-1.5">
+                  <input value={nuevoAnuncio} onChange={(e) => setNuevoAnuncio(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') guardarAnuncio() }} placeholder="Nombre del anuncio..." className="ns-input" autoFocus />
+                  <button type="button" onClick={guardarAnuncio} className="shrink-0 text-[11px] font-bold px-3 rounded-xl text-white" style={{ background: 'var(--acc)' }}>Ok</button>
+                  <button type="button" onClick={() => setNuevoAnuncio(null)} className="shrink-0 text-[11px] font-bold px-2 rounded-xl border border-slate-200 text-slate-500" aria-label="Cancelar"><X className="w-3.5 h-3.5" /></button>
+                </div>
+              )}
             </section>
           </div>
 
@@ -1027,8 +1207,8 @@ function NuevaGestion({ perfil, asesores, cerrar, guardado, empresa }: { empresa
                 {SEGUIMIENTOS.map(([v, t]) => <button key={v} type="button" onClick={() => setSeg(v)} className={'nc-seg ns-chip' + (seg === v ? ' active' : '')}>{t}</button>)}
               </div>
               {seg === 'custom' && <input type="date" value={fechaCustom} onChange={(e) => setFechaCustom(e.target.value)} className="ns-input mt-2" />}
-              <p className="ns-label !mt-3">Evidencia (captura o PDF)</p>
-              <label className="vm-cap-drop" style={{ opacity: 0.6, cursor: 'not-allowed' }}><ImagePlus className="w-5 h-5" /><span>Disponible cuando se conecte el almacenamiento de archivos</span></label>
+              <p className="ns-label !mt-3">Evidencia (captura o PDF){capturaObligatoria ? ' *' : ''}</p>
+              <CampoCaptura archivo={archivo} cambiar={cambiarArchivo} obligatoria={capturaObligatoria} falta={faltaCaptura} />
             </section>
 
             <section className="ns-sec">

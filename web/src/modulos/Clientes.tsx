@@ -136,6 +136,8 @@ type Detalle = { datos: Datos; facturas: Factura[]; cotizaciones: Cot[]; product
 const TABS: [string, string][] = [['resumen', 'Resumen'], ['datos', 'Datos'], ['facturas', 'Facturas'], ['cotizaciones', 'Cotizaciones'], ['productos', 'Productos'], ['historial', 'Historial'], ['notas', 'Notas']]
 const idNum = (v: string) => v.replace(/\D/g, '')
 
+/* La ficha completa también se abre desde el CRM (botón «Ficha Cliente» de una gestión). */
+export { Ficha as FichaCliente }
 function Ficha({ id, perfil, asesores, cerrar, aviso, cambio }: { id: string; perfil: Perfil; asesores: Emp[]; cerrar: () => void; aviso: (t: string) => void; cambio: () => void }) {
   const [d, setD] = useState<Detalle | null>(null)
   const [error, setError] = useState('')

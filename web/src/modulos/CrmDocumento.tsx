@@ -8,8 +8,11 @@ import { puede } from '../permisos'
 import { FormularioCliente, type Cliente as ClienteFicha } from './CrmClientes'
 import { imagen } from './Inventario'
 import type { DatosDoc } from '../proforma'
+import { EtiquetasStockCotizacion, FranjaStock, marcoStock, useEstadoStock } from '../estadoStock'
 
 type Asesor = { id: string; nombre: string }
+/** Lo que el CRM necesita saber al guardar (p. ej. para pedir el seguimiento de una proforma nueva). */
+export type InfoGuardado = { id: string; nuevo: boolean; modo: 'Cotización' | 'Venta'; nombre: string; total: number }
 export type Origen = { tabla: 'leads' | 'cotizaciones'; id: string; codigo: string; nombre: string; telefono: string; email: string; identificacion: string; medio: string } | null
 type Prod = { id: string; codigo: string | null; nombre: string; pvp: number | null; precio_dis: number | null; aplica_iva: boolean; stock: number | null; imagen_url: string | null; reservaciones: string | null; descripcion: string | null; ficha_tecnica_url: string | null; drive_carpeta_url: string | null; categoria: { nombre: string } | null }
 type Linea = { base?: number; obj?: number; id: string; codigo: string; nombre: string; imagen: string; precio: number; cantidad: number; descuento: number; iva: boolean; observacion: string; categoria?: string; descripcion?: string; ficha?: string; carpeta?: string }
@@ -54,7 +57,7 @@ function diferencias(prev: Record<string, any>[], sig: Linea[], extra: { notaPre
 export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, guardado, editar, empresa, itemsIniciales }: {
   itemsIniciales?: Record<string, any>[] // eslint-disable-line @typescript-eslint/no-explicit-any
   empresa: 'VIMEDIC' | 'FEMEDICS'
-  modo: 'Cotización' | 'Venta'; perfil: Perfil; asesores: Asesor[]; origen: Origen; cerrar: () => void; guardado: (msg: string, doc: DatosDoc) => void
+  modo: 'Cotización' | 'Venta'; perfil: Perfil; asesores: Asesor[]; origen: Origen; cerrar: () => void; guardado: (msg: string, doc: DatosDoc, info?: InfoGuardado) => void
   editar?: Record<string, any> | null // eslint-disable-line @typescript-eslint/no-explicit-any
 }) {
   const ed = editar ?? null
@@ -104,6 +107,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   const [pct, setPct] = useState('')
+  const estStock = useEstadoStock()
   const dragIdx = useRef<number | null>(null)
 
   /* venta */
@@ -294,7 +298,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
         setGuardando(false); return
       }
     }
-    const codigoFinal = codigo
+    const codigoFinal = codigo, idFinal = id, eraNuevo = !existente
     id = ''; codigo = ''
     const resumenEntrega = [entrega === 'Local' ? dirEntrega : entrega === 'Envío' ? `${ciudadDestino} (${transporte})${dirEnvio ? ' · ' + dirEnvio : ''}` : '', quienRecibe ? 'Recibe: ' + quienRecibe : '', fechaEntrega ? 'Fecha de entrega: ' + fechaEntrega : '', [caja, armado, stretch].filter(Boolean).length ? 'Empaque: ' + [caja, armado, stretch].filter(Boolean).join(' · ') : '', garantia ? 'Garantía: ' + garantia : ''].filter(Boolean)
     guardado(`${modo} ${ed ? 'actualizada' : 'creada'} por ${dinero(total)}.`, {
@@ -303,7 +307,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
       asesor: asesores.find((a) => a.id === asesorId)?.nombre ?? perfil.nombre, nota: nota.trim() || null,
       items: carrito.map((i) => ({ id: i.id, codigo: i.codigo, nombre: i.nombre, imagen: i.imagen, categoria: i.categoria, descripcion: i.descripcion, ficha: i.ficha, carpeta: i.carpeta, precio: i.precio, cantidad: i.cantidad, descuento: i.descuento, iva: i.iva, observacion: i.observacion })),
       pagoEntrega: esVenta ? { pago: pago + (tipoPago ? ' · ' + tipoPago : '') + (plazo ? ' · Plazo: ' + plazo : ''), entrega, detalle: resumenEntrega } : null,
-    })
+    }, { id: idFinal, nuevo: eraNuevo, modo, nombre, total: Math.round(total * 100) / 100 })
   }
 
   const botonOpc = (valor: string, actual: string, set: (v: string) => void, clase: string, texto: React.ReactNode, tipo: 'opt' | 'chip' = 'chip') => (
@@ -570,18 +574,20 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
               const n = carrito.find((x) => x.id === p.id)?.cantidad ?? 0
               const base = precioBase(p, cliente)
               return (
-                <button key={p.id} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => agregar(p)} className={'ns-prod group text-left bg-white border border-slate-200 rounded-2xl overflow-hidden hover:shadow-md transition flex flex-col ' + (n ? 'is-added' : '')}>
+                <button key={p.id} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => agregar(p)} style={marcoStock(estStock?.[p.id])} className={'ns-prod group text-left bg-white border border-slate-200 rounded-2xl overflow-hidden hover:shadow-md transition flex flex-col ' + (n ? 'is-added' : '')}>
                   <div className="relative aspect-[4/3] bg-slate-50">
                     <span className="ns-added">✓ Agregado<b className="ns-added-q">{n > 1 ? ' ×' + n : ''}</b></span>
                     <img loading="lazy" src={imagen(p.imagen_url, 240)} onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} className="w-full h-full object-contain p-2" alt="" />
                     <span className="absolute right-1.5 bottom-1.5 w-7 h-7 rounded-full grid place-items-center text-white text-base font-bold shadow-md opacity-90 group-hover:scale-110 transition" style={{ background: 'var(--acc)' }}>+</span>
                   </div>
+                  <FranjaStock e={estStock?.[p.id]} />
                   <div className="p-2 flex flex-col gap-0.5 flex-1">
                     <p className="text-[9px] font-mono-spec text-slate-400 truncate">{p.codigo}</p>
                     <p className="text-[11px] font-semibold text-slate-800 leading-snug line-clamp-2">{p.nombre}</p>
-                    <p className="text-[10px] text-slate-500">Stock: <b>{p.stock ?? 0}</b></p>
+                    <EtiquetasStockCotizacion stock={p.stock} e={estStock?.[p.id]} />
                     {p.reservaciones && <p className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-50 text-red-700 border border-red-200 leading-tight">🔴 {p.reservaciones}</p>}
                     <p className="text-[11px] font-bold mt-auto" style={{ color: 'var(--acc-d)' }}>{dinero(base)} <span className="text-[9px] font-normal text-slate-400">{p.aplica_iva === false ? 'IVA 0%' : '+ IVA'}</span></p>
+                    {base > 0 && <p className="text-[9px] text-slate-400 leading-tight">{p.aplica_iva === false ? 'No aplica IVA' : dinero(Math.round(base * 1.15 * 100) / 100) + ' IVA incluido'}</p>}
                   </div>
                 </button>
               )
