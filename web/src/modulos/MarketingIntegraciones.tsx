@@ -7,6 +7,8 @@ import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
 import { imagen, Interruptor } from './Inventario'
 import { leerAjustesFicha, type AjustesFicha } from './MarketingRevision'
+import { imagenWebp, subirCatalogo } from './audiovisualMedios'
+import { PorCompletar, VideosPendientes, type DatosPendientes } from './MarketingPendientes'
 
 /* Conexiones de Marketing: Zernio (redes) y Gemini (IA). Las claves viven en el servidor (Edge Function): el navegador nunca las ve. */
 export async function llamar<T = Record<string, unknown>>(accion: string, datos: Record<string, unknown> = {}, funcion = 'marketing-integraciones'): Promise<T> {
@@ -202,6 +204,15 @@ export function Biblioteca({ perfil, aviso }: { perfil: Perfil; aviso: (t: strin
   const [limite, setLimite] = useState(48)
   const [sel, setSel] = useState<Prod | null>(null)
   const centinela = useRef<HTMLDivElement>(null)
+  // Vistas del original: Productos, Por completar y Videos pendientes (mkfPendientes).
+  const [vista, setVista] = useState<'productos' | 'pendientes' | 'videos'>('productos')
+  const [pend, setPend] = useState<DatosPendientes | null>(null)
+  const [pendError, setPendError] = useState('')
+  const cargarPend = useCallback(() => {
+    supabase.rpc('mkt_pendientes').then(({ data, error }) => { if (error) setPendError(error.message); else { setPendError(''); setPend(data as DatosPendientes) } })
+  }, [])
+  useEffect(() => { if (vista !== 'productos' && !pend) cargarPend() }, [vista, pend, cargarPend])
+  const abrirPorId = (id: string) => { const x = productos.find((y) => y.id === id); if (x) setSel(x); else aviso('Ese producto todavía se está cargando; intenta en un momento.') }
 
   const cargar = useCallback(() => {
     setCargando(true)
@@ -271,8 +282,27 @@ export function Biblioteca({ perfil, aviso }: { perfil: Perfil; aviso: (t: strin
     return () => obs.disconnect()
   }, [filtrados.length])
 
+  const nPend = pend ? pend.productos.filter((x) => x.estado !== 'completo').length : 0
+  const nVid = pend ? pend.productos.filter((x) => !x.videos).length : 0
+  const cambiarVista = (
+    <div className="seg mb-3">
+      {([['productos', 'Productos', 0], ['pendientes', 'Por completar', nPend], ['videos', 'Videos pendientes', nVid]] as const).map(([k, t, n]) => (
+        <button key={k} type="button" className={vista === k ? 'active' : ''} onClick={() => setVista(k)}>{t}{n > 0 && <span className="rv-badge" style={{ background: '#64748b' }}>{n}</span>}</button>))}
+    </div>
+  )
+  if (vista !== 'productos') return (
+    <section>
+      <div className="flex items-center gap-2 flex-wrap">{cambiarVista}<button type="button" className="btn mb-3 ml-auto" onClick={cargarPend}><RefreshCw className="w-3.5 h-3.5" />Actualizar</button></div>
+      {pendError && <div className="rv-vacio">{pendError}</div>}
+      {!pendError && !pend && <p className="text-xs text-slate-400">Cargando…</p>}
+      {pend && (vista === 'pendientes' ? <PorCompletar datos={pend} abrir={abrirPorId} /> : <VideosPendientes datos={pend} abrir={abrirPorId} />)}
+      {sel && <EditorProducto perfil={perfil} prod={sel} categorias={categorias} marcas={marcas} cerrar={() => { setSel(null); cargarPend() }} aviso={aviso} />}
+    </section>
+  )
+
   return (
     <section>
+      {cambiarVista}
       <div className="flex items-center gap-2 flex-wrap mb-3">
         <div className="relative flex-1 min-w-[220px] max-w-md"><Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input type="search" value={q} onChange={(e) => { setQ(e.target.value); setLimite(48) }} placeholder="Buscar nombre, categoría o código…" className="inp pl-9 w-full" /></div>
@@ -350,7 +380,8 @@ type ProdFull = {
   caracteristicas: string; especificaciones: string; destacados: string; ficha_tecnica_url: string
   pvp: number; aplica_iva: boolean; en_catalogo: boolean; imagen_url: string; descripcion: string; drive_carpeta_url: string
 }
-type GalItem = { id: string; tipo: 'imagen' | 'video'; archivo_url: string; descripcion: string | null; orden: number }
+type GalItem = { id: string; tipo: 'imagen' | 'video'; archivo_url: string; descripcion: string | null; orden: number; tipo_video?: string | null }
+const TIPOS_VIDEO = ['Comercial', 'Informativo', 'Reel para redes', 'Técnico', 'Demostración en uso', 'Testimonio']
 type DocTecnico = { id: string; tipo: string; nombre: string; url: string | null }
 const DOC_TIPOS = ['Manual de usuario', 'Manual de servicio', 'Hoja de datos del fabricante', 'Certificado', 'Registro sanitario', 'Otro']
 const DOC_OBLIGATORIOS = ['Manual de usuario', 'Hoja de datos del fabricante', 'Registro sanitario']
@@ -423,7 +454,7 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
   const enlace = `https://${WEB}/equipo/?id=${encodeURIComponent(prod.codigo)}`
 
   const cargarGaleria = useCallback(() => {
-    supabase.from('producto_galeria').select('id,tipo,archivo_url,descripcion,orden').eq('producto_id', prod.id).is('deleted_at', null).order('orden')
+    supabase.from('producto_galeria').select('id,tipo,archivo_url,descripcion,orden,tipo_video').eq('producto_id', prod.id).is('deleted_at', null).order('orden')
       .then(({ data }) => setGaleria((data as GalItem[]) ?? []))
   }, [prod.id])
   const cargarDocs = useCallback(() => {
@@ -560,7 +591,7 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
     }
   }
 
-  const listaGal = (l: GalItem[]) => JSON.stringify(l.map((g) => ({ archivo: g.archivo_url, tipo: g.tipo, texto: g.descripcion ?? '' })))
+  const listaGal = (l: GalItem[]) => JSON.stringify(l.map((g) => ({ archivo: g.archivo_url, tipo: g.tipo, tipoVideo: g.tipo_video ?? '', texto: g.descripcion ?? '' })))
   function registrarGaleria(antes: GalItem[], despues: GalItem[]) {
     supabase.rpc('mkt_registrar_directo', { p_producto: prod.id, p_campo: 'galeria', p_anterior: listaGal(antes), p_nuevo: listaGal(despues) }).then(() => undefined)
   }
@@ -573,6 +604,47 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
     if (error) { aviso('No se pudo agregar: ' + error.message); return }
     registrarGaleria(galeria, [...galeria, nuevo])
     setNuevoUrl(''); cargarGaleria()
+  }
+  const [subiendoGal, setSubiendoGal] = useState('')
+  async function galSubir(files: FileList | null) {
+    if (!files || !files.length) return
+    const antes = [...galeria], nuevos: GalItem[] = []
+    let orden = galeria.length ? Math.max(...galeria.map((g) => g.orden)) + 1 : 0
+    const lista = Array.from(files)
+    for (const [k, f] of lista.entries()) {
+      setSubiendoGal(`Subiendo ${k + 1} de ${lista.length}…`)
+      try {
+        let url = '', tipo: GalItem['tipo'] = 'imagen'
+        if (f.type.startsWith('image/')) url = await subirCatalogo(await imagenWebp(f), 'productos/' + prod.codigo + '/galeria', 'webp', 'image/webp')
+        else if (/^video\/(mp4|webm|quicktime)$/.test(f.type)) {
+          if (f.size > 50 * 1048576) throw new Error(f.name + ' pesa más de 50 MB: súbelo a YouTube y pega el enlace.')
+          url = await subirCatalogo(f, 'productos/' + prod.codigo + '/galeria', (f.name.split('.').pop() || 'mp4').toLowerCase().replace(/[^a-z0-9]/g, ''), f.type); tipo = 'video'
+        } else throw new Error(f.name + ': formato no admitido (JPG, PNG, WebP, MP4, WebM o MOV).')
+        const nuevo: GalItem = { id: crypto.randomUUID(), tipo, archivo_url: url, orden: orden++, descripcion: null }
+        const { error } = await supabase.from('producto_galeria').insert({ ...nuevo, producto_id: prod.id })
+        if (error) throw new Error(error.message)
+        nuevos.push(nuevo)
+      } catch (e) { aviso((e as Error).message) }
+    }
+    setSubiendoGal('')
+    if (nuevos.length) { registrarGaleria(antes, [...antes, ...nuevos]); cargarGaleria(); aviso(nuevos.length + ' archivo' + (nuevos.length === 1 ? '' : 's') + ' agregado' + (nuevos.length === 1 ? '' : 's') + ' a la galería.') }
+  }
+  async function galTipoVideo(id: string, tipoVideo: string) {
+    const { error } = await supabase.from('producto_galeria').update({ tipo_video: tipoVideo || null }).eq('id', id)
+    if (error) { aviso('No se pudo guardar: ' + error.message); return }
+    registrarGaleria(galeria, galeria.map((g) => (g.id === id ? { ...g, tipo_video: tipoVideo || null } : g)))
+    setGaleria((l) => l.map((g) => (g.id === id ? { ...g, tipo_video: tipoVideo || null } : g)))
+  }
+  const [subiendoImg, setSubiendoImg] = useState(false)
+  async function subirImagenPrincipal(f: File | undefined) {
+    if (!f || !full) return
+    setSubiendoImg(true)
+    try {
+      const url = await subirCatalogo(await imagenWebp(f), 'productos/' + prod.codigo, 'webp', 'image/webp')
+      set('imagen_url', url)
+      await guardarCampo('imagen_url', url)
+    } catch (e) { aviso((e as Error).message) }
+    setSubiendoImg(false)
   }
   async function galQuitar(id: string) {
     const { error } = await supabase.from('producto_galeria').update({ deleted_at: new Date().toISOString() }).eq('id', id)
@@ -732,9 +804,10 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
         <div className="space-y-2">
           <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5"><ImagePlus className="w-3.5 h-3.5 text-[var(--primary)]" />Imagen principal del producto</p>
           <p className="text-[11px] text-slate-500">Se usa en el catálogo, cotizaciones e inventario. Recomendado 4:3, fondo claro. Al elegirla se sube sola.</p>
-          <label className="flex items-center gap-2 border border-dashed border-slate-300 rounded-xl p-2.5 cursor-pointer hover:border-[var(--cyan)] opacity-60 cursor-not-allowed" title="Próximamente: subir archivo directo">
-            <ImagePlus className="w-4 h-4 text-slate-400" /><span className="text-xs text-slate-600">Elegir nueva imagen (JPG, PNG, WebP)</span>
-            <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled />
+          <label className="flex items-center gap-2 border border-dashed border-slate-300 rounded-xl p-2.5 cursor-pointer hover:border-[var(--cyan)]">
+            {full.imagen_url ? <img src={imagen(full.imagen_url, 120)} alt="" className="w-10 h-10 rounded-lg object-cover bg-slate-100" onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} /> : <ImagePlus className="w-4 h-4 text-slate-400" />}
+            <span className="text-xs text-slate-600">{subiendoImg ? 'Subiendo imagen…' : 'Elegir nueva imagen (JPG, PNG, WebP) · se guarda en WebP'}</span>
+            <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled={subiendoImg} onChange={(e) => { subirImagenPrincipal(e.target.files?.[0]); e.target.value = '' }} />
           </label>
           <label className="block text-[10px] font-semibold text-slate-500">O pega un enlace de Drive / HTTPS
             <input type="url" className="inp w-full mt-1" value={full.imagen_url} onChange={(e) => set('imagen_url', e.target.value)} onBlur={() => guardarCampo('imagen_url', full.imagen_url)} /></label>
@@ -772,6 +845,7 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
                     : <img src={imagen(g.archivo_url, 200)} alt="" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} />}
                 </div>
                 <input type="text" defaultValue={g.descripcion ?? ''} onBlur={(e) => galDescripcion(g.id, e.target.value)} placeholder="Descripción" className="w-full text-[9px] px-1.5 py-1 border-t border-slate-200 bg-white" />
+                {g.tipo === 'video' && <select value={g.tipo_video ?? ''} onChange={(e) => galTipoVideo(g.id, e.target.value)} className="w-full text-[9px] px-1 py-1 border-t border-slate-200 bg-white" aria-label="Tipo de video"><option value="">Tipo de video…</option>{TIPOS_VIDEO.map((t) => <option key={t}>{t}</option>)}</select>}
                 <div className="flex items-center gap-0.5 px-1 pb-1">
                   <button type="button" className="w-5 h-5 grid place-items-center text-slate-400 hover:text-slate-700 disabled:opacity-30" onClick={() => galMover(i, -1)} disabled={i === 0} title="Mover antes"><ArrowUp className="w-3 h-3" /></button>
                   <button type="button" className="w-5 h-5 grid place-items-center text-slate-400 hover:text-slate-700 disabled:opacity-30" onClick={() => galMover(i, 1)} disabled={i === galeria.length - 1} title="Mover después"><ArrowDown className="w-3 h-3" /></button>
@@ -786,6 +860,7 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
           <input type="url" className="inp flex-1 min-w-[180px]" placeholder={nuevoTipo === 'video' ? 'Enlace de YouTube/Vimeo' : 'Enlace de Drive/HTTPS'} value={nuevoUrl} onChange={(e) => setNuevoUrl(e.target.value)} />
           <button type="button" className="btn" onClick={galAgregar}><ImagePlus className="w-3.5 h-3.5" />Agregar</button>
           <button type="button" className="btn" onClick={abrirAvPicker}><Film className="w-3.5 h-3.5" />Desde Audiovisual</button>
+          <label className="btn" style={{ cursor: 'pointer' }}><Upload className="w-3.5 h-3.5" />{subiendoGal || 'Subir fotos o videos'}<input type="file" multiple hidden accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime" disabled={!!subiendoGal} onChange={(e) => { galSubir(e.target.files); e.target.value = '' }} /></label>
         </div>
         {avPicker && (
           <div className="rounded-xl border border-slate-200 p-2 space-y-1">

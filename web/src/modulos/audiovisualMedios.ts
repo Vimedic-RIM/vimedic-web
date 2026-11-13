@@ -120,6 +120,31 @@ async function subirADrive(f: File, prog: (p: number) => void): Promise<{ id: st
   }
 }
 
+/** Foto del catálogo en WebP (máximo `max` px por lado), como pide el catálogo: liviana y nítida. */
+export function imagenWebp(f: File, max = 2000): Promise<Blob> {
+  return new Promise((ok, no) => {
+    if (!/^image\/(jpeg|png|webp|gif)$/.test(f.type)) { no(new Error('Usa una imagen JPG, PNG o WebP.')); return }
+    const url = URL.createObjectURL(f), im = new Image()
+    im.onerror = () => { URL.revokeObjectURL(url); no(new Error('No se pudo leer la imagen.')) }
+    im.onload = () => {
+      URL.revokeObjectURL(url)
+      const k = Math.min(1, max / Math.max(im.naturalWidth, im.naturalHeight))
+      const c = document.createElement('canvas'); c.width = Math.round(im.naturalWidth * k); c.height = Math.round(im.naturalHeight * k)
+      const g = c.getContext('2d')!; g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(im, 0, 0, c.width, c.height)
+      c.toBlob((b) => (b ? ok(b) : no(new Error('No se pudo preparar la imagen.'))), 'image/webp', 0.86)
+    }
+    im.src = url
+  })
+}
+/** Sube un archivo al espacio público del catálogo y devuelve su dirección. */
+export async function subirCatalogo(b: Blob, carpeta: string, ext: string, tipo: string): Promise<string> {
+  const limpio = carpeta.replace(/[^\w/-]+/g, '_').replace(/^\/+|\/+$/g, '')
+  const ruta = `${limpio}/${crypto.randomUUID()}.${ext}`
+  const s = await supabase.storage.from('catalogo').upload(ruta, b, { contentType: tipo, cacheControl: '31536000' })
+  if (s.error) throw new Error('No se pudo subir: ' + s.error.message)
+  return supabase.storage.from('catalogo').getPublicUrl(ruta).data.publicUrl
+}
+
 export type ArchivoSubido = { url: string; mime: string; tamanoMb: number; driveId: string | null; enlace: string | null }
 /** Sube un archivo de Audiovisual: a la app si es liviano, a Drive si es grande. */
 export async function subirArchivoAv(f: File, prog: (p: number, texto: string) => void): Promise<ArchivoSubido> {
