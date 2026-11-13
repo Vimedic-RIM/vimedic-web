@@ -29,6 +29,7 @@ type Gestion = {
   key: string; tabla: 'leads' | 'cotizaciones'; id: string; codigo: string; tipo: string; nombre: string; estado: string
   asesorId: string | null; fechaTS: number; ultimaTS: number; proximoTS: number; total: number
   telefono: string; email: string; identificacion: string; pdfUrl: string; medio: string; interes: string; clienteId: string | null; conversacionId: string | null
+  medioVenta: string
 }
 type PasoEtapa = { g: GestionRef; modo: ModoEtapa; destino: string; titulo?: string; boton?: string; ayuda?: string }
 const refDe = (g: Gestion): GestionRef => ({ tabla: g.tabla, id: g.id, nombre: g.nombre, estado: g.estado, total: g.total })
@@ -167,7 +168,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
         .select('id,codigo,origen_tipo,fecha,nombre,telefono,email,identificacion,interes,medio_captacion,asesor_id,estado_crm,ultima_actividad,proximo_seguimiento,cliente_id,conversacion_id')
         .is('deleted_at', null).eq('empresa', empresa).order('fecha', { ascending: false }).limit(2000),
       supabase.from('cotizaciones')
-        .select('id,codigo,fecha,tipo_registro,nombre,telefono,email,identificacion,asesor_id,estado_crm,ultima_actividad,proximo_seguimiento,total,pdf_url,lead_id,medio_captacion_lead,detalle_equipos,cliente_id')
+        .select('id,codigo,fecha,tipo_registro,nombre,telefono,email,identificacion,asesor_id,estado_crm,ultima_actividad,proximo_seguimiento,total,pdf_url,lead_id,medio_captacion_lead,medio_captacion_venta,detalle_equipos,cliente_id')
         .is('deleted_at', null).eq('empresa', empresa).neq('tipo_registro', 'Histórico').order('fecha', { ascending: false }).limit(2000),
     ])
     if (n !== peticion.current) return
@@ -179,7 +180,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
       key: 'cotizaciones:' + x.id, tabla: 'cotizaciones', id: x.id, codigo: x.codigo ?? '', tipo: x.tipo_registro === 'Venta' ? 'Venta' : 'Cotización',
       nombre: x.nombre ?? '', estado: x.estado_crm || 'Nuevo', asesorId: x.asesor_id, fechaTS: ts(x.fecha), ultimaTS: ts(x.ultima_actividad),
       proximoTS: ts(x.proximo_seguimiento), total: Number(x.total) || 0, telefono: x.telefono ?? '', email: x.email ?? '',
-      identificacion: x.identificacion ?? '', pdfUrl: x.pdf_url ?? '', medio: x.medio_captacion_lead ?? '', interes: x.detalle_equipos ?? '', clienteId: x.cliente_id ?? null, conversacionId: null,
+      identificacion: x.identificacion ?? '', pdfUrl: x.pdf_url ?? '', medio: x.medio_captacion_lead ?? '', medioVenta: x.medio_captacion_venta ?? '', interes: x.detalle_equipos ?? '', clienteId: x.cliente_id ?? null, conversacionId: null,
     }))
     const deLead: Gestion[] = ((l.data ?? []) as Record<string, any>[]) // eslint-disable-line @typescript-eslint/no-explicit-any
       .filter((x) => !conCotizacion.has(x.id))
@@ -187,7 +188,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
         key: 'leads:' + x.id, tabla: 'leads', id: x.id, codigo: x.codigo ?? '', tipo: TIPO_LEAD[x.origen_tipo] ?? 'Contacto',
         nombre: x.nombre ?? '', estado: x.estado_crm || 'Nuevo', asesorId: x.asesor_id, fechaTS: ts(x.fecha), ultimaTS: ts(x.ultima_actividad),
         proximoTS: ts(x.proximo_seguimiento), total: 0, telefono: x.telefono ?? '', email: x.email ?? '', identificacion: x.identificacion ?? '',
-        pdfUrl: '', medio: x.medio_captacion ?? '', interes: x.interes ?? '', clienteId: x.cliente_id ?? null, conversacionId: x.conversacion_id ?? null,
+        pdfUrl: '', medio: x.medio_captacion ?? '', medioVenta: '', interes: x.interes ?? '', clienteId: x.cliente_id ?? null, conversacionId: x.conversacion_id ?? null,
       }))
     setGestiones([...deLead, ...deCot])
     setCargando(false)
@@ -332,8 +333,8 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
     aviso(items.length + ' producto(s) cargados en una cotización nueva. Elige el cliente para continuar.')
   }
 
-  function abrirVenta(g: Gestion) { setAbierta(null); setDocumento({ modo: 'Venta', origen: { tabla: g.tabla, id: g.id, codigo: g.codigo, nombre: g.nombre, telefono: g.telefono, email: g.email, identificacion: g.identificacion, medio: g.medio, clienteId: g.clienteId } }) }
-  function cotizarDesde(g: Gestion) { setAbierta(null); setDocumento({ modo: 'Cotización', origen: { tabla: g.tabla, id: g.id, codigo: g.codigo, nombre: g.nombre, telefono: g.telefono, email: g.email, identificacion: g.identificacion, medio: g.medio, clienteId: g.clienteId } }) }
+  function abrirVenta(g: Gestion) { setAbierta(null); setDocumento({ modo: 'Venta', origen: { tabla: g.tabla, id: g.id, codigo: g.codigo, nombre: g.nombre, telefono: g.telefono, email: g.email, identificacion: g.identificacion, medio: g.medio, medioVenta: g.medioVenta, clienteId: g.clienteId } }) }
+  function cotizarDesde(g: Gestion) { setAbierta(null); setDocumento({ modo: 'Cotización', origen: { tabla: g.tabla, id: g.id, codigo: g.codigo, nombre: g.nombre, telefono: g.telefono, email: g.email, identificacion: g.identificacion, medio: g.medio, medioVenta: g.medioVenta, clienteId: g.clienteId } }) }
 
   const columnaActiva = typeof window !== 'undefined' && window.innerWidth < 640
 
@@ -717,7 +718,7 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
   const wa = waLink(g.telefono), tel = telLink(g.telefono), mail = /@/.test(g.email) ? 'mailto:' + encodeURIComponent(g.email) : ''
 
   const tarjetas = [
-    { cls: 'hl', icon: Magnet, l: 'Medio de captación', v: g.medio || 'Sin registrar', s: 'de la gestión' },
+    { cls: 'hl', icon: Magnet, l: g.tipo === 'Venta' && g.medioVenta ? 'Medio de la venta' : 'Medio de captación', v: (g.tipo === 'Venta' && g.medioVenta) || g.medio || 'Sin registrar', s: g.tipo === 'Venta' && g.medioVenta && g.medio && g.medioVenta !== g.medio ? 'el lead llegó por: ' + g.medio : 'de la gestión' },
     { cls: '', icon: Wallet, l: 'Valor', v: g.total ? '$' + g.total.toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—', s: g.total ? 'total con IVA' : 'sin proforma' },
     { cls: '', icon: UserRound, l: 'Asesor', v: asesor, s: g.tipo },
     { cls: dias >= 3 && g.estado !== 'Ganado' && g.estado !== 'Perdido' ? 'warn' : '', icon: Activity, l: 'Última actividad', v: haceTexto(g.ultimaTS) || '—', s: g.ultimaTS ? new Date(g.ultimaTS).toLocaleDateString('es-EC', { day: 'numeric', month: 'short' }) : '' },
@@ -855,7 +856,8 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
           <div className="flex flex-wrap gap-1.5 mt-3">
             <span className="vm-dchip"><i style={{ background: color }} />{g.estado}</span>
             <span className="vm-dchip">{g.tipo}</span>
-            {g.medio && <span className="vm-dchip" title="Medio de captación">{g.medio}</span>}
+            {g.medio && <span className="vm-dchip" title="Medio de captación del lead">{g.medio}</span>}
+            {g.tipo === 'Venta' && g.medioVenta && g.medioVenta !== g.medio && <span className="vm-dchip" title="Medio de captación de la venta">Venta: {g.medioVenta}</span>}
           </div>
         </div>
 

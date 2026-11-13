@@ -14,7 +14,7 @@ import { leerDatosEmpresa } from './CrmMeta'
 type Asesor = { id: string; nombre: string }
 /** Lo que el CRM necesita saber al guardar (p. ej. para pedir el seguimiento de una proforma nueva). */
 export type InfoGuardado = { id: string; nuevo: boolean; modo: 'Cotización' | 'Venta'; nombre: string; total: number }
-export type Origen = { tabla: 'leads' | 'cotizaciones'; id: string; codigo: string; nombre: string; telefono: string; email: string; identificacion: string; medio: string; clienteId?: string | null } | null
+export type Origen = { tabla: 'leads' | 'cotizaciones'; id: string; codigo: string; nombre: string; telefono: string; email: string; identificacion: string; medio: string; medioVenta?: string; clienteId?: string | null } | null
 type Prod = { id: string; codigo: string | null; nombre: string; pvp: number | null; precio_dis: number | null; aplica_iva: boolean; stock: number | null; imagen_url: string | null; reservaciones: string | null; descripcion: string | null; ficha_tecnica_url: string | null; drive_carpeta_url: string | null; categoria: { nombre: string } | null }
 type Linea = { base?: number; obj?: number; id: string; codigo: string; nombre: string; imagen: string; precio: number; cantidad: number; descuento: number; iva: boolean; observacion: string; categoria?: string; descripcion?: string; ficha?: string; carpeta?: string }
 type Cli = { ciudad?: string | null; asesor_id?: string | null; datos_venta?: Record<string, string> | null; id: string; nombre: string; identificacion: string | null; email: string | null; telefono: string | null; direccion: string | null; tipo_cliente: string | null; descuento_fijo: string | null }
@@ -81,7 +81,9 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   const [fichaOculta, setFichaOculta] = useState(false)
   const [formCli, setFormCli] = useState<null | { cliente: ClienteFicha | null; prefill?: { nombre?: string; telefono?: string; email?: string; ciudad?: string; identificacion?: string } }>(null)
   const [copiado, setCopiado] = useState(false)
-  const [medio, setMedio] = useState(ed?.medio_captacion_lead ?? origen?.medio ?? '')
+  const [medio, setMedio] = useState(esVenta ? (ed?.medio_captacion_venta || origen?.medioVenta || ed?.medio_captacion_lead || origen?.medio || '') : (ed?.medio_captacion_lead ?? origen?.medio ?? ''))
+  // Con qué medio llegó el lead (se conserva aunque la venta se cierre por otro medio).
+  const medioLead = ed?.medio_captacion_lead || origen?.medio || ''
   const [nota, setNota] = useState<string>(ed?.nota_cotizacion ?? '')
   const [asesorId, setAsesorId] = useState<string>(ed?.asesor_id ?? perfil.id)
 
@@ -229,7 +231,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
       tipo_registro: modo, cliente_id: cliente?.id ?? null, lead_sin_cliente: !cliente, nombre,
       identificacion: cliente?.identificacion ?? (lead.identificacion || null), email: cliente?.email ?? (lead.email.trim() || null), telefono: cliente?.telefono ?? (lead.telefono.trim() || null),
       direccion: cliente?.direccion ?? null, ciudad: cliente?.ciudad ?? (leadCiudad.trim() || null), asesor_id: asesorId || null, detalle_equipos: carrito.map((i) => `${i.nombre} (Cant: ${i.cantidad})`).join(', '),
-      items, total: Math.round(total * 100) / 100, medio_captacion_lead: medio, nota_cotizacion: nota.trim() || null,
+      items, total: Math.round(total * 100) / 100, medio_captacion_lead: esVenta && medioLead ? medioLead : medio, nota_cotizacion: nota.trim() || null,
       estado_crm: esVenta ? 'Ganado' : 'Seguimiento', ultima_actividad: ahora,
     }
     if (ed) { delete datos.tipo_registro; delete datos.estado_crm }
@@ -489,7 +491,8 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
           <option value="">Selecciona cómo llegó este cliente</option>
           {MEDIOS.map(([g, ops]) => <optgroup key={g} label={g}>{ops.map((o) => <option key={o} value={o}>{o}</option>)}</optgroup>)}
         </select>
-        <p className="text-[10px] text-slate-400 mt-1">Elige por dónde llegó <b>esta vez</b>, aunque ya sea cliente.</p>
+        <p className="text-[10px] text-slate-400 mt-1">{esVenta ? <>Medio por el que se <b>cerró esta venta</b>.</> : <>Elige por dónde llegó <b>esta vez</b>, aunque ya sea cliente.</>}</p>
+        {esVenta && medioLead && medio !== medioLead && <p className="text-[10px] mt-1" style={{ color: '#7b5a1e' }}>El lead llegó por <b>{medioLead}</b>; se conserva en la gestión.</p>}
       </section>
 
       {esVenta && (
