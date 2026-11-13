@@ -393,7 +393,7 @@ function PorAprobar({ campanas, prods, aviso, recargar }: { campanas: CampanaPen
       const { data } = await supabase.from('movimientos_inventario').select('producto_id,cantidad').in('producto_id', ids).eq('tipo', 'SALIDA').is('deleted_at', null)
       if (!vivo) return
       const porId: Record<string, number> = {}
-      ;((data ?? []) as { producto_id: string; cantidad: number }[]).forEach((m) => { porId[m.producto_id] = (porId[m.producto_id] || 0) + (Number(m.cantidad) || 0) })
+      ;((data ?? []) as { producto_id: string; cantidad: number }[]).forEach((m) => { porId[m.producto_id] = (porId[m.producto_id] || 0) + Math.abs(Number(m.cantidad) || 0) })
       const porCod: Record<string, number> = {}
       idCod.forEach(([id, cod]) => { porCod[cod] = Math.round(porId[id] || 0) })
       setVentasTot((x) => ({ ...x, ...porCod }))
@@ -485,8 +485,8 @@ function TarjetaAprobar({ p, conAnalitica, ventasTotales, campana, valor, setVal
         {p.pvp > 0 && desc > 0 && <p className="text-[11.5px] font-semibold mt-1.5" style={{ color: '#04896f' }}>El cliente ahorra {money(ahorro)}</p>}
       </div>
       <div className="flex gap-2 mt-2.5">
-        <button className="btn flex-1 justify-center" disabled={trabajando} style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={onRechazar}><XCircle className="w-4 h-4" />Rechazar</button>
-        <button className="btn btn-primary flex-1 justify-center" disabled={trabajando || desc <= 0} onClick={() => onAprobar(desc)}><Check className="w-4 h-4" />Aprobar</button>
+        <button className="btn flex-1 justify-center" disabled={trabajando} style={{ background: '#c0392b', borderColor: '#c0392b', color: '#fff' }} onClick={onRechazar}><XCircle className="w-4 h-4" />Rechazar</button>
+        <button className="btn flex-1 justify-center" disabled={trabajando || desc <= 0} style={{ background: '#04896f', borderColor: '#04896f', color: '#fff' }} onClick={() => onAprobar(desc)}><Check className="w-4 h-4" />Aprobar</button>
       </div>
     </article>
   )
