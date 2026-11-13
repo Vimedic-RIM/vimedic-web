@@ -109,6 +109,12 @@ function plantillas(p: Prod, o: Oferta) {
 }
 type Textos = ReturnType<typeof plantillas>
 
+/* ============================ Por aprobar (campañas de Promociones) ============================ */
+type ItemCampana = { id: string; desc?: number | null; descPropuesto?: number | null; nota?: string; estadoAprobacion?: string; descAprobado?: number; ofertaId?: string }
+type CampanaPend = { id: string; codigo: string | null; nombre: string; inicio: string | null; fin: string | null; items: ItemCampana[] }
+const itemsPendientes = (c: CampanaPend) => (c.items ?? []).filter((i) => Number(i.desc) > 0 && (!i.estadoAprobacion || i.estadoAprobacion === 'Pendiente'))
+const contarPendientes = (campanas: CampanaPend[]) => campanas.reduce((n, c) => n + itemsPendientes(c).length, 0)
+
 /* ============================ Pantalla principal ============================ */
 export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: string) => void }) {
   const [prods, setProds] = useState<Prod[] | null>(null)
@@ -116,7 +122,8 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
   const [cfg, setCfg] = useState<Cfg>(CFG_DEF)
   const [cfgId, setCfgId] = useState('')
   const [error, setError] = useState('')
-  const [tab, setTab] = useState<'opor' | 'ofertas' | 'res'>('opor')
+  const [tab, setTab] = useState<'opor' | 'ofertas' | 'res' | 'aprobar'>('opor')
+  const [campanasPendientes, setCampanasPendientes] = useState<CampanaPend[]>([])
   const [filtro, setFiltro] = useState('')
   const [q, setQ] = useState('')
   const [orden, setOrden] = useState('urg')
@@ -131,13 +138,15 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
 
   const cargar = useCallback(async () => {
     setCargando(true)
-    const [a, o, r, c] = await Promise.all([
+    const [a, o, r, c, pc] = await Promise.all([
       supabase.rpc('of_analisis'),
       supabase.from('ofertas').select('id,codigo,producto_id,tipo,descuento_pct,precio_oferta,pvp_base,costo,margen_pct,inicio,fin,estado,texto_cliente,combo_con,regalo,grupo,stock_inicial,unidades_objetivo,historial,created_at,updated_at,creador:empleados!ofertas_creado_por_fkey(nombre),producto:productos!ofertas_producto_id_fkey(nombre)').is('deleted_at', null).order('created_at', { ascending: false }).limit(1000),
       supabase.from('v_ofertas_resultados').select('oferta_id,vendidas,recuperado,dias'),
       supabase.from('ofertas_config').select('id,valor').is('deleted_at', null).limit(1),
+      supabase.from('promo_campanas').select('id,codigo,nombre,inicio,fin,items').eq('estado', 'En aprobación').is('deleted_at', null).limit(200),
     ])
     setCargando(false)
+    setCampanasPendientes((pc.data as unknown as CampanaPend[]) ?? [])
     const e = a.error || o.error; if (e) { setError(e.message); return }
     const conf: Cfg = { ...CFG_DEF, ...(c.data?.[0]?.valor ?? {}) }
     setCfg(conf); setCfgId(c.data?.[0]?.id ?? '')
@@ -263,7 +272,7 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
           ))}
         </div>
         <div className="flex gap-2 items-center flex-wrap">
-          <div className="tabs">{([['opor', 'Oportunidades', P.length], ['ofertas', 'Ofertas', ofertas.filter((o) => ['Activa', 'Programada', 'Pausada'].includes(o.estado)).length], ['res', 'Resultados', null]] as const).map(([k, t, n]) => <button key={k} className={'tab' + (tab === k ? ' on' : '')} onClick={() => setTab(k)}>{t}{n != null && <b>{n}</b>}</button>)}</div>
+          <div className="tabs">{([['opor', 'Oportunidades', P.length], ['ofertas', 'Ofertas', ofertas.filter((o) => ['Activa', 'Programada', 'Pausada'].includes(o.estado)).length], ['aprobar', 'Por aprobar', contarPendientes(campanasPendientes)], ['res', 'Resultados', null]] as const).map(([k, t, n]) => <button key={k} className={'tab' + (tab === k ? ' on' : '')} onClick={() => setTab(k)}>{t}{n != null && <b>{n}</b>}</button>)}</div>
           <div className="ml-auto" style={{ minWidth: 230, maxWidth: '100%' }}><span className="lbl">Filtrar por categorías</span>
             <details className="inp"><summary style={{ cursor: 'pointer' }}>{!cats.size ? 'Todas las categorías' : cats.size === 1 ? [...cats][0] : cats.size + ' categorías seleccionadas'}</summary>
               <button className="btn btn-sm my-2" type="button" onClick={() => { setCats(new Set()); setMostrar(24); setSel(new Set()) }}>Todas las categorías</button>
@@ -286,6 +295,7 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
           </section>
         )}
         {tab === 'ofertas' && <ListaOfertas ofertas={ofertasVis} prods={P} abrir={(o) => abrirProd(P.find((p) => p.id === o.productoId) ?? productoDesdeOferta(o), o)} />}
+        {tab === 'aprobar' && <PorAprobar campanas={campanasPendientes} aviso={aviso} recargar={cargar} />}
         {tab === 'res' && <Resultados ofertas={ofertasVis.filter((o) => o.estado !== 'Programada')} />}
       </main>
 
@@ -337,6 +347,83 @@ function Tarjeta({ p, sel, click }: { p: Prod; sel: boolean; click: () => void }
           {e.limitadoPorCosto && <p className="text-[11px] text-amber-700 mt-1">Limitado por el costo: no baja del margen mínimo.</p>}</div>
       ) : <div className="jug"><p className="text-[12px] text-amber-800 font-semibold">Sin PVP: ponle precio en Inventario para poder ofertarlo.</p></div>}
     </article>
+  )
+}
+
+type ProdPend = { codigo: string; nombre: string; imagen: string; categoria: string; pvp: number; costo: number | null }
+function PorAprobar({ campanas, aviso, recargar }: { campanas: CampanaPend[]; aviso: (t: string) => void; recargar: () => void }) {
+  const [prods, setProds] = useState<Record<string, ProdPend>>({})
+  const [ediciones, setEdiciones] = useState<Record<string, string>>({})
+  const [ocupado, setOcupado] = useState('')
+  const filas = useMemo(() => campanas.flatMap((c) => itemsPendientes(c).map((it) => ({ campana: c, item: it }))), [campanas])
+
+  useEffect(() => {
+    const codigos = [...new Set(filas.map((f) => f.item.id))]
+    if (!codigos.length) { setProds({}); return }
+    let vivo = true
+    ;(async () => {
+      const { data: p } = await supabase.from('productos').select('id,codigo,nombre,imagen_url,pvp,categoria:categorias(nombre)').in('codigo', codigos).is('deleted_at', null)
+      if (!vivo) return
+      const filas2 = (p ?? []) as unknown as { id: string; codigo: string; nombre: string; imagen_url: string | null; pvp: number | null; categoria: { nombre: string } | null }[]
+      const { data: co } = await supabase.from('productos_costos').select('producto_id,costo_importacion').in('producto_id', filas2.map((x) => x.id)).is('deleted_at', null)
+      const costos = Object.fromEntries(((co ?? []) as { producto_id: string; costo_importacion: number | null }[]).map((x) => [x.producto_id, Number(x.costo_importacion) || 0]))
+      const mapa: Record<string, ProdPend> = {}
+      filas2.forEach((x) => { mapa[x.codigo] = { codigo: x.codigo, nombre: x.nombre, imagen: x.imagen_url ?? '', categoria: x.categoria?.nombre ?? '—', pvp: Number(x.pvp) || 0, costo: costos[x.id] ?? 0 } })
+      setProds(mapa)
+    })()
+    return () => { vivo = false }
+  }, [filas])
+
+  async function decidir(campanaId: string, codigo: string, decision: 'Aprobar' | 'Rechazar', descAprobado?: number) {
+    const clave = campanaId + ':' + codigo
+    let comentario: string | null = null
+    if (decision === 'Rechazar') comentario = window.prompt('¿Por qué se rechaza? (opcional, lo verá Marketing)', '') ?? ''
+    setOcupado(clave)
+    const { error } = await supabase.rpc('revisar_item_promocion', { p_campana_id: campanaId, p_item_codigo: codigo, p_decision: decision, p_desc_aprobado: descAprobado ?? null, p_comentario: comentario || null })
+    setOcupado('')
+    if (error) { aviso('No se pudo guardar: ' + error.message); return }
+    aviso(decision === 'Aprobar' ? 'Producto aprobado: ya está en Ofertas.' : 'Producto rechazado.')
+    recargar()
+  }
+
+  if (!filas.length) return <div className="vacio"><BadgePercent className="mx-auto mb-2" style={{ width: 34, height: 34 }} /><p className="font-semibold">No hay productos por aprobar.</p><p className="text-sm">Cuando Marketing envíe una campaña de Promociones a aprobación, sus productos aparecen aquí.</p></div>
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+      {filas.map(({ campana, item }) => {
+        const p = prods[item.id]
+        const clave = campana.id + ':' + item.id
+        const valor = ediciones[clave] ?? String(item.desc ?? 0)
+        const descNum = Number(valor) || 0
+        const precioFinal = p ? R2(p.pvp * (1 - descNum / 100)) : 0
+        const margen = p && p.costo && p.costo > 0 && precioFinal > 0 ? Math.round((precioFinal - p.costo) / precioFinal * 1000) / 10 : null
+        const trabajando = ocupado === clave
+        return (
+          <article key={clave} className="card p-4">
+            <div className="flex items-center gap-2"><BadgePercent className="w-4 h-4 text-[var(--amber)]" /><span className="font-mono-spec text-[11px] text-slate-400">{item.id}</span>
+              <span className="pill ml-auto" style={{ background: '#eff6ff', color: '#055c9d' }}>{campana.nombre}</span></div>
+            <p className="text-sm font-bold text-slate-800 mt-1.5">{p?.nombre ?? item.id}</p>
+            <p className="text-[11px] text-slate-500 mt-1">{p?.categoria ?? '—'}</p>
+            {!p && <p className="text-[11px] text-amber-700 mt-2">Cargando producto…</p>}
+            {p && (
+              <>
+                <div className="flex items-end gap-2 mt-2">
+                  <span className="text-[11px] text-slate-400 line-through">{money(p.pvp)}</span>
+                  <span className="text-base font-bold" style={{ color: '#c2410c' }}>{money(precioFinal)}</span>
+                </div>
+                <label className="flex items-center gap-2 mt-2 text-[11px] text-slate-500">% propuesto por Marketing
+                  <input type="number" min="0" max="90" step="0.5" className="inp w-20" value={valor} onChange={(e) => setEdiciones((x) => ({ ...x, [clave]: e.target.value }))} /></label>
+                <p className="text-[10px] text-slate-400 mt-1">Costo: {p.costo != null && p.costo > 0 ? money(p.costo) : '—'} · Margen: {margen != null ? margen + '%' : '—'}</p>
+                {item.nota && <p className="text-[11px] text-slate-500 mt-1.5 italic">"{item.nota}"</p>}
+                <div className="flex gap-2 mt-3">
+                  <button className="btn flex-1 justify-center" disabled={trabajando} style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => decidir(campana.id, item.id, 'Rechazar')}><XCircle className="w-4 h-4" />Rechazar</button>
+                  <button className="btn btn-primary flex-1 justify-center" disabled={trabajando || descNum <= 0} onClick={() => decidir(campana.id, item.id, 'Aprobar', descNum)}><Check className="w-4 h-4" />Aprobar</button>
+                </div>
+              </>
+            )}
+          </article>
+        )
+      })}
+    </div>
   )
 }
 

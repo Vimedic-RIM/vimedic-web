@@ -144,7 +144,10 @@ export function Material({ perfil, aviso }: { perfil: Perfil; aviso: (t: string)
 
 /* ============================ Promociones ============================ */
 type Hist = { fecha: string; por: string; accion: string; comentario?: string }
-type ItemPromo = { id: string; desc?: number | null; descPropuesto?: number | null; unidades?: number | null; nota?: string; ofertaId?: string }
+type ItemPromo = {
+  id: string; desc?: number | null; descPropuesto?: number | null; unidades?: number | null; nota?: string; ofertaId?: string
+  estadoAprobacion?: 'Pendiente' | 'Aprobado' | 'Rechazado'; descAprobado?: number; revisadoPor?: string; fechaRevision?: string; motivoRechazo?: string
+}
 type Camp = { id: string; codigo: string | null; nombre: string; inicio: string | null; fin: string | null; estado: string; items: ItemPromo[]; combos: unknown[]; preventa: boolean; comentario: string | null; historial: Hist[] }
 const COLOR_P: Record<string, [string, string]> = { Borrador: ['#64748b', '#f1f5f9'], 'En aprobación': ['#a16207', '#fff8eb'], Devuelta: ['#c2410c', '#fff1e6'], Aprobada: ['#04896f', '#ecfaf5'], Rechazada: ['#c0392b', '#fdecea'], Cancelada: ['#64748b', '#f1f5f9'] }
 
@@ -174,7 +177,15 @@ export function Promociones({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
     const h: Hist = { fecha: new Date().toISOString(), por: perfil.nombre, accion: estado, ...(comentario ? { comentario } : {}) }
     const cambios: Record<string, unknown> = { estado, historial: [...(c.historial ?? []), h], comentario: comentario ?? null }
     if (estado === 'En aprobación') cambios.enviado = new Date().toISOString()
-    if (estado === 'Rechazada') { cambios.aprobado_por = perfil.id; cambios.fecha_aprobacion = new Date().toISOString() }
+    if (estado === 'Rechazada') {
+      cambios.aprobado_por = perfil.id; cambios.fecha_aprobacion = new Date().toISOString()
+      // Rechazo de toda la campaña: marca también cada producto pendiente, para que quede igual
+      // de trazable que un rechazo uno por uno desde Ofertas y Liquidación.
+      const ahora = new Date().toISOString()
+      cambios.items = (c.items ?? []).map((it) => (!it.estadoAprobacion || it.estadoAprobacion === 'Pendiente')
+        ? { ...it, estadoAprobacion: 'Rechazado' as const, revisadoPor: perfil.nombre, fechaRevision: ahora, motivoRechazo: comentario || 'Campaña rechazada' }
+        : it)
+    }
     const { error } = await supabase.from('promo_campanas').update(cambios).eq('id', c.id)
     if (error) { aviso('No se pudo guardar: ' + error.message); return }
     aviso('Campaña: ' + estado.toLowerCase() + '.'); setAbierta(null); cargar()
@@ -208,7 +219,10 @@ export function Promociones({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
   )
 }
 
-type ProdPromo = { codigo: string; nombre: string; categoria: string; pvp: number; costo: number | null; enCatalogo: boolean; imagen: string; desc: number; precioFinal: number; margen: number | null }
+type ProdPromo = {
+  codigo: string; nombre: string; categoria: string; pvp: number; costo: number | null; enCatalogo: boolean; imagen: string; desc: number; precioFinal: number; margen: number | null
+  estadoAprobacion?: ItemPromo['estadoAprobacion']; descOriginal?: number; revisadoPor?: string; motivoRechazo?: string
+}
 const ORDENES_PROMO: [string, string][] = [
   ['cat', 'Categoría (A-Z)'], ['costo', 'Costo (mayor a menor)'], ['desc', '% Descuento (mayor a menor)'],
   ['pvp', 'PVP (mayor a menor)'], ['margen', 'Margen (mayor a menor)'], ['nombre', 'Nombre (A-Z)'],
@@ -239,10 +253,13 @@ function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mov
       const porCodigo = new Map(prodRows.map((x) => [x.codigo, x]))
       const filas: ProdPromo[] = items.map((it) => {
         const p0 = porCodigo.get(it.id)
-        const pvp = Number(p0?.pvp) || 0, desc = Number(it.desc) || 0, precioFinal = Math.round(pvp * (1 - desc / 100) * 100) / 100
+        const pvp = Number(p0?.pvp) || 0, desc = Number(it.desc) || 0
+        const descEfectivo = it.estadoAprobacion === 'Aprobado' && it.descAprobado != null ? Number(it.descAprobado) : desc
+        const precioFinal = Math.round(pvp * (1 - descEfectivo / 100) * 100) / 100
         const costo = p0 && verCostos ? (costos[p0.id] ?? 0) : null
         const margen = costo != null && costo > 0 && precioFinal > 0 ? Math.round((precioFinal - costo) / precioFinal * 1000) / 10 : null
-        return { codigo: it.id, nombre: p0?.nombre ?? it.id, categoria: p0?.categoria?.nombre ?? '—', pvp, costo, enCatalogo: !!p0?.en_catalogo, imagen: p0?.imagen_url ?? '', desc, precioFinal, margen }
+        return { codigo: it.id, nombre: p0?.nombre ?? it.id, categoria: p0?.categoria?.nombre ?? '—', pvp, costo, enCatalogo: !!p0?.en_catalogo, imagen: p0?.imagen_url ?? '', desc: descEfectivo, precioFinal, margen,
+          estadoAprobacion: it.estadoAprobacion, descOriginal: desc, revisadoPor: it.revisadoPor, motivoRechazo: it.motivoRechazo }
       })
       setProds(filas)
     })()
@@ -307,9 +324,11 @@ function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mov
     <Ventana titulo={c.nombre} ancha cerrar={cerrar} pie={<>
       {editar && ['Borrador', 'Devuelta'].includes(c.estado) && <button className="btn btn-primary" onClick={() => mover(c, 'En aprobación')}><Send />Enviar a aprobación</button>}
       {aprobar && c.estado === 'En aprobación' && <>
-        <button className="btn" style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => mover(c, 'Rechazada', com.trim())}>Rechazar</button>
+        <button className="btn" style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => mover(c, 'Rechazada', com.trim())}>Rechazar campaña</button>
         <button className="btn" onClick={() => { if (!com.trim()) { alert('Escribe qué se debe corregir.'); return } mover(c, 'Devuelta', com.trim()) }}>Devolver</button>
-        <button className="btn btn-primary" onClick={() => mover(c, 'Aprobada', com.trim())}><Check />Aprobar</button></>}
+        {items.filter((i) => Number(i.desc) > 0).length === 0
+          ? <button className="btn btn-primary" onClick={() => mover(c, 'Aprobada', com.trim())}><Check />Aprobar</button>
+          : <p className="text-[11px] text-slate-500 self-center">Los productos se aprueban o rechazan uno por uno desde Ofertas y Liquidación › Por aprobar.</p>}</>}
       {editar && ['Aprobada', 'Borrador'].includes(c.estado) && <button className={'btn' + (puedeEliminar ? '' : ' ml-auto')} style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => { if (confirm('¿Cancelar esta campaña?')) mover(c, 'Cancelada') }}><X />Cancelar campaña</button>}
       {puedeEliminar && <button className="btn ml-auto" style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => eliminar(c)}><Trash2 />Eliminar</button>}</>}>
       <p className="text-[11px] text-slate-500">{c.codigo} · {fecha(c.inicio)} → {fecha(c.fin)}{c.preventa ? ' · Preventa' : ''} · <b>{c.estado}</b></p>
@@ -337,6 +356,16 @@ function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mov
                 <span className="text-base font-bold" style={{ color: f.desc ? '#c2410c' : 'var(--navy)' }}>{money(f.precioFinal)}</span>
               </div>
               {verCostos && <p className="text-[10px] text-slate-400 mt-1">Costo: {f.costo != null ? money(f.costo) : '—'} · Margen: {f.margen != null ? f.margen + '%' : '—'}</p>}
+              {f.estadoAprobacion === 'Aprobado' && (
+                <p className="text-[11px] font-semibold mt-2 rounded-lg px-2 py-1" style={{ background: '#ecfaf5', color: '#04896f' }}>
+                  Aprobado por {f.revisadoPor}{f.descOriginal != null && f.descOriginal !== f.desc ? ' · se propuso -' + f.descOriginal + '%, se aprobó -' + f.desc + '%' : ''}
+                </p>
+              )}
+              {f.estadoAprobacion === 'Rechazado' && (
+                <p className="text-[11px] font-semibold mt-2 rounded-lg px-2 py-1" style={{ background: '#fdecea', color: '#c0392b' }}>
+                  Rechazado por {f.revisadoPor}{f.motivoRechazo ? ': ' + f.motivoRechazo : ''}
+                </p>
+              )}
             </article>
           ))}</div>
         )}
