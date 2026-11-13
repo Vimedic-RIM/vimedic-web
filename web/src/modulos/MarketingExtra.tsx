@@ -190,6 +190,11 @@ export function Promociones({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
     if (error) { aviso('No se pudo guardar: ' + error.message); return }
     aviso('Campaña: ' + estado.toLowerCase() + '.'); setAbierta(null); cargar()
   }
+  async function renombrar(c: Camp, nombre: string) {
+    const { error } = await supabase.from('promo_campanas').update({ nombre }).eq('id', c.id)
+    if (error) { aviso('No se pudo renombrar: ' + error.message); return }
+    setAbierta((a) => (a && a.id === c.id ? { ...a, nombre } : a)); cargar()
+  }
   async function eliminar(c: Camp) {
     if (!confirm(`¿Eliminar "${c.nombre}" (${c.codigo})? No se podrá deshacer desde aquí.`)) return
     const { error } = await supabase.from('promo_campanas').update({ deleted_at: new Date().toISOString() }).eq('id', c.id)
@@ -213,7 +218,7 @@ export function Promociones({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
             <p className="text-[11px] text-slate-400">{(c.items ?? []).length} producto{(c.items ?? []).length === 1 ? '' : 's'} · {(c.combos ?? []).length} combo{(c.combos ?? []).length === 1 ? '' : 's'}</p>
           </article>) })}
       </div>
-      {abierta && <DetalleCampana c={abierta} perfil={perfil} aprobar={aprobar} editar={crear} puedeEliminar={puedeEliminar} cerrar={() => setAbierta(null)} mover={mover} eliminar={eliminar} />}
+      {abierta && <DetalleCampana c={abierta} perfil={perfil} aprobar={aprobar} editar={crear} puedeEliminar={puedeEliminar} cerrar={() => setAbierta(null)} mover={mover} eliminar={eliminar} renombrar={renombrar} />}
       {nueva && <NuevaCampana perfil={perfil} cerrar={() => setNueva(false)} hecho={() => { setNueva(false); cargar(); aviso('Campaña creada.') }} aviso={aviso} />}
     </section>
   )
@@ -228,8 +233,17 @@ const ORDENES_PROMO: [string, string][] = [
   ['pvp', 'PVP (mayor a menor)'], ['margen', 'Margen (mayor a menor)'], ['nombre', 'Nombre (A-Z)'],
 ]
 
-function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mover, eliminar }: { c: Camp; perfil: Perfil; aprobar: boolean; editar: boolean; puedeEliminar: boolean; cerrar: () => void; mover: (c: Camp, estado: string, comentario?: string) => void; eliminar: (c: Camp) => void }) {
+function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mover, eliminar, renombrar }: {
+  c: Camp; perfil: Perfil; aprobar: boolean; editar: boolean; puedeEliminar: boolean; cerrar: () => void
+  mover: (c: Camp, estado: string, comentario?: string) => void; eliminar: (c: Camp) => void; renombrar: (c: Camp, nombre: string) => void
+}) {
   const [com, setCom] = useState('')
+  const [nombreEd, setNombreEd] = useState(c.nombre)
+  function guardarNombre() {
+    const limpio = nombreEd.trim()
+    if (!limpio || limpio === c.nombre) { setNombreEd(c.nombre); return }
+    renombrar(c, limpio)
+  }
   const verCostos = puede(perfil, 'promociones', 'ver_costos') || puede(perfil, 'ofertas', 'ver_costos')
   const [prods, setProds] = useState<ProdPromo[] | null>(null)
   const [orden, setOrden] = useState('cat')
@@ -331,6 +345,11 @@ function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mov
           : <p className="text-[11px] text-slate-500 self-center">Los productos se aprueban o rechazan uno por uno desde Ofertas y Liquidación › Por aprobar.</p>}</>}
       {editar && ['Aprobada', 'Borrador'].includes(c.estado) && <button className={'btn' + (puedeEliminar ? '' : ' ml-auto')} style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => { if (confirm('¿Cancelar esta campaña?')) mover(c, 'Cancelada') }}><X />Cancelar campaña</button>}
       {puedeEliminar && <button className="btn ml-auto" style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => eliminar(c)}><Trash2 />Eliminar</button>}</>}>
+      {editar ? (
+        <label className="block text-[11px] font-bold text-slate-500">Nombre de la campaña
+          <input className="inp w-full mt-1 font-bold" value={nombreEd} onChange={(e) => setNombreEd(e.target.value)} onBlur={guardarNombre}
+            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} /></label>
+      ) : null}
       <p className="text-[11px] text-slate-500">{c.codigo} · {fecha(c.inicio)} → {fecha(c.fin)}{c.preventa ? ' · Preventa' : ''} · <b>{c.estado}</b></p>
       {c.comentario && <p className="text-xs rounded-lg p-2.5 bg-amber-50 text-amber-800">Comentario: {c.comentario}</p>}
       {aprobar && c.estado === 'En aprobación' && <textarea className="inp w-full" rows={2} placeholder="Comentario para quien envió la campaña" value={com} onChange={(e) => setCom(e.target.value)} />}
