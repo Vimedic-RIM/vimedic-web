@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Cake, Pencil, Search, Trash2, UserPlus, Users, X } from 'lucide-react'
+import { Cake, Pencil, Search, ShieldOff, Trash2, UserPlus, Users, X } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
 import { imagen } from './Inventario'
@@ -36,6 +36,12 @@ const TOGGLES: Tog[] = [
   { k: 'femedics', t: 'Acceso a Femedics CRM', mod: 'femedics' },
   { k: 'marketing', t: 'Módulo Marketing', mod: 'marketing' },
 ]
+/* Issue #3: antes de activar un permiso sensible, confirmación explícita en vez de un toggle instantáneo. */
+const ACCIONES_RIESGO = new Set(['eliminar', 'aprobar', 'administrar', 'ver_costos', 'restaurar'])
+function confirmarRiesgo(acc: string, activando: boolean) {
+  if (!activando || !ACCIONES_RIESGO.has(acc)) return true
+  return confirm(`¿Dar el permiso "${acc}"? Es una acción sensible — confirma que esta persona de verdad debe tenerlo.`)
+}
 const FONDOS: Record<string, React.CSSProperties> = {
   azul: { background: '#eef6fd', border: '1px solid #d6e6f5' }, violeta: { background: '#f5f3ff', border: '1px solid #ddd6fe' },
   naranja: { background: '#fff7ed', border: '1px solid #fde2c3' }, indigo: { background: '#eef2ff', border: '1px solid #dbe2fb' },
@@ -261,6 +267,7 @@ function Ficha({ perfil, emp, lista, roles, cerrar, guardado, aviso }: { perfil:
     if (t.col) { setCols((c) => ({ ...c, [t.col!]: !c[t.col!] })); return }
     if (t.flag) { setFlags((x) => ({ ...x, [t.flag!]: !x[t.flag!] })); return }
     const acc = t.acc ?? 'ver', mod = t.mod!
+    if (!confirmarRiesgo(acc, !tiene(mod, acc))) return
     setExtra((x) => {
       const n = { ...x }; const act = new Set(n[mod] ?? [])
       if (act.has(acc)) { act.delete(acc); if (acc === 'ver') ['crear', 'editar', 'eliminar', 'aprobar', 'exportar'].forEach((a) => act.delete(a)) } else act.add(acc)
@@ -270,6 +277,7 @@ function Ficha({ perfil, emp, lista, roles, cerrar, guardado, aviso }: { perfil:
     })
   }
   function cambiarAcc(mod: string, acc: string) {
+    if (!confirmarRiesgo(acc, !tiene(mod, acc))) return
     setExtra((x) => { const n = { ...x }; const act = new Set(n[mod] ?? []); if (act.has(acc)) act.delete(acc); else act.add(acc); if (act.size) n[mod] = [...act]; else delete n[mod]; return n })
   }
   const fila = (t: Tog, chico = false) => {
@@ -317,6 +325,15 @@ function Ficha({ perfil, emp, lista, roles, cerrar, guardado, aviso }: { perfil:
     const { error } = await supabase.from('empleados').update({ deleted_at: new Date().toISOString(), motivo_eliminacion: motivo || null }).eq('id', emp.id)
     if (error) { aviso('No se pudo eliminar: ' + error.message); return }
     setElim(false); aviso('Empleado enviado a la Papelera.'); guardado()
+  }
+
+  /* Offboarding en un solo click: limpia rol y permisos extra, y desactiva — en vez de desmarcar casilla por casilla. */
+  async function revocarAccesos() {
+    if (!emp) return
+    if (!confirm(`¿Revocar todos los accesos de ${f.nombre || f.email}? Pierde su rol y todos sus permisos extra, y queda inactivo. No se elimina su ficha.`)) return
+    const { error } = await supabase.from('empleados').update({ rol_id: null, permisos_extra: {}, estado: 'inactivo' }).eq('id', emp.id)
+    if (error) { aviso('No se pudo revocar: ' + error.message); return }
+    aviso('Accesos revocados.'); guardado()
   }
 
   const campo = 'w-full border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2'
@@ -459,6 +476,9 @@ function Ficha({ perfil, emp, lista, roles, cerrar, guardado, aviso }: { perfil:
 
         <div className="shrink-0 border-t border-slate-100 p-4 flex gap-2 items-center">
           {error && <p className="text-[11px] font-semibold flex-1" style={{ color: '#c0392b' }}>{error}</p>}
+          {emp && puede(perfil, 'empleados', 'eliminar') && (
+            <button type="button" onClick={revocarAccesos} title="Para offboarding: quita rol y permisos extra, y desactiva, en un solo paso" className="text-xs font-bold px-3.5 py-2.5 rounded-lg border flex items-center gap-1.5" style={{ borderColor: '#fde68a', color: '#92400e', background: '#fffbeb' }}><ShieldOff className="w-3.5 h-3.5" />Revocar accesos</button>
+          )}
           {emp && puede(perfil, 'empleados', 'eliminar') && (
             <button type="button" onClick={() => setElim(true)} className="text-xs font-bold px-3.5 py-2.5 rounded-lg border flex items-center gap-1.5" style={{ borderColor: '#fecaca', color: '#b91c1c', background: '#fff5f5' }}><Trash2 className="w-3.5 h-3.5" />Eliminar</button>
           )}
