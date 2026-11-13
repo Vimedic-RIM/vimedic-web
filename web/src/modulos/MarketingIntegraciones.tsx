@@ -738,6 +738,23 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
     guardarCampo('nuevo', nuevo ? 'SI' : 'NO')
   }
 
+  const [leyendoFicha, setLeyendoFicha] = useState(false)
+  const [espAntes, setEspAntes] = useState<string | null>(null)
+  /** Especificaciones tomadas de la ficha técnica en PDF con IA (mkIAEspecificaciones). */
+  async function extraerEspecificaciones() {
+    if (!full) return
+    if (!full.ficha_tecnica_url) { aviso('Primero sube o pega la ficha técnica en PDF.'); return }
+    setLeyendoFicha(true); setMsg('La IA está leyendo el PDF… (10 a 30 segundos)')
+    try {
+      const r = await llamar<{ especificaciones: string[] }>('ia_especificaciones', { id: prod.id })
+      const texto = r.especificaciones.join('\n')
+      setEspAntes(full.especificaciones)
+      set('especificaciones', texto)
+      await guardarCampo('especificaciones', texto)
+      setMsg('Listo: ' + r.especificaciones.length + ' datos tomados de la ficha. Revísalos.')
+    } catch (e) { setMsg((e as Error).message) }
+    setLeyendoFicha(false)
+  }
   async function redactar() {
     setIa(true); setMsg('')
     try {
@@ -885,6 +902,10 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
       {full && campoTexto('descripcion', 'descripcion', 'Descripción', { full: true, multilinea: true, filas: 3 })}
       {full && campoTexto('caracteristicas', 'caracteristicas', 'Características (una por línea, se muestran con ✓)', { full: true, multilinea: true, filas: 5, maxLength: 3400 })}
       {full && campoTexto('especificaciones', 'especificaciones', 'Especificaciones técnicas (una por línea: Dato: valor)', { full: true, multilinea: true, filas: 6, maxLength: 4000 })}
+      {full && <div className="flex items-center gap-2 flex-wrap -mt-1">
+        <button type="button" className="btn" onClick={extraerEspecificaciones} disabled={leyendoFicha}><FileText className="w-3.5 h-3.5" />{leyendoFicha ? 'Leyendo la ficha…' : 'Extraer de la ficha técnica con IA'}</button>
+        {espAntes !== null && !leyendoFicha && <button type="button" className="btn" onClick={() => { set('especificaciones', espAntes); guardarCampo('especificaciones', espAntes); setEspAntes(null) }}>Deshacer</button>}
+      </div>}
 
       {full && (
         <div className="space-y-2">

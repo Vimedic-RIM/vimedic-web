@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, ArrowLeft, BadgePercent, Check, FileDown, FolderUp, Megaphone, Package, Plus, Search, Send, Sparkles, Trash2, Users, X, XCircle } from 'lucide-react'
+import { InversionAnuncios } from './MarketingAnuncios'
 import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
 import { imagen as imgUrl } from './Inventario'
@@ -59,7 +60,8 @@ export function Anuncios({ perfil, desde, hasta, aviso }: { perfil: Perfil; desd
   return (
     <section className="space-y-4">
       <div className="card p-4 text-xs text-slate-600 flex gap-3 items-start"><Megaphone className="w-4 h-4 mt-0.5 shrink-0 text-[var(--violet)]" />
-        <p>Aquí ves qué anuncios traen leads al CRM en el período elegido. Marca como <b>activos</b> los que están corriendo para que los asesores los elijan al registrar un lead. La inversión y el alcance llegarán cuando se conecte la API de anuncios de Meta.</p></div>
+        <p>Inversión y resultados de cada anuncio (Zernio Ads) frente a los leads y ventas del CRM en el período elegido. Abajo, marca como <b>activos</b> los anuncios que están corriendo para que los asesores los elijan al registrar un lead.</p></div>
+      <InversionAnuncios desde={desde} hasta={hasta} />
       {error && <p className="text-xs rounded-xl px-4 py-3 bg-amber-50 border border-amber-200 text-amber-800">{error}</p>}
       {editar && <div className="flex gap-2"><input className="inp flex-1 max-w-sm" placeholder="Nombre del anuncio o campaña activa" value={nuevo} onChange={(e) => setNuevo(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') activar(nuevo) }} /><button className="btn btn-primary" onClick={() => activar(nuevo)}><Plus />Agregar activo</button></div>}
       <div className="card overflow-hidden">

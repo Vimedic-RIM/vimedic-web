@@ -10,8 +10,8 @@ Estados: ✅ existe en la app nueva · 🆕 recuperado en esta auditoría · ⚠
 
 1. ✅ CRM Vimedic y FEMEDICS
 2. ✅ Facturación
-3. ⏭️ **Marketing** (siguiente)
-4. Carga del Excel actualizado (`datos_origen/Web App Vimedic (2).xlsx`) en vimedic-pruebas
+3. ✅ Marketing
+4. ⏭️ **Carga del Excel actualizado** (`datos_origen/Web App Vimedic (2).xlsx`) en vimedic-pruebas (siguiente; CRM y Facturación ya se actualizaron)
 5. Inventario y Movimientos
 6. Clientes
 7. Agenda
@@ -119,3 +119,86 @@ Pedido del usuario: actualizar CRM y Facturación y depurar lo que no exista (pr
 - Las pruebas de qa habían modificado cotizaciones reales (convertidas en venta, etapas cambiadas): con la
   actualización volvieron a su estado real.
 - El stock de los productos se vuelve a tomar del Excel en la vuelta de Inventario.
+
+---
+
+## 3. Marketing — Issue #22
+
+Pantalla: `Marketing.html` (85 funciones de servidor) con `Data Marketing.gs`, `MarketingFlujo.gs`,
+`Data Audiovisual.gs`, `MarketingIA.gs`, `MarketingSeo.gs`, `Galeria*.gs`, `MediaWeb.gs`, `InformesDesempeno.gs`.
+Commits: ee8b3ef, 67e8b51, 9d8bcf1, 7c2e431 y el de Anuncios.
+
+### Planificador (`MarketingPlanificador.tsx` + Edge Function `marketing-integraciones`)
+
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `mkCuentas` | Cuentas conectadas en Zernio | ✅ | `zernio_cuentas` |
+| `mkPublicaciones` | Publicaciones con estado, error y enlace de cada red, producto y pieza | 🆕 | `zernio_posts` (con páginas) |
+| calendario semana / mes / lista, filtros por estado y red | Vista del planificador | 🆕 | Antes solo había una lista |
+| `mkReprogramar` | Arrastrar para cambiar la fecha | 🆕 | `zernio_reprogramar` |
+| `mkEditarPublicacion` | Editar texto y fecha; publicar un borrador | 🆕 | `zernio_editar` |
+| `mkEliminarPublicacion` | Eliminar (solo borradores, programadas o fallidas) | ✅ + 🆕 | `zernio_eliminar` revisa el estado |
+| `mkPresign` | Subir imagen o video directo a Zernio (hasta 300 MB) | 🆕 | `zernio_presign`; el navegador sube el archivo |
+| `mkPublicar` | Feed, Historia o Reel; video; reglas de Instagram, TikTok y YouTube; borrador; sin duplicados | 🆕 | `zernio_crear` (antes solo imágenes) |
+| `mkGenerarCopyIA`, plantilla rápida | Copy por tipo con datos reales del producto; siempre invita a la web | 🆕 | `ia_texto` |
+| cola en segundo plano | Las cargas siguen con avance y reintento | 🆕 | Planificador |
+| bandeja "Listo para publicar" (`programarAvEn`) | Arrastrar una pieza al calendario | 🆕 | Planificador |
+| `mkfDiferir_` | Lo que publica Asistente o Audiovisual espera a Coordinación | 🆕 | `marketing_mi_rol` + `zernio_aplicar` |
+
+### Audiovisual
+
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `avListar`, `avGuardar`, `avCambiarEstado`, `avEliminar` | Piezas, tablero por estado, papelera | ✅ | `Marketing.tsx` (eliminar ahora pide confirmación) |
+| `avIniciarSubida`, `avSubirParte`, `avEstadoSubida` | Videos grandes por partes (hasta 2 GB) | 🆕 | Hasta 45 MB en la app; más pesados a Drive por partes (`drive` › `subida_iniciar`) |
+| `avMiniatura`, `avGuardarMiniatura`, portada | Miniatura y portada de cada video | 🆕 | `audiovisual.miniatura_url` |
+| detalle (`openAvDetail`, `avGuardarDetalle`) | Vista previa, producto, fecha, responsable, reemplazar archivo, copiar enlace | 🆕 | `ModalPieza` |
+| `avPrepararZernio`, `avCompletarEnlaces` | Enlace directo para Zernio | 🆕 / ➖ | `drive` › `compartir`; los archivos de la app ya son públicos |
+| `avVincularPublicacion` | La pieza queda Programada o Publicada | ✅ | Edge Function |
+
+### Revisión del equipo (`MarketingRevision.tsx`)
+
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `mkfCambiar_`, `mkfGuardarCampo` | Directo, corrección menor, publicación directa o a revisión; reenvío al corregir | 🆕 | `mkt_cambiar_campo` (la Biblioteca lo usa) |
+| `mkfRegistrarDirecto_` | Cambios de galería quedan para revisar | 🆕 | `mkt_registrar_directo` |
+| `mkfBandeja`, `mkfContador`, `mkfMisEnvios` | Por aprobar, aplicados, contador, mis envíos | 🆕 | `mkt_revision_bandeja`, `mkt_revision_contador`, `mkt_mis_envios` |
+| `mkfAprobar` (con edición), `mkfDevolver`, `mkfRechazar`, `mkfMarcarRevisado`, `mkfDeshacer` | Decisiones de Coordinación | 🆕 | `mkt_revision_decidir` |
+| `mkfDesempeno`, `mkfDefinirDirecta` | Desempeño por persona; publicación directa | 🆕 | `mkt_desempeno`, `mkt_definir_directa` |
+| `mkfInformeDesempeno` | Informe PDF semanal o mensual (Marketing y comercial) | 🆕 | `mkt_informe_comercial`; el PDF queda en Drive › Informes |
+| `mkfGuardarAjustes` | Contacto de la ficha técnica | 🆕 | `marketing_ajustes` |
+| `mkfEnviarResumen`, `mkfAprobarDesdeCorreo_` | Resumen y aprobación por correo | ❌ | Falta un servicio de correo (pregunta en #23) |
+| `ftRegenerarTodas`, `mkfSeoOptimizarTodo` | Rehacer todo en segundo plano | ⚠️ | Por producto desde la Biblioteca |
+
+### Biblioteca
+
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `mkProductos`, `mkVisiblePublico`, `mkEtiquetaNuevo`, `mkGuardarEnlaces`, `mkSubirArchivo` | Datos del producto | ✅ | `MarketingIntegraciones.tsx` |
+| `mkfPendientes` | Por completar y Videos pendientes, por cotizaciones | 🆕 | `mkt_pendientes` + `MarketingPendientes.tsx` |
+| `mkCambiarImagen`, `mkSubirImagenProducto` | Subir imagen principal | 🆕 | Espacio `catalogo` (WebP) |
+| `mkGuardarGaleriaProducto`, `mkAvGaleriaPreparar/Parte`, `mkMediaPermiso` | Subir fotos y videos a la galería; tipo de video | 🆕 | Espacio `catalogo` |
+| `mkIADescripcionProducto` | Descripción y características con IA | ✅ | `ia_producto` |
+| `mkIAEspecificaciones` | Especificaciones leídas de la ficha PDF | 🆕 | `ia_especificaciones` |
+| `mkfSeoRevision`, `mkfSeoProductoAhora` | Puntaje SEO y textos alternativos | ✅ / ⚠️ | Renombrar archivos de Drive no aplica a los archivos nuevos |
+| `mkCategoriasCatalogo`, `mkGuardarCategoriaCatalogo` | Tarjetas de categorías del catálogo | ➡️ | Vuelta de Catálogos (#10) |
+
+### Resumen y Anuncios
+
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `mkDashboard` | Resumen de resultados | ✅ | `Marketing.tsx` |
+| `mkAnuncios` | Gasto, impresiones, clics y conversiones de cada anuncio (Zernio Ads) | 🆕 | `zernio_anuncios` + `MarketingAnuncios.tsx` |
+| `mkEstadisticas_` | Leads y ventas del CRM por anuncio o campaña; costo por lead | 🆕 | `mkt_atribucion` |
+| `mkPuedeIndicadores_` | Resumen y Anuncios solo con "Ver indicadores de Marketing" | 🆕 | `marketing_mi_rol.indicadores` (el permiso existía en Empleados pero no se usaba) |
+
+### Otros archivos
+
+- `Marketing tracking.gs`, `Tracking_Campanas.gs`: píxeles, conversiones y feed de Pinterest ✅ (#12).
+- `Contenido zernio.gs`: reemplazado por la Edge Function ✅. `Diagnostico conexión redes.gs`: herramientas del editor ➖ (Configuración › Probar conexión).
+- `LeadsMeta.gs`, `CorreoLeadsMeta.gs`: el reparto ya funciona (#20); la entrada automática y los correos necesitan una decisión (#23).
+- `Promociones.gs` (informe final, interesados, kit de arte, tablero) pasa a la vuelta 13; `MaterialProveedores.gs` y Recepción (`vmRec*`) a la vuelta 10.
+
+Para probar en qa: Coordinación es quien tiene el rol "Coordinación" en Empleados o el permiso Marketing › aprobar.
+En pruebas, la única persona con rol de Marketing también es superadministrador, así que todo le sale directo;
+para ver el flujo de aprobación hay que darle a alguien el rol Marketing sin ser superadministrador.

@@ -121,6 +121,10 @@ export default function Marketing({ perfil, aviso, accion, limpiarAccion }: { pe
   const [subir, setSubir] = useState(false)
   const [papelera, setPapelera] = useState(false)
   const [abrirPublicacion, setAbrirPublicacion] = useState(false)
+  // "Ver indicadores de Marketing" (Empleados › permisos especiales): sin él no se ven Resumen ni Anuncios.
+  const [indicadores, setIndicadores] = useState<boolean | null>(null)
+  useEffect(() => { supabase.rpc('marketing_mi_rol').then(({ data }) => setIndicadores(!!(data as { indicadores?: boolean } | null)?.indicadores)) }, [])
+  useEffect(() => { if (indicadores === false && (tab === 'resumen' || tab === 'anuncios')) setTab('planificador') }, [indicadores, tab]) // eslint-disable-line react-hooks/exhaustive-deps
   // Contador de Revisión en la barra (mkfContador): por aprobar para Coordinación, por corregir para el resto.
   const [porRevisar, setPorRevisar] = useState(0)
   useEffect(() => {
@@ -294,7 +298,7 @@ export default function Marketing({ perfil, aviso, accion, limpiarAccion }: { pe
   return (
     <div className="vm-mkt">
       <nav id="sideNav" aria-label="Secciones de Marketing">
-        {NAV.filter(([k]) => k !== 'configuracion' || puedeAdmin).map(([k, t, I]) => <button key={k} type="button" className={'nav-btn' + (tab === k ? ' active' : '')} data-tip={t} aria-label={t} onClick={() => setTab(k)}><I />{k === 'revision' && porRevisar > 0 && <span className="mk-nav-badge">{porRevisar > 99 ? '99+' : porRevisar}</span>}</button>)}
+        {NAV.filter(([k]) => (k !== 'configuracion' || puedeAdmin) && (indicadores !== false || (k !== 'resumen' && k !== 'anuncios'))).map(([k, t, I]) => <button key={k} type="button" className={'nav-btn' + (tab === k ? ' active' : '')} data-tip={t} aria-label={t} onClick={() => setTab(k)}><I />{k === 'revision' && porRevisar > 0 && <span className="mk-nav-badge">{porRevisar > 99 ? '99+' : porRevisar}</span>}</button>)}
         <div className="nav-sep" />
         {puedeCrear && <button type="button" className="nav-btn create" data-tip="Crear publicación" aria-label="Crear publicación" onClick={() => setTab('planificador')}><PenLine /></button>}
         <button type="button" className="nav-btn" data-tip="Actualizar" aria-label="Actualizar" onClick={cargarDatos}><RefreshCw /></button>

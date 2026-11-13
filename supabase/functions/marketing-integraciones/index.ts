@@ -287,6 +287,22 @@ Deno.serve(async (req) => {
       }
 
       if (accion === 'zernio_cuentas') return responder({ cuentas: await cuentasZ() })
+      /* Anuncios con su inversión y resultados en las redes (mkAnuncios). Solo con "Ver indicadores de Marketing". */
+      if (accion === 'zernio_anuncios') {
+        const rol = (await miRol()) as { indicadores?: boolean }
+        if (!rol.indicadores) throw new Falla('No tienes acceso a los indicadores de Marketing.', 403)
+        const desde = String(b.desde || ''), hasta = String(b.hasta || '')
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(desde) || !/^\d{4}-\d{2}-\d{2}$/.test(hasta) || desde > hasta || (Date.parse(hasta) - Date.parse(desde)) / 86400000 > 730) throw new Falla('Selecciona un período válido de hasta 730 días.')
+        const pagina = Math.max(1, Math.min(1000, Number(b.pagina) || 1))
+        const r = await zernio(`/ads?limit=50&page=${pagina}&fromDate=${desde}&toDate=${hasta}`)
+        if (!r.ok) throw errorZernio(r, r.status === 403 ? 'Zernio denegó el acceso a Ads (revisa si tu plan incluye Ads)' : 'No se pudieron cargar los anuncios')
+        const ads = ((r.data?.ads ?? []) as Cualquiera[]).map((a) => ({
+          id: String(a._id || a.id || ''), adId: String(a.platformAdId || ''), nombre: a.name || '', campana: a.campaignName || '', plataforma: a.platform || '',
+          estado: a.status || '', moneda: a.currency || '', metricas: a.metrics || {},
+        }))
+        const pag = r.data?.pagination ?? {}
+        return responder({ ads, pagina, paginas: Number(pag.pages || pag.totalPages || pagina), pendiente: r.status === 202 })
+      }
       if (accion === 'zernio_rol') return responder(await miRol())
       if (accion === 'zernio_posts') {
         const pagina = Math.max(1, Math.min(1000, Number(b.pagina) || 1))
@@ -438,25 +454,50 @@ Deno.serve(async (req) => {
       }
       return responder({ texto: t })
     }
+    /** PDF de la ficha técnica en base64 (máx. 8 MB) o '' si no se puede leer (mkIAFichaPdf_). */
+    const fichaPdf = async (f: string) => {
+      if (!/^https:\/\//i.test(f)) return ''
+      try {
+        const m = f.match(/\/d\/([\w-]{20,})/) || f.match(/[?&]id=([\w-]{20,})/)
+        const dir = m && /drive\.google\.com|docs\.google\.com/.test(f) ? `https://drive.google.com/uc?export=download&id=${m[1]}` : f
+        const r = await fetch(dir, { redirect: 'follow' })
+        const bytes = new Uint8Array(await r.arrayBuffer())
+        if (!r.ok || !bytes.length || bytes.length > 8 * 1024 * 1024 || !/pdf/i.test(r.headers.get('content-type') || '')) return ''
+        let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+        return btoa(s)
+      } catch { return '' }
+    }
+    /* Especificaciones técnicas leídas de la ficha en PDF (mkIAEspecificaciones del original). */
+    if (accion === 'ia_especificaciones') {
+      if (!(await puede('crear')) && !(await puede('editar'))) throw new Falla('No tienes permiso para usar la IA.', 403)
+      const { data: p } = await admin.from('productos').select('nombre,ficha_tecnica_url,categoria:categorias(nombre)').eq('id', b.id).maybeSingle()
+      if (!p) throw new Falla('No se encontró el producto.')
+      const pdf = await fichaPdf(String(p.ficha_tecnica_url || ''))
+      if (!pdf) throw new Falla('No se pudo leer la ficha técnica: debe ser un PDF de Drive (o enlace https) de hasta 8 MB.')
+      // deno-lint-ignore no-explicit-any
+      const cat = (p as any).categoria?.nombre
+      const o = json(await gemini([{ inline_data: { mime_type: 'application/pdf', data: pdf } }, { text: [
+        'Producto: ' + p.nombre + (cat ? ' (' + cat + ')' : ''),
+        'Del PDF adjunto (ficha técnica), extrae TODAS las especificaciones técnicas en español.',
+        'Devuelve SOLO un JSON: {"especificaciones": ["Dato: valor", ...]}',
+        'Reglas: un dato por elemento con su unidad (ej. "Capacidad: 23 L", "Voltaje: 220 V · 60 Hz", "Dimensiones (an × pr × al): 60 × 45 × 40 cm").',
+        'Traduce al español los nombres de los datos. Agrupa valores repetidos. Máximo 40 datos.',
+        'No inventes nada que no esté en el PDF. No incluyas precios ni datos de contacto.',
+      ].join('\n') }], { temperature: 0.1, maxOutputTokens: 2000, responseMimeType: 'application/json' }))
+      const vistos = new Set<string>()
+      const lista = (Array.isArray(o.especificaciones) ? o.especificaciones : []).map((x: unknown) => String(x || '').replace(/[<>]/g, '').replace(/^[-•·*✓✔\d.)\s]+/, '').replace(/\s+/g, ' ').trim().slice(0, 160))
+        .filter((x: string) => x.includes(':') && !vistos.has(x.toLowerCase()) && vistos.add(x.toLowerCase())).slice(0, 40)
+      if (!lista.length) throw new Falla('La IA no encontró especificaciones en la ficha.')
+      return responder({ especificaciones: lista })
+    }
     if (accion === 'ia_producto') {
       if (!(await puede('crear'))) throw new Falla('No tienes permiso para usar la IA.', 403)
       const { data: p } = await admin.from('productos').select('nombre,descripcion,ficha_tecnica_url,categoria:categorias(nombre)').eq('id', b.id).maybeSingle()
       if (!p) throw new Falla('No se encontró el producto.')
       const partes: unknown[] = []
       let conFicha = false
-      const f = String(p.ficha_tecnica_url || '')
-      if (/^https:\/\//i.test(f)) {
-        try {
-          const m = f.match(/\/d\/([\w-]{20,})/) || f.match(/[?&]id=([\w-]{20,})/)
-          const dir = m && /drive\.google\.com|docs\.google\.com/.test(f) ? `https://drive.google.com/uc?export=download&id=${m[1]}` : f
-          const r = await fetch(dir, { redirect: 'follow' })
-          const bytes = new Uint8Array(await r.arrayBuffer())
-          if (r.ok && bytes.length > 0 && bytes.length <= 8 * 1024 * 1024 && /pdf/i.test(r.headers.get('content-type') || '')) {
-            let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
-            partes.push({ inline_data: { mime_type: 'application/pdf', data: btoa(s) } }); conFicha = true
-          }
-        } catch { /* sin ficha legible */ }
-      }
+      const pdf = await fichaPdf(String(p.ficha_tecnica_url || ''))
+      if (pdf) { partes.push({ inline_data: { mime_type: 'application/pdf', data: pdf } }); conFicha = true }
       // deno-lint-ignore no-explicit-any
       const cat = (p as any).categoria?.nombre
       partes.push({ text: [
