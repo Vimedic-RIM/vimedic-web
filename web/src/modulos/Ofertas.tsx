@@ -295,7 +295,7 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
           </section>
         )}
         {tab === 'ofertas' && <ListaOfertas ofertas={ofertasVis} prods={P} abrir={(o) => abrirProd(P.find((p) => p.id === o.productoId) ?? productoDesdeOferta(o), o)} />}
-        {tab === 'aprobar' && <PorAprobar campanas={campanasPendientes} aviso={aviso} recargar={cargar} />}
+        {tab === 'aprobar' && <PorAprobar campanas={campanasPendientes} prods={P} aviso={aviso} recargar={cargar} />}
         {tab === 'res' && <Resultados ofertas={ofertasVis.filter((o) => o.estado !== 'Programada')} />}
       </main>
 
@@ -351,28 +351,44 @@ function Tarjeta({ p, sel, click }: { p: Prod; sel: boolean; click: () => void }
 }
 
 type ProdPend = { codigo: string; nombre: string; imagen: string; categoria: string; pvp: number; costo: number | null }
-function PorAprobar({ campanas, aviso, recargar }: { campanas: CampanaPend[]; aviso: (t: string) => void; recargar: () => void }) {
-  const [prods, setProds] = useState<Record<string, ProdPend>>({})
+function PorAprobar({ campanas, prods, aviso, recargar }: { campanas: CampanaPend[]; prods: Prod[]; aviso: (t: string) => void; recargar: () => void }) {
+  const [extra, setExtra] = useState<Record<string, ProdPend>>({})
   const [ediciones, setEdiciones] = useState<Record<string, string>>({})
   const [ocupado, setOcupado] = useState('')
   const filas = useMemo(() => campanas.flatMap((c) => itemsPendientes(c).map((it) => ({ campana: c, item: it }))), [campanas])
+  const porCodigo = useMemo(() => new Map(prods.map((p) => [p.codigo, p])), [prods])
 
+  // Los productos que ya están en "Oportunidades" (stock dormido) traen toda su analítica
+  // (antigüedad, interesados, jugada sugerida…); los que no, se piden sueltos aquí.
   useEffect(() => {
-    const codigos = [...new Set(filas.map((f) => f.item.id))]
-    if (!codigos.length) { setProds({}); return }
+    const faltan = [...new Set(filas.map((f) => f.item.id).filter((cod) => !porCodigo.has(cod)))]
+    if (!faltan.length) { setExtra({}); return }
     let vivo = true
     ;(async () => {
-      const { data: p } = await supabase.from('productos').select('id,codigo,nombre,imagen_url,pvp,categoria:categorias(nombre)').in('codigo', codigos).is('deleted_at', null)
+      const { data: p } = await supabase.from('productos').select('id,codigo,nombre,imagen_url,pvp,categoria:categorias(nombre)').in('codigo', faltan).is('deleted_at', null)
       if (!vivo) return
       const filas2 = (p ?? []) as unknown as { id: string; codigo: string; nombre: string; imagen_url: string | null; pvp: number | null; categoria: { nombre: string } | null }[]
       const { data: co } = await supabase.from('productos_costos').select('producto_id,costo_importacion').in('producto_id', filas2.map((x) => x.id)).is('deleted_at', null)
       const costos = Object.fromEntries(((co ?? []) as { producto_id: string; costo_importacion: number | null }[]).map((x) => [x.producto_id, Number(x.costo_importacion) || 0]))
       const mapa: Record<string, ProdPend> = {}
       filas2.forEach((x) => { mapa[x.codigo] = { codigo: x.codigo, nombre: x.nombre, imagen: x.imagen_url ?? '', categoria: x.categoria?.nombre ?? '—', pvp: Number(x.pvp) || 0, costo: costos[x.id] ?? 0 } })
-      setProds(mapa)
+      setExtra(mapa)
     })()
     return () => { vivo = false }
-  }, [filas])
+  }, [filas, porCodigo])
+
+  function prodDe(codigo: string): Prod | null {
+    const real = porCodigo.get(codigo)
+    if (real) return real
+    const x = extra[codigo]
+    if (!x) return null
+    return {
+      id: x.codigo, codigo: x.codigo, nombre: x.nombre, categoria: x.categoria, marca: '', img: x.imagen ? imgUrl(x.imagen, 300) : '', stock: 0, pvp: x.pvp, dis: 0, costo: x.costo ?? 0,
+      obs: '', nc: 0, rep: 0, noRep: 0, motivosObs: [], conObs: false, oculto: false, dias: 0, grupo: '', lotes: [], ultVenta: '', diasSinVenta: null, v90: 0, v365: 0, nuncaVendido: false,
+      interes: 0, capitalCosto: 0, capitalPvp: 0, ofertaId: '', urgencia: 0,
+      estrategia: { tipo: 'Precio especial', descuento: 0, precio: x.pvp, porque: '', limitadoPorCosto: false, maxDesc: 90, piso: 0, margen: null, recupera: 0, dias: 30, comboCon: '', comboNombre: '', regalo: '' },
+    }
+  }
 
   async function decidir(campanaId: string, codigo: string, decision: 'Aprobar' | 'Rechazar', descAprobado?: number) {
     const clave = campanaId + ':' + codigo
@@ -388,42 +404,72 @@ function PorAprobar({ campanas, aviso, recargar }: { campanas: CampanaPend[]; av
 
   if (!filas.length) return <div className="vacio"><BadgePercent className="mx-auto mb-2" style={{ width: 34, height: 34 }} /><p className="font-semibold">No hay productos por aprobar.</p><p className="text-sm">Cuando Marketing envíe una campaña de Promociones a aprobación, sus productos aparecen aquí.</p></div>
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+    <div className="grid-p">
       {filas.map(({ campana, item }) => {
-        const p = prods[item.id]
+        const p = prodDe(item.id)
         const clave = campana.id + ':' + item.id
         const valor = ediciones[clave] ?? String(item.desc ?? 0)
-        const descNum = Number(valor) || 0
-        const precioFinal = p ? R2(p.pvp * (1 - descNum / 100)) : 0
-        const margen = p && p.costo && p.costo > 0 && precioFinal > 0 ? Math.round((precioFinal - p.costo) / precioFinal * 1000) / 10 : null
         const trabajando = ocupado === clave
+        if (!p) return <article key={clave} className="pc"><p className="text-[11px] text-amber-700 p-3">Cargando {item.id}…</p></article>
         return (
-          <article key={clave} className="card p-4">
-            <div className="flex items-center gap-2"><BadgePercent className="w-4 h-4 text-[var(--amber)]" /><span className="font-mono-spec text-[11px] text-slate-400">{item.id}</span>
-              <span className="pill ml-auto" style={{ background: '#eff6ff', color: '#055c9d' }}>{campana.nombre}</span></div>
-            <p className="text-sm font-bold text-slate-800 mt-1.5">{p?.nombre ?? item.id}</p>
-            <p className="text-[11px] text-slate-500 mt-1">{p?.categoria ?? '—'}</p>
-            {!p && <p className="text-[11px] text-amber-700 mt-2">Cargando producto…</p>}
-            {p && (
-              <>
-                <div className="flex items-end gap-2 mt-2">
-                  <span className="text-[11px] text-slate-400 line-through">{money(p.pvp)}</span>
-                  <span className="text-base font-bold" style={{ color: '#c2410c' }}>{money(precioFinal)}</span>
-                </div>
-                <label className="flex items-center gap-2 mt-2 text-[11px] text-slate-500">% propuesto por Marketing
-                  <input type="number" min="0" max="90" step="0.5" className="inp w-20" value={valor} onChange={(e) => setEdiciones((x) => ({ ...x, [clave]: e.target.value }))} /></label>
-                <p className="text-[10px] text-slate-400 mt-1">Costo: {p.costo != null && p.costo > 0 ? money(p.costo) : '—'} · Margen: {margen != null ? margen + '%' : '—'}</p>
-                {item.nota && <p className="text-[11px] text-slate-500 mt-1.5 italic">"{item.nota}"</p>}
-                <div className="flex gap-2 mt-3">
-                  <button className="btn flex-1 justify-center" disabled={trabajando} style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => decidir(campana.id, item.id, 'Rechazar')}><XCircle className="w-4 h-4" />Rechazar</button>
-                  <button className="btn btn-primary flex-1 justify-center" disabled={trabajando || descNum <= 0} onClick={() => decidir(campana.id, item.id, 'Aprobar', descNum)}><Check className="w-4 h-4" />Aprobar</button>
-                </div>
-              </>
-            )}
-          </article>
+          <TarjetaAprobar key={clave} p={p} conAnalitica={porCodigo.has(item.id)} campana={campana.nombre} valor={valor} setValor={(v) => setEdiciones((x) => ({ ...x, [clave]: v }))} nota={item.nota}
+            trabajando={trabajando} onAprobar={(d) => decidir(campana.id, item.id, 'Aprobar', d)} onRechazar={() => decidir(campana.id, item.id, 'Rechazar')} />
         )
       })}
     </div>
+  )
+}
+
+function TarjetaAprobar({ p, conAnalitica, campana, valor, setValor, nota, trabajando, onAprobar, onRechazar }: {
+  p: Prod; conAnalitica: boolean; campana: string; valor: string; setValor: (v: string) => void; nota?: string; trabajando: boolean; onAprobar: (desc: number) => void; onRechazar: () => void
+}) {
+  const e = p.estrategia, I = TIPO_IC[e.tipo] || Tag, g = GRUPOS[p.grupo]
+  const desc = Math.max(0, Math.min(90, Number(valor) || 0))
+  const precio = p.pvp > 0 ? R2(p.pvp * (1 - desc / 100)) : 0
+  const ahorro = p.pvp > 0 ? R2(p.pvp - precio) : 0
+  const margen = p.costo > 0 && precio > 0 ? Math.round((precio - p.costo) / precio * 1000) / 10 : null
+  return (
+    <article className="pc">
+      <div className="pc-top"><div className="ph">{p.img ? <img loading="lazy" src={p.img} alt="" onError={(ev) => ev.currentTarget.remove()} /> : <Package style={{ width: 28, height: 28 }} />}</div>
+        <div className="min-w-0 flex-1">
+          <div className="flex gap-1.5 flex-wrap mb-1">
+            {p.conObs && <span className="pill" style={{ background: '#f3e8ff', color: '#6d28d9' }}><AlertTriangle style={{ width: 11, height: 11 }} />Con observaciones</span>}
+            {g && <span className="pill" style={{ background: g.hex + '1f', color: g.hex }}>Antigüedad · {meses(p.dias)}</span>}
+            {p.nuncaVendido && <span className="pill" style={{ background: '#f1f5f9', color: '#334155' }}>Nunca vendido</span>}
+            {p.interes > 0 && <span className="pill" style={{ background: '#fff7ed', color: '#c2410c' }}><Users style={{ width: 11, height: 11 }} />{p.interes} cotizaron sin comprar</span>}
+            <span className="pill" style={{ background: '#eff6ff', color: '#055c9d' }}>{campana}</span>
+          </div>
+          <p className="font-bold text-[14px] leading-snug text-slate-800 line-clamp-2">{p.nombre}</p>
+          <p className="text-[11px] text-slate-400 mono">{p.codigo} · {p.categoria}</p>
+          {conAnalitica && <p className="text-[12px] text-slate-600 mt-1"><b>{p.stock}</b> u. · {money0(p.capitalPvp)} detenido{p.ultVenta ? ' · última venta ' + meses(p.diasSinVenta ?? 0) : ' · sin ventas registradas'}</p>}
+          {p.conObs && <p className="text-[11.5px] text-violet-700 font-semibold mt-1 line-clamp-2">{p.motivosObs.join(' · ')}</p>}
+          {nota && <p className="text-[11.5px] text-slate-500 mt-1 italic">"{nota}"</p>}
+        </div>
+      </div>
+      {conAnalitica && p.pvp > 0 && (
+        <div className="jug"><div className="t"><I style={{ width: 13, height: 13 }} />Jugada sugerida por el sistema · {e.tipo}</div>
+          <div className="flex items-end justify-between gap-2 mt-1"><div><span className="precio-n">{money(e.precio)}</span> <span className="precio-a">{money(p.pvp)}</span></div>
+            <div className="text-right text-[11.5px] text-slate-600"><b className="text-[var(--acc)] text-[15px]">-{e.descuento}%</b>{e.margen != null ? <><br />margen {e.margen}%</> : <><br /><span className="text-amber-700">sin costo</span></>}</div></div>
+          <p className="text-[11px] text-slate-500 mt-1">Esto ayuda a juzgar si el % propuesto por Marketing es razonable.</p>
+        </div>
+      )}
+      <div className="rounded-xl border border-slate-200 p-3 mt-2.5">
+        <p className="text-[11px] font-bold text-slate-500 mb-1.5">Propuesta de Marketing (puedes ajustarla antes de aprobar)</p>
+        <div className="flex items-center gap-2">
+          <input type="number" min="0" max="90" step="0.5" className="inp w-20" value={valor} disabled={trabajando} onChange={(ev) => setValor(ev.target.value)} /><span className="text-xs text-slate-500">%</span>
+          <div className="ml-auto text-right">
+            {p.pvp > 0 && <span className="text-[11px] text-slate-400 line-through mr-1.5">{money(p.pvp)}</span>}
+            <span className="text-base font-bold" style={{ color: '#c2410c' }}>{money(precio)}</span>
+            {margen != null && <span className="text-[10px] text-slate-400 block">margen {margen}%</span>}
+          </div>
+        </div>
+        {p.pvp > 0 && desc > 0 && <p className="text-[11.5px] font-semibold mt-1.5" style={{ color: '#04896f' }}>El cliente ahorra {money(ahorro)}</p>}
+      </div>
+      <div className="flex gap-2 mt-2.5">
+        <button className="btn flex-1 justify-center" disabled={trabajando} style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={onRechazar}><XCircle className="w-4 h-4" />Rechazar</button>
+        <button className="btn btn-primary flex-1 justify-center" disabled={trabajando || desc <= 0} onClick={() => onAprobar(desc)}><Check className="w-4 h-4" />Aprobar</button>
+      </div>
+    </article>
   )
 }
 
