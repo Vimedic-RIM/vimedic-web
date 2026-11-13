@@ -59,3 +59,11 @@ body.vm-con-rail .vm-ag .timerbar{left:var(--vr-w);z-index:130}
 @media(max-width:639px){body.vm-con-rail .vm-ag .timerbar{left:0}}
 
 @keyframes agfly{0%{opacity:0;transform:translate(-50%,20px) scale(.6)}20%{opacity:1;transform:translate(-50%,0) scale(1.2)}100%{opacity:0;transform:translate(-50%,-140px) scale(1)}}
+/* Indicadores configurables: ocultar (×), agregar (+) y ordenar arrastrando */
+.vm-ag .kp{position:relative;cursor:grab}
+.vm-ag .kp.kp-drag{opacity:.45}
+.vm-ag .kp-x{position:absolute;top:1px;right:4px;border:0;background:none;color:#94a3b8;font-size:14px;line-height:1;cursor:pointer;opacity:0;padding:2px}
+.vm-ag .kp:hover .kp-x,.vm-ag .kp-x:focus-visible{opacity:1}
+@media (hover:none){.vm-ag .kp-x{opacity:.7}}
+.vm-ag .kp-add{display:grid;place-items:center;min-width:40px;height:100%;cursor:pointer;color:var(--muted)}
+.vm-ag .kp-add svg{width:16px;height:16px}

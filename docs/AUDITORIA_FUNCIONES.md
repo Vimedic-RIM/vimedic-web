@@ -14,8 +14,8 @@ Estados: ✅ existe en la app nueva · 🆕 recuperado en esta auditoría · ⚠
 4. ✅ Carga del Excel actualizado (`datos_origen/Web App Vimedic (2).xlsx`) en vimedic-pruebas
 5. ✅ Inventario y Movimientos
 6. ✅ Clientes
-7. ⏭️ **Agenda** (siguiente)
-8. Bodega y Logística
+7. ✅ Agenda
+8. ⏭️ **Bodega y Logística** (siguiente)
 9. Servicio Técnico
 10. Importaciones, Artículos, Adquisiciones y Recepción
 11. Empleados y Solicitudes del personal (módulo nuevo de la versión 4)
@@ -294,3 +294,45 @@ Pantalla: `ClientesVista.html` (5 funciones de servidor: `ClientesModulo.gs`). L
 | `vmCliEliminar` | Eliminar con motivo (papelera) | ✅ | `ConfirmarEliminar` |
 | `getClientsList`, `buscarClientePorIdentificacion`, `createClient`, `updateClientRecord`, `vmDatosVentaClientes`, `vmGuardarDatosVentaCliente`, `vmClienteEliminar` | Clientes desde el CRM | ✅ | `CrmClientes.tsx` (sección 1) |
 | columnas extra de la hoja | Otras columnas sin formulario | ➖ | La tabla nueva no tiene columnas sueltas |
+
+---
+
+## 7. Agenda — Issue #27
+
+Pantalla: `Agenda.html` (todas sus llamadas pasan por `llamarServidor_`). Archivos: `Data agenda.gs`, `TiendaAgenda.gs`,
+`Rutas viaticos.gs`.
+
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `getMisPermisosAgenda`, `vmMisPermisosAcciones` | Acceso y botones según permisos | ✅ | `puede(perfil, 'agenda', …)` |
+| `getMisActividades` | Mi agenda, me asignaron, delegadas y ver equipo (jefatura) | ✅ | `Agenda.tsx` + RLS de `actividades` |
+| `guardarActividad` (tarea) | Crear / editar, delegar a personas o a un área (una tarjeta por persona), revisar al terminar, fecha, prioridad, proyecto, evidencias | ✅ | `Formulario` |
+| `guardarActividad` (reunión) | "¿Con quién?": compañeros y correos externos como invitados, sin delegar; exige fecha, hora y participantes | ❌ → 🆕 | Antes la reunión creaba una tarea por persona. Ahora guarda `invitados` y queda en la agenda de quien organiza |
+| título de 4 palabras (`afOracion_`) | Máximo 4 palabras, mayúscula inicial | ⚠️ → 🆕 | Se recorta y se ajusta al guardar |
+| `agendaSincronizarEventoFila_`, `agendaCrearMeet_`, `crearRecordatorioFechaActividad_` | Evento en Google Calendar con invitados y Meet automático | ⚠️ | Botón "Agregar a Google Calendar" con los invitados ya puestos (lo envía tu cuenta de Google) y "Unirse a la reunión". La sincronización automática necesita una decisión: pregunta en #27 |
+| `notificarDelegacionAgenda_`, `procesarAvisosPendientesAgenda` | Correo al delegar / devolver | ⚠️ | Aviso dentro de la app (`notificaciones`). Correo: pendiente de #23 |
+| `iniciarCronometro`, `pausarCronometro`, `obtenerTimerActivo` | Un solo cronómetro activo por persona | ✅ | `ag_iniciar`, `ag_pausar`, barra "Trabajando en" |
+| `cambiarEstadoActividad`, `cancelarActividad` | Arrastrar entre columnas y cancelar | ✅ | `ag_estado`. Cancelar queda solo para quien la creó o jefatura, como el original |
+| `finalizarActividad` | Cierre con resultado, pendiente, evidencias, tiempo y moneda | ✅ | `ag_finalizar` |
+| `editarTiempoActividad` | Corregir el tiempo de una actividad terminada | ❌ → 🆕 | `ag_editar_tiempo` + "Corregir tiempo" en el detalle |
+| `devolverActividad` | Devolver para corregir | ✅ + 🆕 | `ag_devolver`. Faltaba el botón "Devolver" en una actividad delegada ya terminada |
+| `calificarActividad` | Revisar / aprobar | ✅ | `ag_calificar` (el detalle ahora dice "Aprobada") |
+| `getAlertasAgenda` | Vencidas, devueltas, por revisar | ✅ | Panel de alertas |
+| `getIndicadoresAgenda` + configuración de indicadores | Hoy, mes, actividades hoy/mes, por hacer, en marcha, vencidas, devueltas, por revisar; ocultar, agregar y ordenar | ⚠️ → 🆕 | Faltaban "Actividades hoy/del mes" y poder ocultar, agregar y ordenar (se recuerda en el navegador) |
+| `getProyectosActivos` | Proyectos del área de la persona (o sin área) | ⚠️ → 🆕 | Filtro por área en el formulario |
+| `getProyectosConHoras` | Lista de jefatura con horas acumuladas | ⚠️ → 🆕 | `ag_proyectos_horas` |
+| `guardarProyecto`, `eliminarProyecto` | Crear (cualquiera), editar y eliminar (jefatura) | ✅ | Editar ahora también lo exige la base (antes cualquiera con permiso de editar) |
+| `vmPapeleraListar`, `vmPapeleraRestaurar` | Papelera de proyectos | ❌ → 🆕 | "Papelera" dentro de Proyectos |
+| `subirEvidenciaActividad`, `agendaEvidenciaVista` | Subir y ver evidencias | ✅ | Espacio privado `agenda` + visor |
+| `getMonedasUsuario`, `revisarMonedasVencidas_` | Saldo, nivel, racha, moneda perdida por vencimiento | ✅ | `ag_economia`, `ag_revisar_vencidas` |
+| `getAgendaEconomia`, `gestionarCanjeAgenda` | Tienda y entrega / cancelación de canjes | ✅ | `ag_economia`, `ag_gestionar_canje` |
+| `canjearPremioAgenda` | Canje con nota y aviso si el precio cambió | ⚠️ → 🆕 | `ag_canjear(p_premio, p_nota, p_costo)` |
+| `guardarPremioAgenda` | Premios con categoría y descripción, solo administración de la tienda | ⚠️ → 🆕 | `ag_guardar_premio` |
+| `createRoute`, `getRoutesList`, `createViatico`, `getViaticosList`, `updateViaticoStatus` | Rutas y viáticos | ✅ | `RutasViaticos.tsx` (módulo nuevo, no se tocó) |
+| `getCatalogosAgenda` | Listas fijas | ➖ | Sin uso en la pantalla; las listas están en `Agenda.tsx` |
+
+Seguridad corregida en esta vuelta (probado dentro de una transacción que se deshace al final):
+- Cualquiera con permiso en la Agenda podía cancelar o terminar actividades ajenas sin "delegado a" (y ganarse la moneda): `app.ag_es_mia` comparaba con nulos.
+- Las monedas se podían sumar o editar directo desde fuera de la pantalla; ahora solo las mueven las funciones de la Agenda, y cada quien ve solo las suyas (administración de la tienda ve todas).
+- Desde la pantalla ya no se puede cambiar el estado, el tiempo, las monedas ni la revisión de una actividad sin pasar por sus funciones.
+- Los precios de los premios solo los cambia quien administra la tienda.

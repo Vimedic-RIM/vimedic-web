@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, ArrowLeft, Bell, Calendar, CalendarDays, ChevronLeft, ChevronRight, Download, ExternalLink, GanttChartSquare, Check, CheckSquare, Clock, Columns3, FolderKanban, Gift, Inbox, Layers3, LayoutGrid, Paperclip, Pause, Pencil, Play, Plus, RefreshCw, Search, Send, SlidersHorizontal, Table2, Timer, Trash2, UserRound, Users, UsersRound, X, XCircle } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Bell, Calendar, CalendarDays, CalendarPlus, Video, ChevronLeft, ChevronRight, Download, ExternalLink, GanttChartSquare, Check, CheckSquare, Clock, Columns3, FolderKanban, Gift, Inbox, Layers3, LayoutGrid, Paperclip, Pause, Pencil, Play, Plus, RefreshCw, Search, Send, SlidersHorizontal, Table2, Timer, Trash2, UserRound, Users, UsersRound, X, XCircle } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { agrupar as agruparAvisos } from '../tiempoReal'
 import { puede } from '../permisos'
@@ -15,11 +15,12 @@ type Act = {
   id: string; codigo: string; proyectoId: string | null; proyecto: string; descripcion: string; ubicacion: string; tipo: string; fecha: string; hora: string; duracion: number; prioridad: string; realizaId: string | null; delegada: boolean; delegadoId: string | null; delegado: string
   estado: string; detalle: string; evidencia: string; devolucion: Record<string, string>; resultado: string; quedoPendiente: boolean; fechaRetomar: string; evidenciaFinal: string; fechaFin: string; supervisar: boolean; comentarioCalif: string
   segundos: number; inicios: number; historial: Hist[]; sesion: { inicio: number; por: string } | null; monedaOtorgada: number; creadoPorId: string | null; creador: string; creado: string
+  invitados: string[]; enlaceMeet: string; enCalendario: boolean; finalizadoPorId: string | null; aprobada: boolean
 }
 type Emp = { id: string; nombre: string; email: string; area: string }
-type Proyecto = { id: string; nombre: string; descripcion: string; estado: string; areas: string[]; responsable: string }
-type Eco = { total: number; admin: boolean; hoy: number; racha: number; nivel: { numero: number; nombre: string; dias: number; completadas: number; minimo: number; siguiente: number | null }; historial: { id: string; fecha: string; cambio: number; motivo: string; tipo: string }[]; premios: { id: string; emoji: string; nombre: string; costo: number; categoria: string; activo: boolean }[]; canjes: { id: string; fecha: string; premio: string; emoji: string; costo: number; nota: string; usuario: string; propio: boolean; estado: string }[] }
-const COLS = 'id,codigo,proyecto_id,descripcion,ubicacion,tipo,fecha_programada,hora,duracion_min,prioridad,realiza_id,delegada,delegado_a_id,estado,detalle,evidencia_url,devolucion,resultado,quedo_pendiente,fecha_retomar,evidencia_final_url,fecha_finalizacion,requiere_supervision,comentario_calificacion,segundos_trabajados,veces_iniciada,historial_tiempo,ultima_sesion,moneda_otorgada,created_at,creado_por,creador:empleados!actividades_creado_por_fkey(nombre),delegado:empleados!actividades_delegado_a_id_fkey(nombre),proyecto:proyectos(nombre)'
+type Proyecto = { id: string; nombre: string; descripcion: string; estado: string; areas: string[]; responsable: string; segundos: number; actividades: number }
+type Eco = { total: number; admin: boolean; hoy: number; racha: number; nivel: { numero: number; nombre: string; dias: number; completadas: number; minimo: number; siguiente: number | null }; historial: { id: string; fecha: string; cambio: number; motivo: string; tipo: string }[]; premios: { id: string; emoji: string; nombre: string; costo: number; categoria: string; descripcion?: string; activo: boolean }[]; canjes: { id: string; fecha: string; premio: string; emoji: string; costo: number; nota: string; usuario: string; propio: boolean; estado: string }[] }
+const COLS = 'id,codigo,proyecto_id,descripcion,invitados,enlace_meet,agregar_calendar,finalizado_por,calificacion,ubicacion,tipo,fecha_programada,hora,duracion_min,prioridad,realiza_id,delegada,delegado_a_id,estado,detalle,evidencia_url,devolucion,resultado,quedo_pendiente,fecha_retomar,evidencia_final_url,fecha_finalizacion,requiere_supervision,comentario_calificacion,segundos_trabajados,veces_iniciada,historial_tiempo,ultima_sesion,moneda_otorgada,created_at,creado_por,creador:empleados!actividades_creado_por_fkey(nombre),delegado:empleados!actividades_delegado_a_id_fkey(nombre),proyecto:proyectos(nombre)'
 const norm = (v: unknown) => String(v ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 const slug = (v: string) => norm(v).replace(/[^a-z0-9]/g, '')
 const ymd = (d: Date | number) => { const x = new Date(d); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0') }
@@ -34,9 +35,32 @@ const mapear = (x: any): Act => ({
   resultado: x.resultado ?? '', quedoPendiente: !!x.quedo_pendiente, fechaRetomar: x.fecha_retomar ?? '', evidenciaFinal: x.evidencia_final_url ?? '', fechaFin: x.fecha_finalizacion ?? '', supervisar: !!x.requiere_supervision, comentarioCalif: x.comentario_calificacion ?? '',
   segundos: x.segundos_trabajados ?? 0, inicios: x.veces_iniciada ?? 0, historial: Array.isArray(x.historial_tiempo) ? x.historial_tiempo : [], sesion: x.ultima_sesion && x.ultima_sesion.inicio ? { inicio: Number(x.ultima_sesion.inicio), por: x.ultima_sesion.por } : null, monedaOtorgada: x.moneda_otorgada ?? 0,
   creadoPorId: x.creado_por, creador: x.creador?.nombre ?? '', creado: x.created_at,
+  invitados: Array.isArray(x.invitados) ? x.invitados : [], enlaceMeet: x.enlace_meet ?? '', enCalendario: !!x.agregar_calendar, finalizadoPorId: x.finalizado_por ?? null, aprobada: Number(x.calificacion) === 10,
 })
 const respId = (a: Act) => a.delegadoId ?? a.creadoPorId
+// Áreas equivalentes (normalizarAreaAgenda_ del original)
+const AREA_ALIAS: Record<string, string> = { gerencia: 'Alta Dirección', finanzas: 'Alta Dirección', 'alta direccion': 'Alta Dirección', asesor: 'Asesor', marketing: 'Marketing', 'supervisor comercial': 'Supervisor Comercial', 'sin area': 'Sin área' }
+const areaNorm = (v: string) => { const t = String(v ?? '').trim(); return AREA_ALIAS[norm(t).replace(/\s+/g, ' ')] ?? t }
+// Todo en minúsculas y mayúscula solo al inicio de cada oración (afOracion_)
+const oracion = (t: string) => t.toLocaleLowerCase('es').replace(/(^\s*|[.!?¡¿]\s+|\n\s*)(\p{L})/gu, (_m, pre: string, l: string) => pre + l.toLocaleUpperCase('es'))
+const correoValido = (e: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)
+const meetOk = (u: string) => /^https?:\/\//i.test(u || '')
+// Evento de Google Calendar con los invitados ya puestos: lo crea y lo envía la cuenta de Google de quien lo abre.
+function enlaceCalendar(a: { descripcion: string; detalle: string; fecha: string; hora: string; duracion: number; codigo: string; enlaceMeet: string; tipo: string }, invitados: string[]) {
+  const p2 = (n: number) => String(n).padStart(2, '0')
+  const hhmm = (d: Date) => ymd(d).replace(/-/g, '') + 'T' + p2(d.getHours()) + p2(d.getMinutes()) + '00'
+  let fechas = ''
+  if (a.hora) { const ini = new Date(a.fecha + 'T' + a.hora.slice(0, 5) + ':00'); fechas = hhmm(ini) + '/' + hhmm(new Date(ini.getTime() + (a.duracion || 30) * 60000)) }
+  else { const d = new Date(a.fecha + 'T12:00:00'); fechas = ymd(d).replace(/-/g, '') + '/' + ymd(d.getTime() + 864e5).replace(/-/g, '') }
+  const detalle = [a.detalle, meetOk(a.enlaceMeet) ? 'Reunión: ' + a.enlaceMeet : '', 'Abrir en la Agenda Vimedic: ' + location.origin, a.codigo ? '(' + a.codigo + ')' : ''].filter(Boolean).join('\n')
+  const q = new URLSearchParams({ action: 'TEMPLATE', text: (a.tipo === 'Reunión' ? '👥 ' : '📋 ') + a.descripcion, dates: fechas, ctz: 'America/Guayaquil', details: detalle })
+  const add = [...new Set(invitados.map((x) => x.trim().toLowerCase()).filter(correoValido))]
+  if (add.length) q.set('add', add.join(','))
+  if (meetOk(a.enlaceMeet)) q.set('location', a.enlaceMeet)
+  return 'https://calendar.google.com/calendar/render?' + q.toString()
+}
 const Spin = () => <span className="spin" />
+const KPI_DEF = ['hoy', 'mes', 'pend', 'marcha', 'venc', 'dev', 'rev']
 function Modal({ titulo, cerrar, children, pie, ancho }: { titulo: React.ReactNode; cerrar: () => void; children: React.ReactNode; pie?: React.ReactNode; ancho?: number }) {
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') cerrar() }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [cerrar])
   return <div className="ovl" onMouseDown={(e) => { if (e.target === e.currentTarget) cerrar() }}><div className="modal" style={ancho ? { maxWidth: ancho } : undefined}><div className="mh"><h3 style={{ flex: 1 }}>{titulo}</h3><button className="btn" onClick={cerrar} aria-label="Cerrar"><X /></button></div><div className="mb">{children}</div>{pie && <div className="mf">{pie}</div>}</div></div>
@@ -56,7 +80,7 @@ export default function Agenda({ perfil, aviso, accion, limpiarAccion }: { perfi
   const [grupo, setGrupo] = useState('estado')
   const [q, setQ] = useState('')
   const [f, setF] = useState({ proyecto: '', estado: '', prioridad: '', desde: '', hasta: '' })
-  const [menu, setMenu] = useState<'' | 'filtros' | 'grupo' | 'vista' | 'wallet'>('')
+  const [menu, setMenu] = useState<'' | 'filtros' | 'grupo' | 'vista' | 'wallet' | 'kpi'>('')
   const [alertas, setAlertas] = useState<'' | 'vencidas' | 'devueltas' | 'revisar'>('')
   const [modal, setModal] = useState<{ k: 'form'; act?: Act; fecha?: string } | { k: 'detalle'; id: string } | { k: 'fin'; id: string } | { k: 'dev'; id: string } | { k: 'calif'; id: string } | { k: 'proyectos' } | { k: 'tienda' } | null>(null)
 
@@ -81,6 +105,10 @@ export default function Agenda({ perfil, aviso, accion, limpiarAccion }: { perfi
   const jefatura = puede(perfil, 'agenda', 'ver_todos'), crear = puede(perfil, 'agenda', 'crear'), editar = puede(perfil, 'agenda', 'editar')
 
   useEffect(() => { try { localStorage.setItem('ag:vista', vista) } catch { /* nada */ } }, [vista])
+  const [kpiCfg, setKpiCfg] = useState<string[]>(() => { try { const v = JSON.parse(localStorage.getItem('ag:kpis') || 'null'); return Array.isArray(v) ? v : KPI_DEF } catch { return KPI_DEF } })
+  useEffect(() => { try { localStorage.setItem('ag:kpis', JSON.stringify(kpiCfg)) } catch { /* nada */ } }, [kpiCfg])
+  const [kpiArr, setKpiArr] = useState<string | null>(null)
+  const soltarKpi = (sobreK: string) => { if (kpiArr && kpiArr !== sobreK) setKpiCfg((c) => { const l = c.filter((x) => x !== kpiArr); l.splice(Math.max(0, l.indexOf(sobreK)), 0, kpiArr); return l }); setKpiArr(null) }
   useEffect(() => { const t = setInterval(() => setTick((n) => n + 1), 1000); return () => clearInterval(t) }, [])
   useEffect(() => { const c = () => setMenu(''); document.addEventListener('click', c); return () => document.removeEventListener('click', c) }, [])
 
@@ -91,9 +119,13 @@ export default function Agenda({ perfil, aviso, accion, limpiarAccion }: { perfi
   }, [])
   const cargarEco = useCallback(async () => { await supabase.rpc('ag_revisar_vencidas'); const { data } = await supabase.rpc('ag_economia'); if (data) setEco(data as Eco) }, [])
   const cargarProyectos = useCallback(async () => {
-    const { data } = await supabase.from('proyectos').select('id,nombre,descripcion,estado,areas,responsable:empleados!proyectos_responsable_id_fkey(nombre)').is('deleted_at', null).order('nombre').limit(300)
-    setProyectos(((data ?? []) as unknown as Record<string, any>[]).map((p) => ({ id: p.id, nombre: p.nombre, descripcion: p.descripcion ?? '', estado: p.estado ?? 'Activo', areas: p.areas ?? [], responsable: p.responsable?.nombre ?? '' }))) // eslint-disable-line @typescript-eslint/no-explicit-any
-  }, [])
+    const [{ data }, h] = await Promise.all([
+      supabase.from('proyectos').select('id,nombre,descripcion,estado,areas,responsable:empleados!proyectos_responsable_id_fkey(nombre)').is('deleted_at', null).order('nombre').limit(300),
+      jefatura ? supabase.rpc('ag_proyectos_horas') : Promise.resolve({ data: [] }),
+    ])
+    const horas = new Map(((h.data ?? []) as { proyecto_id: string; segundos: number; actividades: number }[]).map((x) => [x.proyecto_id, x]))
+    setProyectos(((data ?? []) as unknown as Record<string, any>[]).map((p) => ({ id: p.id, nombre: p.nombre, descripcion: p.descripcion ?? '', estado: p.estado ?? 'Activo', areas: p.areas ?? [], responsable: p.responsable?.nombre ?? '', segundos: Number(horas.get(p.id)?.segundos ?? 0), actividades: Number(horas.get(p.id)?.actividades ?? 0) }))) // eslint-disable-line @typescript-eslint/no-explicit-any
+  }, [jefatura])
   useEffect(() => { cargar(); cargarEco(); cargarProyectos(); supabase.rpc('ag_empleados').then(({ data }) => setEmps((data as Emp[]) ?? [])) }, [cargar, cargarEco, cargarProyectos])
   useEffect(() => { const recargar = agruparAvisos(() => cargar()); const c = supabase.channel('ag-act').on('postgres_changes', { event: '*', schema: 'public', table: 'actividades' }, recargar).subscribe(); return () => { recargar.cancelar(); supabase.removeChannel(c) } }, [cargar])
 
@@ -116,8 +148,22 @@ export default function Agenda({ perfil, aviso, accion, limpiarAccion }: { perfi
   const segHoy = mias.filter((a) => respId(a) === yo).reduce((s, a) => s + a.historial.filter((h) => h.fecha === hoyDDMM()).reduce((x, h) => x + h.segundos, 0), 0)
   const mes = hoyDDMM().slice(3)
   const segMes = mias.filter((a) => respId(a) === yo).reduce((s, a) => s + a.historial.filter((h) => h.fecha.slice(3) === mes).reduce((x, h) => x + h.segundos, 0), 0)
-  const kpis: [string, string | number, boolean][] = [['Hoy', corto(segHoy), false], ['Este mes', corto(segMes), false], ['Pendientes', mias.filter((a) => respId(a) === yo && a.estado === 'Por hacer').length, false], ['En marcha', mias.filter((a) => respId(a) === yo && a.estado === 'En marcha').length, false], ['Vencidas', vencidas.length, vencidas.length > 0], ['Devueltas', devueltas.length, devueltas.length > 0], ...(revisar.length ? [['Por revisar', revisar.length, true] as [string, number, boolean]] : [])]
+  const mesHoy = hoy.slice(0, 7)
+  const KPI: Record<string, { t: string; v: string | number; al: boolean }> = {
+    hoy: { t: 'Hoy', v: corto(segHoy), al: false }, mes: { t: 'Este mes', v: corto(segMes), al: false },
+    acthoy: { t: 'Actividades hoy', v: mias.filter((a) => a.creado && ymd(new Date(a.creado)) === hoy).length, al: false },
+    actmes: { t: 'Actividades del mes', v: mias.filter((a) => a.creado && ymd(new Date(a.creado)).slice(0, 7) === mesHoy).length, al: false },
+    pend: { t: 'Pendientes', v: mias.filter((a) => respId(a) === yo && a.estado === 'Por hacer').length, al: false },
+    marcha: { t: 'En marcha', v: mias.filter((a) => respId(a) === yo && a.estado === 'En marcha').length, al: false },
+    venc: { t: 'Vencidas', v: vencidas.length, al: vencidas.length > 0 }, dev: { t: 'Devueltas', v: devueltas.length, al: devueltas.length > 0 },
+    rev: { t: 'Por revisar', v: revisar.length, al: true },
+  }
+  // "Por revisar" aparece solo cuando hay algo que revisar, como antes.
+  const kpisVer = kpiCfg.filter((k) => KPI[k] && (k !== 'rev' || revisar.length > 0))
+  const kpisOcultos = Object.keys(KPI).filter((k) => !kpiCfg.includes(k))
   const nAlertas = vencidas.length + devueltas.length + revisar.length
+  // Cada persona ve en el formulario los proyectos de su área o los que no tienen área (getProyectosActivos).
+  const miArea = areaNorm(emps.find((e) => e.id === yo)?.area ?? '')
 
   /* Acciones */
   const rpc = async (fn: string, args: Record<string, unknown>, ok?: string) => { const { data, error } = await supabase.rpc(fn, args); if (error) { aviso(error.message); return null } if (ok) aviso(ok); await cargar(); return data ?? true }
@@ -198,7 +244,20 @@ export default function Agenda({ perfil, aviso, accion, limpiarAccion }: { perfi
         <div className="sub">
           <div className="scope">{([['mi', 'Mi agenda', UserRound], ['asignadas', 'Me asignaron', Inbox], ['delegadas', 'Delegadas', Send]] as const).map(([k, t, I]) => <button key={k} className={!verEquipo && scope === k ? 'on' : ''} onClick={() => { setScope(k); setVerEquipo(false) }}><I />{t} <b>{cuenta(k)}</b></button>)}
             {jefatura && <button className={verEquipo ? 'on' : ''} onClick={() => setVerEquipo(!verEquipo)}><UsersRound />Ver equipo</button>}</div>
-          <div className="kpis">{kpis.map(([t, n, al]) => <div key={t} className={'kp' + (al ? ' al' : '')}><b>{n}</b><span>{t}</span></div>)}</div>
+          <div className="kpis">{kpisVer.map((k) => (
+            <div key={k} className={'kp' + (KPI[k].al ? ' al' : '') + (kpiArr === k ? ' kp-drag' : '')} draggable title={KPI[k].t + ' — arrastra para ordenar'}
+              onDragStart={(e) => { e.stopPropagation(); setKpiArr(k); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', k) } catch { /* nada */ } }}
+              onDragOver={(e) => { if (kpiArr) e.preventDefault() }} onDrop={(e) => { e.preventDefault(); soltarKpi(k) }} onDragEnd={() => setKpiArr(null)}>
+              <b>{KPI[k].v}</b><span>{KPI[k].t}</span>
+              <button type="button" className="kp-x" title="Ocultar" aria-label={'Ocultar ' + KPI[k].t} onClick={() => setKpiCfg((c) => c.filter((x) => x !== k))}>×</button>
+            </div>))}
+            <div style={{ position: 'relative' }} onClick={(e) => e.stopPropagation()}>
+              <button type="button" className="kp kp-add" title="Agregar indicador" aria-label="Agregar indicador" onClick={() => setMenu(menu === 'kpi' ? '' : 'kpi')}><Plus /></button>
+              {menu === 'kpi' && <div className="pop" style={{ left: 0, right: 'auto', width: 240 }}><h4>Agregar indicador</h4>
+                {kpisOcultos.map((k) => <button key={k} className="opt" onClick={() => { setKpiCfg((c) => [...c, k]); setMenu('') }}><span><b>{KPI[k].t}</b></span></button>)}
+                {!kpisOcultos.length && <p style={{ fontSize: 12, color: '#94a3b8', padding: 6 }}>Ya agregaste todos los indicadores.</p>}</div>}
+            </div>
+          </div>
           <small style={{ color: '#64748b', marginLeft: 'auto' }}>{lista.length} actividad(es)</small>
         </div>
         {alertas && (
@@ -240,8 +299,8 @@ export default function Agenda({ perfil, aviso, accion, limpiarAccion }: { perfi
           <div className="mono" style={{ fontSize: 20, fontWeight: 700 }}>{reloj(segTimer(timer))}</div>
           <button className="tool" title="Pausar" onClick={() => pausar(timer)}><Pause /></button><button className="tool" style={{ background: 'var(--teal)' }} title="Finalizar" onClick={() => setModal({ k: 'fin', id: timer.id })}><Check /></button></div></div>
       )}
-      {modal?.k === 'form' && <Formulario fechaIni={modal.fecha} act={modal.act} emps={emps} proyectos={proyectos.filter((p) => p.estado === 'Activo')} perfil={perfil} aviso={aviso} cerrar={() => setModal(null)} guardado={async () => { setModal(null); await cargar(); cargarEco() }} recargarProyectos={cargarProyectos} jefatura={jefatura} />}
-      {modal?.k === 'detalle' && (() => { const a = A.find((x) => x.id === modal.id); return a ? <Detalle a={a} yo={yo} jefatura={jefatura} editar={editar} aviso={aviso} segTimer={segTimer} cerrar={() => setModal(null)} act={{ iniciar: () => iniciar(a), pausar: () => pausar(a), fin: () => setModal({ k: 'fin', id: a.id }), dev: () => setModal({ k: 'dev', id: a.id }), calif: () => setModal({ k: 'calif', id: a.id }), editarForm: () => setModal({ k: 'form', act: a }), cancelar: async () => { if (confirm('¿Cancelar esta actividad?')) { await rpc('ag_estado', { p_id: a.id, p_estado: 'Cancelado' }, 'Actividad cancelada'); setModal(null) } } }} /> : null })()}
+      {modal?.k === 'form' && <Formulario fechaIni={modal.fecha} act={modal.act} emps={emps} proyectos={proyectos.filter((p) => p.estado === 'Activo' && (jefatura || !miArea || !p.areas.length || p.areas.map(areaNorm).includes(miArea)))} perfil={perfil} aviso={aviso} cerrar={() => setModal(null)} guardado={async () => { setModal(null); await cargar(); cargarEco() }} recargarProyectos={cargarProyectos} jefatura={jefatura} />}
+      {modal?.k === 'detalle' && (() => { const a = A.find((x) => x.id === modal.id); return a ? <Detalle a={a} yo={yo} jefatura={jefatura} editar={editar} aviso={aviso} segTimer={segTimer} emps={emps} correo={perfil.email} cerrar={() => setModal(null)} act={{ tiempo: (seg: number) => rpc('ag_editar_tiempo', { p_id: a.id, p_segundos: seg, p_esperados: a.segundos }, 'Tiempo corregido'), iniciar: () => iniciar(a), pausar: () => pausar(a), fin: () => setModal({ k: 'fin', id: a.id }), dev: () => setModal({ k: 'dev', id: a.id }), calif: () => setModal({ k: 'calif', id: a.id }), editarForm: () => setModal({ k: 'form', act: a }), cancelar: async () => { if (confirm('¿Cancelar esta actividad?')) { await rpc('ag_estado', { p_id: a.id, p_estado: 'Cancelado' }, 'Actividad cancelada'); setModal(null) } } }} /> : null })()}
       {modal?.k === 'fin' && (() => { const a = A.find((x) => x.id === modal.id); return a ? <Finalizar a={a} perfil={perfil} segTimer={segTimer} aviso={aviso} cerrar={() => setModal(null)} listo={async (p) => { const r = await rpc('ag_finalizar', { p_id: a.id, p }); if (r) { setModal(null); cargarEco(); { if ((r as { monedaGanada?: boolean }).monedaGanada) { aviso('¡Actividad lista! Ganaste 1 moneda 🪙'); sonar(); if (efectos) setFx(true) } else aviso('Actividad lista') } } }} /> : null })()}
       {modal?.k === 'dev' && (() => { const a = A.find((x) => x.id === modal.id); return a ? <Devolver a={a} emps={emps} cerrar={() => setModal(null)} listo={async (p) => { const r = await rpc('ag_devolver', { p_id: a.id, p }, 'Actividad devuelta'); if (r) setModal(null) }} /> : null })()}
       {modal?.k === 'calif' && (() => { const a = A.find((x) => x.id === modal.id); return a ? <Calificar a={a} cerrar={() => setModal(null)} aprobar={async (c) => { const r = await rpc('ag_calificar', { p_id: a.id, p_calificacion: 'Aprobado', p_comentario: c }, 'Actividad aprobada'); if (r) setModal(null) }} corregir={() => setModal({ k: 'dev', id: a.id })} /> : null })()}
@@ -304,51 +363,87 @@ function Formulario({ fechaIni, act, emps, proyectos, perfil, aviso, cerrar, gua
   const [ocupado, setOcupado] = useState(false)
   const [err, setErr] = useState('')
   const areas = [...new Set(emps.map((e) => e.area))].sort()
+  // Reunión: "¿Con quién?" — compañeros y correos externos como invitados (no se delega)
+  const correosEmp = new Set(emps.map((e) => e.email.toLowerCase()))
+  const [selReu, setSelReu] = useState<string[]>(() => (act?.invitados ?? []).filter((e) => correosEmp.has(e.toLowerCase())))
+  const [ext, setExt] = useState(() => (act?.invitados ?? []).filter((e) => !correosEmp.has(e.toLowerCase())).join(', '))
+  const [meet, setMeet] = useState(act?.enlaceMeet ?? '')
+  const [enCal, setEnCal] = useState(act ? act.enCalendario : true)
+  const esReu = tipo === 'Reunión'
+  function cambiarTipo(t: string) {
+    setTipo(t)
+    if (t === 'Reunión') {
+      if (!fecha) setFecha(ymd(Date.now()))
+      if (!hora) { const d = new Date(); d.setMinutes(0); d.setHours(d.getHours() + 1); setHora(String(d.getHours()).padStart(2, '0') + ':00') }
+    }
+  }
   const palabras = desc.trim().split(/\s+/).filter(Boolean).length
   const rapidas: [string, number][] = [['Hoy', 0], ['Mañana', 1], ['En 3 días', 3], ['En 1 semana', 7]]
   async function guardar() {
-    if (!desc.trim()) { setErr('Describe brevemente qué vas a hacer.'); return }
+    const titulo = oracion(desc.trim().split(/\s+/).slice(0, 4).join(' '))
+    if (!titulo) { setErr('Describe brevemente qué vas a hacer.'); return }
+    const invitados = esReu ? [...new Set([...selReu.map((x) => x.toLowerCase()), ...ext.split(/[,;\s]+/).map((x) => x.trim().toLowerCase()).filter(correoValido)])] : []
+    if (esReu && (!fecha || !hora)) { setErr('Indica la fecha y la hora de la reunión.'); return }
+    if (esReu && !invitados.length) { setErr('Elige al menos un participante para la reunión.'); return }
     if (ubic === 'En un proyecto' && !proy && !nuevoProy.trim()) { setErr('Selecciona a qué proyecto pertenece la actividad.'); return }
+    const quienEf = esReu ? 'yo' : quien
     let destinatarios: string[] = []
-    if (quien === 'personas') destinatarios = sel; else if (quien === 'area') destinatarios = emps.filter((e) => e.area === area).map((e) => e.id)
-    if (quien !== 'yo' && !destinatarios.length) { setErr('Selecciona a quién o a qué área se delega la actividad.'); return }
+    if (quienEf === 'personas') destinatarios = sel; else if (quienEf === 'area') destinatarios = emps.filter((e) => e.area === area).map((e) => e.id)
+    if (quienEf !== 'yo' && !destinatarios.length) { setErr('Selecciona a quién o a qué área se delega la actividad.'); return }
+    // Google Calendar se abre en una pestaña nueva al guardar (se abre ya para que el navegador no la bloquee).
+    const abrirCal = !!fecha && enCal && (!edit || fecha !== act?.fecha || hora !== act?.hora || tipo !== act?.tipo)
+    const ventana = abrirCal ? window.open('about:blank', '_blank') : null
     setOcupado(true); setErr('')
     try {
       let proyectoId = ubic === 'En un proyecto' ? proy : ''
       if (ubic === 'En un proyecto' && !proyectoId && nuevoProy.trim()) {
-        const id = crypto.randomUUID(); const { error } = await supabase.from('proyectos').insert({ id, codigo: 'PRY-' + id.slice(0, 8).toUpperCase(), nombre: nuevoProy.trim(), estado: 'Activo', responsable_id: perfil.id, creado_por: perfil.id }); if (error) throw new Error(error.message)
+        const id = crypto.randomUUID(); const { error } = await supabase.from('proyectos').insert({ id, codigo: 'PRY-' + id.slice(0, 8).toUpperCase(), nombre: nuevoProy.trim(), estado: 'Activo', responsable_id: perfil.id, creado_por: perfil.id, fecha_inicio: ymd(Date.now()) }); if (error) throw new Error(error.message)
         proyectoId = id; await recargarProyectos()
       }
-      const base = { descripcion: desc.trim().slice(0, 200), ubicacion: ubic, proyecto_id: proyectoId || null, tipo, fecha_programada: fecha || null, hora: hora || null, duracion_min: tipo === 'Reunión' ? dur : null, prioridad: prio, detalle: detalle || null, evidencia_url: ev || null }
+      const base = { descripcion: titulo.slice(0, 200), ubicacion: ubic, proyecto_id: proyectoId || null, tipo, fecha_programada: fecha || null, hora: hora || null, duracion_min: esReu ? dur : null, prioridad: prio, detalle: detalle || null, evidencia_url: ev || null,
+        invitados, enlace_meet: esReu && meetOk(meet.trim()) ? meet.trim() : null, agregar_calendar: !!fecha && enCal }
+      let codigoCal = act?.codigo ?? ''
       if (edit && act) {
-        const r = await supabase.from('actividades').update({ ...base, delegada: quien !== 'yo', delegado_a_id: quien !== 'yo' ? destinatarios[0] : null, requiere_supervision: quien !== 'yo' && supervisar }).eq('id', act.id)
+        const r = await supabase.from('actividades').update({ ...base, delegada: quienEf !== 'yo', delegado_a_id: quienEf !== 'yo' ? destinatarios[0] : null, requiere_supervision: quienEf !== 'yo' && supervisar }).eq('id', act.id)
         if (r.error) throw new Error(r.error.message)
       } else {
-        const filas = (quien === 'yo' ? [null] : destinatarios).map((d) => { const id = crypto.randomUUID(); return { id, codigo: 'ACT-' + id.slice(0, 8).toUpperCase(), ...base, realiza_id: d ?? perfil.id, delegada: quien !== 'yo', delegado_a_id: d, estado: 'Por hacer', requiere_supervision: quien !== 'yo' && supervisar, origen: 'Manual', creado_por: perfil.id } })
+        const filas = (quienEf === 'yo' ? [null] : destinatarios).map((d) => { const id = crypto.randomUUID(); return { id, codigo: 'ACT-' + id.slice(0, 8).toUpperCase(), ...base, realiza_id: d ?? perfil.id, delegada: quienEf !== 'yo', delegado_a_id: d, estado: 'Por hacer', requiere_supervision: quienEf !== 'yo' && supervisar, origen: 'Manual', creado_por: perfil.id } })
+        codigoCal = filas[0]?.codigo ?? ''
         const r = await supabase.from('actividades').insert(filas); if (r.error) throw new Error(r.error.message)
         // aviso a cada persona a la que se delegó
         const avisos = filas.filter((x) => x.delegado_a_id && x.delegado_a_id !== perfil.id).map((x) => ({ id: crypto.randomUUID(), para_id: x.delegado_a_id, modulo: 'agenda', evento: 'delegada', tipo: 'aviso', texto: `${perfil.nombre} te delegó una actividad: "${base.descripcion}"`, entidad: 'actividades', entidad_id: x.id }))
         if (avisos.length) await supabase.from('notificaciones').insert(avisos)
         aviso(filas.length > 1 ? `${filas.length} actividades creadas` : 'Actividad creada')
       }
+      if (ventana) {
+        const mail = (id: string) => emps.find((x) => x.id === id)?.email ?? ''
+        const guests = (esReu ? invitados : destinatarios.map(mail)).filter((e) => e && e.toLowerCase() !== perfil.email.toLowerCase())
+        ventana.location.href = enlaceCalendar({ descripcion: base.descripcion, detalle, fecha, hora, duracion: esReu ? dur : 30, codigo: codigoCal, enlaceMeet: base.enlace_meet ?? '', tipo }, guests)
+      }
       await guardado()
-    } catch (e) { setOcupado(false); setErr((e as Error).message) }
+    } catch (e) { ventana?.close(); setOcupado(false); setErr((e as Error).message) }
   }
   return (
     <Modal titulo={edit ? 'Editar actividad' : 'Nueva actividad'} cerrar={cerrar} pie={<><button className="btn" style={{ flex: 1 }} onClick={cerrar}>Cancelar</button><button className="btn btn-p" style={{ flex: 1 }} disabled={ocupado} onClick={guardar}>{ocupado ? <Spin /> : 'Guardar actividad'} <span className="pill" style={{ background: '#fff7d6', color: '#a16207' }}>×1 🪙</span></button></>}>
       <div className="sec"><h4><span className="num">1</span>¿Qué vas a hacer? <small style={{ marginLeft: 'auto', color: palabras > 4 ? '#c98a1f' : '#94a3b8' }}>máx. 4 palabras · {palabras}/4</small></h4>
-        <Seg ops={['Tarea', 'Reunión']} v={tipo} set={setTipo} />
+        <Seg ops={['Tarea', 'Reunión']} v={tipo} set={cambiarTipo} />
         <input className="inp" style={{ marginTop: 8, fontWeight: 700 }} maxLength={60} placeholder="Ej: Llamar cliente pendiente" value={desc} onChange={(e) => setDesc(e.target.value)} />
         <textarea className="inp" style={{ marginTop: 8 }} rows={4} placeholder="Detalles: instrucciones, contexto, datos del cliente, lo que necesites…" value={detalle} onChange={(e) => setDetalle(e.target.value)} /></div>
-      <div className="sec"><h4><span className="num">2</span>¿Quién la hace?</h4>
+      {esReu ? <div className="sec"><h4><span className="num">2</span>¿Con quién?</h4>
+        <input className="inp" placeholder="Buscar persona…" value={buscar} onChange={(e) => setBuscar(e.target.value)} />
+        <div className="people" style={{ marginTop: 6 }}>{emps.filter((e) => e.id !== perfil.id && e.email && norm(e.nombre + e.area).includes(norm(buscar))).map((e) => <label key={e.id}><input type="checkbox" checked={selReu.includes(e.email.toLowerCase())} onChange={(x) => setSelReu(x.target.checked ? [...selReu, e.email.toLowerCase()] : selReu.filter((i) => i !== e.email.toLowerCase()))} />{e.nombre}<small style={{ marginLeft: 'auto', color: '#94a3b8' }}>{e.area}</small></label>)}</div>
+        <input className="inp" style={{ marginTop: 8 }} placeholder="Invitados externos: correo1@cliente.com, correo2@…" value={ext} onChange={(e) => setExt(e.target.value)} />
+        <small style={{ color: '#64748b' }}>{selReu.length + ext.split(/[,;\s]+/).filter((x) => correoValido(x.trim())).length} participante(s). La reunión queda en tu agenda.</small></div> : <div className="sec"><h4><span className="num">2</span>¿Quién la hace?</h4>
         <Seg ops={['Yo', 'Personas', 'Un área']} v={quien === 'yo' ? 'Yo' : quien === 'personas' ? 'Personas' : 'Un área'} set={(x) => setQuien(x === 'Yo' ? 'yo' : x === 'Personas' ? 'personas' : 'area')} />
         {quien === 'personas' && <div style={{ marginTop: 8 }}><input className="inp" placeholder="Buscar persona…" value={buscar} onChange={(e) => setBuscar(e.target.value)} /><div className="people" style={{ marginTop: 6 }}>{emps.filter((e) => norm(e.nombre + e.area).includes(norm(buscar))).map((e) => <label key={e.id}><input type="checkbox" disabled={edit} checked={sel.includes(e.id)} onChange={(x) => setSel(x.target.checked ? [...sel, e.id] : sel.filter((i) => i !== e.id))} />{e.nombre}<small style={{ marginLeft: 'auto', color: '#94a3b8' }}>{e.area}</small></label>)}</div>{edit && <small style={{ color: '#64748b' }}>Al editar solo se cambia un destinatario.</small>}</div>}
         {quien === 'area' && <div className="seg" style={{ marginTop: 8 }}>{areas.map((a) => <button key={a} type="button" className={area === a ? 'on' : ''} onClick={() => setArea(a)}>{a} ({emps.filter((e) => e.area === a).length})</button>)}</div>}
-        {quien !== 'yo' && <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10, fontSize: 13 }}><input type="checkbox" checked={supervisar} onChange={(e) => setSupervisar(e.target.checked)} />Revisar antes de darla por cerrada <small style={{ color: '#94a3b8' }}>(te llega a "Por revisar")</small></label>}</div>
+        {quien !== 'yo' && <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10, fontSize: 13 }}><input type="checkbox" checked={supervisar} onChange={(e) => setSupervisar(e.target.checked)} />Revisar antes de darla por cerrada <small style={{ color: '#94a3b8' }}>(te llega a "Por revisar")</small></label>}</div>}
       <div className="sec"><h4><span className="num">3</span>¿Para cuándo?</h4>
         <div className="seg"><button type="button" className={!fecha ? 'on' : ''} onClick={() => { setFecha(''); setHora('') }}>Sin fecha</button>{rapidas.map(([t, d]) => <button key={t} type="button" className={fecha === ymd(Date.now() + d * 864e5) ? 'on' : ''} onClick={() => setFecha(ymd(Date.now() + d * 864e5))}>{t}</button>)}</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}><input type="date" className="inp" value={fecha} onChange={(e) => setFecha(e.target.value)} /><input type="time" className="inp" value={hora} onChange={(e) => setHora(e.target.value)} /></div>
-        {tipo === 'Reunión' && <div style={{ marginTop: 8 }}><p className="fld" style={{ marginBottom: 4 }}>Duración</p><div className="seg">{[[15, '15 min'], [30, '30 min'], [45, '45 min'], [60, '1 h'], [90, '1 h 30'], [120, '2 h']].map(([m, t]) => <button key={m} type="button" className={dur === m ? 'on' : ''} onClick={() => setDur(m as number)}>{t}</button>)}</div></div>}</div>
+        {tipo === 'Reunión' && <div style={{ marginTop: 8 }}><p className="fld" style={{ marginBottom: 4 }}>Duración</p><div className="seg">{[[15, '15 min'], [30, '30 min'], [45, '45 min'], [60, '1 h'], [90, '1 h 30'], [120, '2 h']].map(([m, t]) => <button key={m} type="button" className={dur === m ? 'on' : ''} onClick={() => setDur(m as number)}>{t}</button>)}</div>
+          <label className="fld" style={{ marginTop: 8 }}><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Video style={{ width: 15, height: 15 }} />Enlace de la reunión (Google Meet, Zoom…)</span><input className="inp" placeholder="https://meet.google.com/…" value={meet} onChange={(e) => setMeet(e.target.value)} /></label></div>}
+        {fecha && <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10, fontSize: 13 }}><input type="checkbox" checked={enCal} onChange={(e) => setEnCal(e.target.checked)} />Agregar a Google Calendar <small style={{ color: '#94a3b8' }}>{esReu ? '(se abre con los participantes invitados)' : quien !== 'yo' ? '(se abre con la persona responsable invitada)' : '(se abre para guardarla con aviso)'}</small></label>}</div>
       <div className="sec"><h4><span className="num">4</span>Prioridad y ubicación</h4>
         <Seg ops={['Normal', 'Importante', 'Urgente']} v={prio} set={setPrio} />
         <div style={{ marginTop: 8 }}><Seg ops={['En mi día a día', 'En un proyecto']} v={ubic} set={setUbic} /></div>
@@ -360,7 +455,7 @@ function Formulario({ fechaIni, act, emps, proyectos, perfil, aviso, cerrar, gua
 }
 
 /* ============================ Detalle y cierre ============================ */
-function Detalle({ a, yo, jefatura, editar, aviso, segTimer, cerrar, act }: { a: Act; yo: string; jefatura: boolean; editar: boolean; aviso: (t: string) => void; segTimer: (a: Act) => number; cerrar: () => void; act: { iniciar: () => void; pausar: () => void; fin: () => void; dev: () => void; calif: () => void; editarForm: () => void; cancelar: () => void } }) {
+function Detalle({ a, yo, jefatura, editar, aviso, segTimer, emps, correo, cerrar, act }: { a: Act; yo: string; jefatura: boolean; editar: boolean; aviso: (t: string) => void; segTimer: (a: Act) => number; emps: Emp[]; correo: string; cerrar: () => void; act: { tiempo: (seg: number) => Promise<unknown>; iniciar: () => void; pausar: () => void; fin: () => void; dev: () => void; calif: () => void; editarForm: () => void; cancelar: () => void } }) {
   const esResp = respId(a) === yo, esCreador = a.creadoPorId === yo, corriendo = a.estado === 'En marcha' && a.sesion?.por === yo
   const abierta = !['Listo', 'Cancelado'].includes(a.estado)
   const puedeEditar = editar && (esCreador || jefatura) && abierta && !(a.delegadoId && a.delegadoId !== a.creadoPorId && !['Por hacer', 'Devuelto'].includes(a.estado))
@@ -368,19 +463,53 @@ function Detalle({ a, yo, jefatura, editar, aviso, segTimer, cerrar, act }: { a:
   void aviso
   const kv = (k: string, v: React.ReactNode) => (v ? <><dt>{k}</dt><dd>{v}</dd></> : null)
   const evs = (t: string) => t.split('\n').filter(Boolean)
+  const esReunion = a.tipo === 'Reunión'
+  const delegadaAOtro = !!a.delegadoId && a.delegadoId !== a.creadoPorId
+  // Por qué ya no se puede editar (agendaMotivoBloqueoEdicion_)
+  const motivoBloqueo = !abierta || !delegadaAOtro ? '' : a.delegadoId === yo && !esCreador ? 'Esta actividad te fue delegada: solo quien la delegó puede cambiarla.' : !['Por hacer', 'Devuelto'].includes(a.estado) ? 'La persona responsable ya empezó esta actividad; ya no se puede modificar.' : ''
+  const puedeTiempo = editar && a.estado === 'Listo' && (jefatura || [a.creadoPorId, a.delegadoId, a.finalizadoPorId].includes(yo))
+  const nombreDe = (e: string) => emps.find((x) => x.email.toLowerCase() === e.toLowerCase())?.nombre ?? e
+  const correoDe = (id: string | null) => emps.find((x) => x.id === id)?.email ?? ''
+  const invitadosCal = (esReunion ? a.invitados : [correoDe(respId(a))]).filter((e) => e && e.toLowerCase() !== correo.toLowerCase())
+  const pieListo = a.estado === 'Listo' && (esCreador || jefatura) ? [
+    a.supervisar && <button key="r" className="btn btn-n" style={{ flex: 1 }} onClick={act.calif}>Revisar actividad</button>,
+    editar && delegadaAOtro && <button key="d" className="btn btn-red" style={{ flex: 1 }} onClick={act.dev}>↩️ Devolver</button>,
+  ].filter(Boolean) : []
   return (
     <Modal titulo={a.descripcion} cerrar={cerrar} ancho={520} pie={abierta ? <>
       {puedeEditar && <button className="btn" onClick={act.editarForm}><Pencil />Editar</button>}
       {esResp && editar && (corriendo ? <button className="btn" onClick={act.pausar}><Pause />Pausar</button> : <button className="btn btn-p" onClick={act.iniciar}><Play />Iniciar</button>)}
       {esResp && editar && <button className="btn btn-ok" onClick={act.fin}><Check />Marcar listo</button>}
-      {(esCreador || jefatura) && editar && a.delegadoId && a.delegadoId !== yo && a.estado === 'Listo' ? null : null}
-      {(esCreador || esResp || jefatura) && editar && <button className="btn btn-red" onClick={act.cancelar}><XCircle />Cancelar</button>}</> : a.estado === 'Listo' && a.supervisar && (esCreador || jefatura) ? <button className="btn btn-n" style={{ flex: 1 }} onClick={act.calif}>Revisar actividad</button> : undefined}>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}><span className={'pill e-' + slug(a.estado)}>{a.estado}</span><span className="pill" style={{ background: '#eef2f6', color: '#475569' }}>{a.prioridad}</span>{a.tipo === 'Reunión' && <span className="pill" style={{ background: '#e0f2fe', color: '#0369a1' }}>Reunión</span>}</div>
-      <dl className="kv">{kv('Proyecto', a.proyecto)}{kv('Fecha', a.fecha ? dfecha(a.fecha) + (a.hora ? ' · ' + a.hora : '') : '')}{kv('Responsable', a.delegado || a.creador)}{kv('Creada por', a.creador)}{kv('Tiempo trabajado', segTimer(a) ? corto(segTimer(a)) + (a.inicios ? ` · ${a.inicios} inicio(s)` : '') : '')}{kv('Detalle', a.detalle && <span style={{ whiteSpace: 'pre-wrap' }}>{a.detalle}</span>)}</dl>
+      {puedeEditar && <button className="btn btn-red" onClick={act.cancelar}><XCircle />Cancelar</button>}</> : pieListo.length ? <>{pieListo}</> : undefined}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}><span className={'pill e-' + slug(a.estado)}>{a.estado}</span><span className="pill" style={{ background: '#eef2f6', color: '#475569' }}>{a.prioridad}</span>{esReunion && <span className="pill" style={{ background: '#e0f2fe', color: '#0369a1' }}>Reunión</span>}{a.aprobada && <span className="pill e-listo">✅ Aprobada</span>}</div>
+      <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>{a.codigo}{a.creado ? ' · creada el ' + new Date(a.creado).toLocaleDateString('es-EC') : ''}</p>
+      {editar && motivoBloqueo && !puedeEditar && (esCreador || esResp || jefatura) && <p style={{ fontSize: 12, color: '#475569', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '7px 10px', marginTop: 8 }}>🔒 {motivoBloqueo}</p>}
+      {(meetOk(a.enlaceMeet) || (abierta && a.fecha)) && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+        {meetOk(a.enlaceMeet) && <a className="btn btn-p" href={a.enlaceMeet} target="_blank" rel="noopener noreferrer"><Video />Unirse a la reunión</a>}
+        {abierta && a.fecha && <a className="btn" href={enlaceCalendar(a, invitadosCal)} target="_blank" rel="noopener noreferrer" title={invitadosCal.length ? 'Invita a: ' + invitadosCal.join(', ') : 'Se agrega a tu calendario'}><CalendarPlus />Agregar a Google Calendar</a>}</div>}
+      <dl className="kv">{kv('Proyecto', a.proyecto)}{kv(esReunion ? 'Cuándo' : 'Fecha', a.fecha ? dfecha(a.fecha) + (a.hora ? ' · ' + a.hora : '') + (esReunion && a.duracion ? ' · ' + a.duracion + ' min' : '') : '')}{kv(esReunion ? 'Organiza' : 'Responsable', esReunion ? a.creador : a.delegado || a.creador)}{esReunion ? kv('Invitados', a.invitados.map(nombreDe).join(', ')) : kv('Creada por', a.creador)}{kv('Tiempo trabajado', segTimer(a) ? corto(segTimer(a)) + (a.inicios ? ` · ${a.inicios} inicio(s)` : '') : '')}{(a.supervisar || a.aprobada) && kv('Revisión', a.aprobada ? '✅ Aprobada' : 'Se revisa al terminar')}{kv('Detalle', a.detalle && <span style={{ whiteSpace: 'pre-wrap' }}>{a.detalle}</span>)}</dl>
+      {puedeTiempo && <TiempoEditable seg={a.segundos} guardar={act.tiempo} />}
       {a.estado === 'Devuelto' && <div className="sec" style={{ borderColor: '#f5c6c0', background: '#fff7f6' }}><h4 style={{ color: '#c0392b' }}>↩️ Devuelta para corregir</h4><dl className="kv">{kv('Motivo', a.devolucion.motivo)}{kv('Qué corregir', a.devolucion.comentario)}{kv('Para el', a.devolucion.fecha_limite && dfecha(a.devolucion.fecha_limite))}</dl></div>}
       {a.estado === 'Listo' && <div className="sec" style={{ borderColor: '#9ae6c7' }}><h4 style={{ color: '#04896f' }}>✅ Resultado</h4><p style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{a.resultado}</p>{a.quedoPendiente && <p style={{ fontSize: 12, color: '#a16207' }}>Quedó pendiente{a.fechaRetomar ? ' · retomar el ' + dfecha(a.fechaRetomar) : ''}</p>}{a.comentarioCalif && <p style={{ fontSize: 12, color: '#64748b' }}>Revisión: {a.comentarioCalif}</p>}</div>}
       {[...evs(a.evidencia), ...evs(a.evidenciaFinal)].length > 0 && <div className="sec"><h4><Paperclip />Evidencias</h4><div style={{ display: 'grid', gap: 4 }}>{[...evs(a.evidencia), ...evs(a.evidenciaFinal)].map((u, i) => <button key={i} className="btn" style={{ justifyContent: 'flex-start', overflow: 'hidden' }} onClick={() => abrirEv(u, [...evs(a.evidencia), ...evs(a.evidenciaFinal)])}>{u.startsWith('agenda:') ? u.split('/').pop()?.replace(/^\d+_/, '') : u}</button>)}</div></div>}
     </Modal>
+  )
+}
+
+function TiempoEditable({ seg, guardar }: { seg: number; guardar: (s: number) => Promise<unknown> }) {
+  const [abierto, setAbierto] = useState(false)
+  const [h, setH] = useState('0')
+  const [m, setM] = useState('0')
+  const [ocupado, setOcupado] = useState(false)
+  if (!abierto) return <button className="btn" style={{ marginTop: 4 }} onClick={() => { setH(String(Math.floor(seg / 3600))); setM(String(Math.floor((seg % 3600) / 60))); setAbierto(true) }}><Pencil />Corregir tiempo</button>
+  const nuevo = Math.max(0, Math.floor(Number(h) || 0)) * 3600 + Math.min(59, Math.max(0, Math.floor(Number(m) || 0))) * 60
+  return (
+    <div className="sec"><h4><Clock />Corregir tiempo trabajado <span style={{ marginLeft: 'auto', fontFamily: 'IBM Plex Mono' }}>{reloj(nuevo)}</span></h4>
+      <small style={{ color: '#94a3b8' }}>Antes: {reloj(seg)}. Queda registrado quién lo corrigió.</small>
+      <div style={{ display: 'flex', gap: 8, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}><input className="inp" type="number" min={0} style={{ width: 80 }} value={h} onChange={(e) => setH(e.target.value)} aria-label="Horas" /> h <input className="inp" type="number" min={0} max={59} style={{ width: 80 }} value={m} onChange={(e) => setM(e.target.value)} aria-label="Minutos" /> min
+        {[15, 30, 60, 120].map((x) => <button key={x} type="button" className="btn" onClick={() => { setH(String(Math.floor(x / 60))); setM(String(x % 60)) }}>{x >= 60 ? x / 60 + ' h' : x + ' min'}</button>)}</div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}><button className="btn" onClick={() => setAbierto(false)}>Cancelar</button><button className="btn btn-p" disabled={ocupado || nuevo === seg} onClick={async () => { setOcupado(true); const r = await guardar(nuevo); setOcupado(false); if (r) setAbierto(false) }}>{ocupado ? <Spin /> : 'Guardar tiempo'}</button></div>
+    </div>
   )
 }
 
@@ -449,18 +578,27 @@ function Proyectos({ proyectos, emps, perfil, aviso, cerrar, cambio, eliminar }:
   async function guardar() {
     if (!nombre.trim()) { aviso('El nombre del proyecto es obligatorio.'); return }
     const campos = { nombre: nombre.trim(), estado, areas: areasSel }
-    const r = id ? await supabase.from('proyectos').update(campos).eq('id', id) : await supabase.from('proyectos').insert({ id: crypto.randomUUID(), codigo: 'PRY-' + crypto.randomUUID().slice(0, 8).toUpperCase(), ...campos, responsable_id: perfil.id, creado_por: perfil.id })
+    const r = id ? await supabase.from('proyectos').update(campos).eq('id', id) : await supabase.from('proyectos').insert({ id: crypto.randomUUID(), codigo: 'PRY-' + crypto.randomUUID().slice(0, 8).toUpperCase(), ...campos, responsable_id: perfil.id, creado_por: perfil.id, fecha_inicio: ymd(Date.now()) })
     if (r.error) { aviso(r.error.message); return } setId(''); setNombre(''); setAreasSel([]); setEstado('Activo'); await cambio(); aviso('Proyecto guardado')
   }
-  async function borrar(p: Proyecto) { if (!confirm(`¿Eliminar el proyecto "${p.nombre}"? Se puede restaurar.`)) return; const { error } = await supabase.from('proyectos').update({ deleted_at: new Date().toISOString() }).eq('id', p.id); if (error) { aviso(error.message); return } await cambio() }
+  async function borrar(p: Proyecto) { if (!confirm(`¿Eliminar el proyecto "${p.nombre}"? Se puede restaurar desde la papelera.`)) return; const { error } = await supabase.from('proyectos').update({ deleted_at: new Date().toISOString() }).eq('id', p.id); if (error) { aviso(error.message); return } await cambio(); if (pap) cargarPap() }
+  // Papelera de proyectos (vmPapeleraListar / vmPapeleraRestaurar del original)
+  const [pap, setPap] = useState<{ id: string; nombre: string; deleted_at: string }[] | null>(null)
+  const cargarPap = async () => { const { data } = await supabase.from('proyectos').select('id,nombre,deleted_at').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }).limit(100); setPap((data as { id: string; nombre: string; deleted_at: string }[]) ?? []) }
+  async function restaurar(x: { id: string; nombre: string }) { const { error } = await supabase.from('proyectos').update({ deleted_at: null }).eq('id', x.id); if (error) { aviso(error.message); return } aviso('Proyecto restaurado'); await cambio(); cargarPap() }
   return (
     <Modal titulo="📌 Proyectos" cerrar={cerrar}>
+      {eliminar && <div style={{ display: 'flex', justifyContent: 'flex-end' }}><button className="btn" onClick={() => (pap ? setPap(null) : cargarPap())}><Trash2 />{pap ? 'Volver a proyectos' : 'Papelera'}</button></div>}
+      {pap && <div className="sec"><h4><Trash2 />Proyectos eliminados</h4>{pap.length ? pap.map((x) => <div key={x.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid #f1f5f9' }}><span style={{ flex: 1, minWidth: 0 }}><b style={{ fontSize: 13 }}>{x.nombre}</b><br /><small style={{ color: '#94a3b8' }}>Eliminado el {new Date(x.deleted_at).toLocaleDateString('es-EC')}</small></span><button className="btn btn-ok" onClick={() => restaurar(x)}>Restaurar</button></div>) : <p style={{ fontSize: 13, color: '#94a3b8' }}>La papelera está vacía.</p>}</div>}
+      {!pap && <>
       <div className="sec"><input className="inp" placeholder="Nombre del proyecto" value={nombre} onChange={(e) => setNombre(e.target.value)} />
         <p className="fld" style={{ margin: '8px 0 4px' }}>Áreas involucradas (solo ellas lo verán — vacío = todos)</p><div className="seg">{areas.map((x) => <button key={x} type="button" className={areasSel.includes(x) ? 'on' : ''} onClick={() => setAreasSel(areasSel.includes(x) ? areasSel.filter((y) => y !== x) : [...areasSel, x])}>{x}</button>)}</div>
         {id && <div style={{ marginTop: 8 }}><Seg ops={['Activo', 'Pausado', 'Cerrado']} v={estado} set={setEstado} /></div>}
         <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>{id && <button className="btn" onClick={() => { setId(''); setNombre(''); setAreasSel([]); setEstado('Activo') }}>Cancelar</button>}<button className="btn btn-p" style={{ flex: 1 }} onClick={guardar}>{id ? 'Guardar cambios' : 'Crear proyecto'}</button></div></div>
-      {proyectos.map((p) => <div key={p.id} className="sec" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><div style={{ flex: 1, minWidth: 0 }}><b>{p.nombre}</b><div style={{ fontSize: 11.5, color: '#64748b' }}>{p.estado}{p.areas.length ? ' · ' + p.areas.join(', ') : ' · todos'}{p.responsable ? ' · ' + p.responsable : ''}</div></div>
-        <button className="btn" onClick={() => { setId(p.id); setNombre(p.nombre); setAreasSel(p.areas); setEstado(p.estado) }}><Pencil /></button>{eliminar && <button className="btn btn-red" onClick={() => borrar(p)}><Trash2 /></button>}</div>)}
+      {proyectos.map((p) => <div key={p.id} className="sec" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><div style={{ flex: 1, minWidth: 0 }}><b>{p.nombre}</b>{p.descripcion && <div style={{ fontSize: 11.5, color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.descripcion}</div>}<div style={{ fontSize: 11.5, color: '#64748b' }}>{p.estado}{p.areas.length ? ' · ' + p.areas.join(', ') : ' · todos'}{p.responsable ? ' · ' + p.responsable : ''}</div></div>
+        <span className="mono" style={{ fontSize: 12, fontWeight: 700, color: '#055c9d', whiteSpace: 'nowrap' }} title={`Horas acumuladas · ${p.actividades} actividad(es)`}>{reloj(p.segundos)}</span>
+        <button className="btn" onClick={() => { setId(p.id); setNombre(p.nombre); setAreasSel(p.areas); setEstado(p.estado) }} aria-label="Editar"><Pencil /></button>{eliminar && <button className="btn btn-red" onClick={() => borrar(p)} aria-label="Eliminar"><Trash2 /></button>}</div>)}
+      {!proyectos.length && <p style={{ fontSize: 13, color: '#94a3b8', textAlign: 'center', padding: 12 }}>Aún no hay proyectos.</p>}</>}
     </Modal>
   )
 }
@@ -468,30 +606,37 @@ function Proyectos({ proyectos, emps, perfil, aviso, cerrar, cambio, eliminar }:
 /* ============================ Tienda de premios ============================ */
 function Tienda({ eco, aviso, cerrar, recargar }: { eco: Eco | null; aviso: (t: string) => void; cerrar: () => void; recargar: () => Promise<void> }) {
   const [ocupado, setOcupado] = useState('')
-  const [edit, setEdit] = useState<{ id: string; emoji: string; nombre: string; costo: string; categoria: string; activo: boolean } | null>(null)
+  const [edit, setEdit] = useState<{ id: string; emoji: string; nombre: string; costo: string; categoria: string; descripcion: string; activo: boolean } | null>(null)
+  const [conf, setConf] = useState<{ id: string; emoji: string; nombre: string; costo: number } | null>(null)
+  const [nota, setNota] = useState('')
   if (!eco) return null
-  async function canjear(id: string, nombre: string, costo: number) {
-    if (!confirm(`¿Canjear "${nombre}" por ${costo} monedas?`)) return
-    setOcupado(id); const { error } = await supabase.rpc('ag_canjear', { p_premio: id, p_nota: '' }); setOcupado('')
-    if (error) { aviso(error.message); return } aviso('¡Canje registrado! Quien administra la tienda lo entregará.'); recargar()
+  async function canjear() {
+    if (!conf) return
+    setOcupado(conf.id); const { error } = await supabase.rpc('ag_canjear', { p_premio: conf.id, p_nota: nota.trim(), p_costo: conf.costo }); setOcupado('')
+    if (error) { aviso(error.message); recargar(); return } aviso('¡Canje registrado! Quien administra la tienda lo entregará.'); setConf(null); setNota(''); recargar()
   }
+  const categorias = [...new Set(eco.premios.map((p) => p.categoria).filter(Boolean))]
   async function gestionar(id: string, accion: string) { const { error } = await supabase.rpc('ag_gestionar_canje', { p_id: id, p_accion: accion }); if (error) { aviso(error.message); return } aviso(accion === 'Entregado' ? 'Marcado como entregado' : 'Canje cancelado y monedas devueltas'); recargar() }
   async function guardarPremio() {
     if (!edit) return; const costo = Number(edit.costo)
     if (!edit.nombre.trim() || !(costo >= 1) || Math.floor(costo) !== costo) { aviso('Completa nombre y un costo entero.'); return }
-    const campos = { emoji: edit.emoji || '🎁', nombre: edit.nombre.trim(), costo, categoria: edit.categoria || 'Otros', activo: edit.activo }
-    const r = edit.id ? await supabase.from('premios_agenda').update(campos).eq('id', edit.id) : await supabase.from('premios_agenda').insert({ id: crypto.randomUUID(), codigo: 'PREMIO-' + crypto.randomUUID().slice(0, 8), ...campos })
+    const r = await supabase.rpc('ag_guardar_premio', { p: { id: edit.id || null, emoji: edit.emoji || '🎁', nombre: edit.nombre.trim(), costo, categoria: edit.categoria.trim() || 'Otros', descripcion: edit.descripcion.trim(), activo: edit.activo } })
     if (r.error) { aviso(r.error.message); return } setEdit(null); recargar()
   }
   return (
     <Modal titulo={<>🎁 Tienda de premios <span className="pill" style={{ background: '#fff7d6', color: '#a16207' }}>🪙 {eco.total}</span></>} cerrar={cerrar} ancho={720}>
-      <div className="premios">{eco.premios.map((p) => <div key={p.id} className="premio" style={!p.activo ? { opacity: .5 } : undefined}><div className="em">{p.emoji}</div><b style={{ fontSize: 12.5, display: 'block' }}>{p.nombre}</b><small style={{ color: '#64748b' }}>{p.categoria}</small>
-        <button className="btn btn-p" style={{ width: '100%', marginTop: 6 }} disabled={!p.activo || eco.total < p.costo || ocupado === p.id} onClick={() => canjear(p.id, p.nombre, p.costo)}>🪙 {p.costo}</button>
-        {eco.admin && <button className="btn" style={{ width: '100%', marginTop: 4 }} onClick={() => setEdit({ id: p.id, emoji: p.emoji, nombre: p.nombre, costo: String(p.costo), categoria: p.categoria, activo: p.activo })}><Pencil /></button>}</div>)}</div>
-      {eco.admin && <button className="btn" onClick={() => setEdit({ id: '', emoji: '🎁', nombre: '', costo: '', categoria: 'Otros', activo: true })}><Plus />Nuevo premio</button>}
-      {edit && <div className="sec"><h4>{edit.id ? 'Editar premio' : 'Nuevo premio'}</h4><div style={{ display: 'grid', gridTemplateColumns: '60px 1fr 90px', gap: 8 }}><input className="inp" value={edit.emoji} onChange={(e) => setEdit({ ...edit, emoji: e.target.value })} /><input className="inp" placeholder="Nombre" value={edit.nombre} onChange={(e) => setEdit({ ...edit, nombre: e.target.value })} /><input className="inp" type="number" min={1} placeholder="Costo" value={edit.costo} onChange={(e) => setEdit({ ...edit, costo: e.target.value })} /></div>
+      {conf && <div className="sec" style={{ borderColor: '#fde68a', background: '#fffbeb' }}><h4>{conf.emoji} ¿Canjear «{conf.nombre}» por 🪙 {conf.costo}?</h4>
+        <textarea className="inp" rows={2} maxLength={500} placeholder="Nota para quien entrega (opcional): día, sabor, preferencia…" value={nota} onChange={(e) => setNota(e.target.value)} />
+        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}><button className="btn" onClick={() => { setConf(null); setNota('') }}>Cancelar</button><button className="btn btn-p" style={{ flex: 1 }} disabled={ocupado === conf.id} onClick={canjear}>{ocupado === conf.id ? <Spin /> : 'Confirmar canje'}</button></div></div>}
+      <div className="premios">{eco.premios.map((p) => <div key={p.id} className="premio" style={!p.activo ? { opacity: .5 } : undefined}><div className="em">{p.emoji}</div><b style={{ fontSize: 12.5, display: 'block' }}>{p.nombre}</b><small style={{ color: '#64748b' }}>{p.categoria}</small>{p.descripcion && <small style={{ display: 'block', color: '#94a3b8', fontSize: 11 }}>{p.descripcion}</small>}
+        <button className="btn btn-p" style={{ width: '100%', marginTop: 6 }} disabled={!p.activo || eco.total < p.costo || ocupado === p.id} onClick={() => { setNota(''); setConf({ id: p.id, emoji: p.emoji, nombre: p.nombre, costo: p.costo }) }}>🪙 {p.costo}</button>
+        {eco.admin && <button className="btn" style={{ width: '100%', marginTop: 4 }} aria-label="Editar premio" onClick={() => setEdit({ id: p.id, emoji: p.emoji, nombre: p.nombre, costo: String(p.costo), categoria: p.categoria, descripcion: p.descripcion ?? '', activo: p.activo })}><Pencil /></button>}</div>)}</div>
+      {eco.admin && <button className="btn" onClick={() => setEdit({ id: '', emoji: '🎁', nombre: '', costo: '', categoria: 'Otros', descripcion: '', activo: true })}><Plus />Nuevo premio</button>}
+      {edit && <div className="sec"><h4>{edit.id ? 'Editar premio' : 'Nuevo premio'}</h4><div style={{ display: 'grid', gridTemplateColumns: '60px 1fr 90px', gap: 8 }}><input className="inp" value={edit.emoji} onChange={(e) => setEdit({ ...edit, emoji: e.target.value })} aria-label="Emoji" /><input className="inp" placeholder="Nombre" value={edit.nombre} onChange={(e) => setEdit({ ...edit, nombre: e.target.value })} /><input className="inp" type="number" min={1} placeholder="Costo" value={edit.costo} onChange={(e) => setEdit({ ...edit, costo: e.target.value })} /></div>
+        <div style={{ display: 'grid', gap: 8, marginTop: 8 }}><input className="inp" list="ag-cat-premios" placeholder="Categoría" value={edit.categoria} onChange={(e) => setEdit({ ...edit, categoria: e.target.value })} /><datalist id="ag-cat-premios">{categorias.map((c) => <option key={c} value={c} />)}</datalist>
+          <textarea className="inp" rows={2} maxLength={500} placeholder="Descripción (opcional)" value={edit.descripcion} onChange={(e) => setEdit({ ...edit, descripcion: e.target.value })} /></div>
         <label style={{ display: 'flex', gap: 6, marginTop: 8, fontSize: 13 }}><input type="checkbox" checked={edit.activo} onChange={(e) => setEdit({ ...edit, activo: e.target.checked })} />Disponible</label><div style={{ display: 'flex', gap: 8, marginTop: 8 }}><button className="btn" onClick={() => setEdit(null)}>Cancelar</button><button className="btn btn-p" onClick={guardarPremio}>Guardar</button></div></div>}
-      <div className="sec"><h4>{eco.admin ? 'Canjes de todo el equipo' : 'Mis canjes'}</h4>{eco.canjes.length ? eco.canjes.map((c) => <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid #f1f5f9', fontSize: 13 }}><span style={{ fontSize: 20 }}>{c.emoji}</span><span style={{ flex: 1 }}><b>{c.premio}</b><br /><small style={{ color: '#64748b' }}>{eco.admin ? c.usuario + ' · ' : ''}{new Date(c.fecha).toLocaleDateString('es-EC')} · 🪙 {c.costo}</small></span><span className="pill" style={{ background: c.estado === 'Entregado' ? '#eaf8f4' : c.estado === 'Cancelado' ? '#f1f5f9' : '#fff7e8', color: c.estado === 'Entregado' ? '#04896f' : c.estado === 'Cancelado' ? '#94a3b8' : '#a16207' }}>{c.estado}</span>
+      <div className="sec"><h4>{eco.admin ? 'Canjes de todo el equipo' : 'Mis canjes'}</h4>{eco.canjes.length ? eco.canjes.map((c) => <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid #f1f5f9', fontSize: 13 }}><span style={{ fontSize: 20 }}>{c.emoji}</span><span style={{ flex: 1 }}><b>{c.premio}</b><br /><small style={{ color: '#64748b' }}>{eco.admin ? c.usuario + ' · ' : ''}{new Date(c.fecha).toLocaleDateString('es-EC')} · 🪙 {c.costo}{c.nota ? ' · “' + c.nota + '”' : ''}</small></span><span className="pill" style={{ background: c.estado === 'Entregado' ? '#eaf8f4' : c.estado === 'Cancelado' ? '#f1f5f9' : '#fff7e8', color: c.estado === 'Entregado' ? '#04896f' : c.estado === 'Cancelado' ? '#94a3b8' : '#a16207' }}>{c.estado}</span>
         {eco.admin && c.estado === 'Pendiente' && <><button className="btn btn-ok" onClick={() => gestionar(c.id, 'Entregado')}>Entregar</button><button className="btn btn-red" onClick={() => gestionar(c.id, 'Cancelado')}>Cancelar</button></>}</div>) : <p style={{ fontSize: 13, color: '#94a3b8' }}>Aún no hay canjes.</p>}</div>
       <div className="sec"><h4>Mi historial de monedas</h4>{eco.historial.map((h) => <div key={h.id} style={{ display: 'flex', gap: 8, fontSize: 12.5, padding: '4px 0', borderBottom: '1px solid #f1f5f9' }}><span style={{ flex: 1 }}>{h.motivo}</span><b style={{ color: h.cambio > 0 ? '#04896f' : '#c0392b' }}>{h.cambio > 0 ? '+' : ''}{h.cambio}</b></div>)}</div>
     </Modal>
