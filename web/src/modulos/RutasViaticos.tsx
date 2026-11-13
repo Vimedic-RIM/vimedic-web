@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Check, MapPin, Plus, Route, Trash2, Wallet, X, XCircle } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
+import '../estilos/comun.css'
 import { puede } from '../permisos'
 
 /* Rutas_viaticos.gs: rutas de visita a clientes y solicitudes de viáticos de los asesores.
@@ -39,7 +40,7 @@ export default function RutasViaticos({ perfil, cerrar, aviso }: { perfil: Perfi
   }
 
   return (
-    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-[2px] z-[70] flex items-center justify-center p-0 sm:p-4" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
+    <div className="vm-ui fixed inset-0 bg-slate-900/50 backdrop-blur-[2px] z-[70] flex items-center justify-center p-0 sm:p-4" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
       <div className="bg-white sm:rounded-2xl shadow-2xl w-full h-full sm:h-auto sm:max-h-[90vh] sm:max-w-3xl flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
           <div className="flex items-center gap-2">
@@ -129,7 +130,7 @@ function NuevaRuta({ perfil, cerrar, creado, aviso }: { perfil: Perfil; cerrar: 
   }
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 z-[80] flex items-center justify-center p-4" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
+    <div className="vm-ui fixed inset-0 bg-slate-900/50 z-[80] flex items-center justify-center p-4" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[86vh] flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100"><h3 className="font-display font-bold text-sm text-slate-800">Nueva ruta de visitas</h3><button onClick={cerrar} aria-label="Cerrar"><X className="w-4 h-4 text-slate-400" /></button></div>
         <div className="flex-1 overflow-y-auto p-5 space-y-3">
@@ -195,7 +196,7 @@ function NuevoViatico({ perfil, rutas, cerrar, creado, aviso }: { perfil: Perfil
   }
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 z-[80] flex items-center justify-center p-4" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
+    <div className="vm-ui fixed inset-0 bg-slate-900/50 z-[80] flex items-center justify-center p-4" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[86vh] flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100"><h3 className="font-display font-bold text-sm text-slate-800">Solicitud de fondos para viáticos</h3><button onClick={cerrar} aria-label="Cerrar"><X className="w-4 h-4 text-slate-400" /></button></div>
         <div className="flex-1 overflow-y-auto p-5 space-y-3">

@@ -75,6 +75,7 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
   const [guiaDespacho, setGuiaDespacho] = useState<Fila | null>(null)
   const [acta, setActa] = useState<Fila | null>(null)
   const [obsequioModal, setObsequioModal] = useState<Fila | null>(null)
+  const [editarProd, setEditarProd] = useState<Fila | null>(null)
   const filtrosRef = useRef<HTMLDivElement>(null)
   const peticion = useRef(0)
   const esPc = typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches
@@ -210,6 +211,7 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
     if (qa === 'acta') { setActa(r); return }
     if (qa === 'obsequio') { setObsequioModal(r); return }
     if (qa === 'nc') { setNotasCredito(r); return }
+    if (qa === 'editarProductos') { if (!puedeEditar) { aviso('No tienes permiso para editar productos en Facturación.'); return } setEditarProd(conItems(r)); return }
   }
 
   function exportarCsv() {
@@ -383,6 +385,12 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
         facturar={(r) => { setDetalle(null); setFactura(conItems(r)) }} aviso={aviso} recargar={() => { cargar(filtro); cargarStats(); setItems({}) }} />}
       {factura && <ModalFactura r={factura} perfil={perfil} cerrar={() => setFactura(null)} aviso={aviso} guardado={() => { setFactura(null); aviso('Factura registrada.'); cargar(filtro); cargarStats(); setItems({}) }} />}
       {notasCredito && <ModalNotasCredito r={notasCredito} cerrar={() => setNotasCredito(null)} aviso={aviso} />}
+      {editarProd && <ModalEditarProductos r={editarProd} cerrar={() => setEditarProd(null)} aviso={aviso} guardado={(nuevos, total, msg) => {
+        setEditarProd(null); aviso(msg)
+        setItems((m) => { const x = { ...m }; delete x[editarProd.uuid]; return x })
+        setDetalle((d) => (d && d.uuid === editarProd.uuid ? { ...d, items: nuevos, total } : d))
+        cargar(filtro)
+      }} />}
       {guiaEnvio && <ModalGuiaEnvio r={guiaEnvio} cerrar={() => setGuiaEnvio(null)} guardado={() => { setGuiaEnvio(null); aviso('Guía de envío generada.'); cargar(filtro); cargarStats(); setItems({}) }} />}
       {guiaDespacho && <ModalGuiaDespacho r={conItems(guiaDespacho) ?? guiaDespacho} cerrar={() => setGuiaDespacho(null)} aviso={aviso} guardado={() => { setGuiaDespacho(null); cargar(filtro); cargarStats(); setItems({}) }} />}
       {acta && <ModalActaGarantia r={conItems(acta) ?? acta} cerrar={() => setActa(null)} aviso={aviso} guardado={() => { setActa(null); cargar(filtro); cargarStats(); setItems({}) }} />}
@@ -412,6 +420,7 @@ function PanelLateral(r: Fila | null, accion: (qa: string, r: Fila) => void, img
   if (r.actaConformidadUrl) acts.push(act('conformidad', BadgeCheck, '#17a9ba', 'Conformidad'))
   if (r.estado === 'Facturado' || r.obsequioId) acts.push(act('obsequio', Gift, '#ec4899', r.obsequioId ? 'Cambiar obsequio' : 'Elegir obsequio'))
   if (r.numeroFactura) acts.push(act('nc', ReceiptText, '#7c3aed', 'Notas crédito'))
+  if (r.estado === 'Pendiente') acts.push(act('editarProductos', Package, '#c98a1f', 'Editar productos'))
   const lineas = r.items
   let sSub = 0, sDesc = 0, sIva = 0, sTot = 0, uds = 0
   lineas?.forEach((l) => { const c = calc(l); sSub += c.bruto; sDesc += c.descuentoUsd; sIva += c.ivaUsd; sTot += c.total; uds += c.cantidad })
@@ -511,7 +520,7 @@ function Detalle({ r, perfil, puedeEditar, cerrar, accion, facturar, aviso, reca
           <div className="lg:overflow-y-auto p-4 sm:p-5 space-y-4 min-w-0">
             {tiene(full.nota) && <div className="pm-note"><b>⚠️ Nota importante · bodega y logística</b>{full.nota}</div>}
             <section className="pm-card">
-              <div className="flex items-center justify-between gap-2 mb-2"><p className="pm-h"><Package />Productos</p><span className="text-[10px] font-bold px-2 py-1 rounded-full bg-slate-100 text-slate-500">{lineas ? lineas.length : 0} producto{lineas?.length === 1 ? '' : 's'}</span></div>
+              <div className="flex items-center justify-between gap-2 mb-2"><p className="pm-h"><Package />Productos</p><div className="flex items-center gap-1.5">{full.estado === 'Pendiente' && puedeEditar && <button type="button" onClick={() => accion('editarProductos', full)} className="text-[10.5px] font-bold px-2.5 py-1 rounded-full border" style={{ borderColor: '#f2dfb9', background: '#fffaf0', color: '#9a6a12' }}>Editar productos</button>}<span className="text-[10px] font-bold px-2 py-1 rounded-full bg-slate-100 text-slate-500">{lineas ? lineas.length : 0} producto{lineas?.length === 1 ? '' : 's'}</span></div></div>
               {!lineas && <div className="text-center text-slate-400 text-xs py-10">Cargando productos…</div>}
               {lineas && !lineas.length && <div className="text-center text-slate-400 text-xs py-10">Sin líneas de producto.</div>}
               {lineas?.map((l, k) => {
@@ -604,8 +613,15 @@ function ModalFactura({ r, perfil, cerrar, guardado, aviso }: { r: Fila; perfil:
   const [enlace, setEnlace] = useState(r.facturaUrl)
   const [msg, setMsg] = useState('')
   const [guardando, setGuardando] = useState(false)
+  const [subiendo, setSubiendo] = useState('')
   const lineas = r.items
   const monto = totalFila(r)
+  async function tomarPdf(file: File | undefined) {
+    if (!file) return
+    setMsg(''); setSubiendo('Subiendo ' + file.name + '…')
+    try { setEnlace(await subirPdfDrive(file, 'Facturas/' + new Date().toISOString().slice(0, 7), 'Factura ' + (numero.trim() || r.id) + '.pdf')); setSubiendo('✓ ' + file.name + ' subido a Drive') }
+    catch (e) { setSubiendo(''); setMsg((e as Error).message) }
+  }
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') cerrar() }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [cerrar])
 
   async function guardar() {
@@ -649,7 +665,7 @@ function ModalFactura({ r, perfil, cerrar, guardado, aviso }: { r: Fila; perfil:
           </div>
           <div className="fi-sec">
             <div className="fi-sec-h"><span className="fi-num" style={{ background: 'var(--primary)' }}>2</span><div className="flex-1"><b>PDF de la factura</b><small>Sube el archivo o pega su enlace</small></div></div>
-            <label className="fi-drop" style={{ opacity: 0.6, cursor: 'not-allowed' }}><span className="fi-drop-ic"><FileUp /></span><span className="text-center"><b className="block text-[12.5px] text-slate-700">Elegir PDF</b><small className="text-[10.5px] text-slate-400">Disponible al conectar el almacenamiento de archivos</small></span></label>
+            <label className="fi-drop" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); tomarPdf(e.dataTransfer.files?.[0]) }}><input type="file" accept="application/pdf" className="hidden" onChange={(e) => tomarPdf(e.target.files?.[0])} /><span className="fi-drop-ic"><FileUp /></span><span className="text-center"><b className="block text-[12.5px] text-slate-700">{subiendo || 'Elegir PDF o soltarlo aquí'}</b><small className="text-[10.5px] text-slate-400">Se guarda en la unidad compartida (Facturas)</small></span></label>
             <div className="fi-or">o pega el enlace</div>
             <div className="relative"><Link2 className="fi-ico" /><input type="url" inputMode="url" autoComplete="off" value={enlace} onChange={(e) => setEnlace(e.target.value)} placeholder="https://drive.google.com/file/d/…" className="fi-in pl-9" /></div>
           </div>
@@ -678,6 +694,13 @@ function ModalNotasCredito({ r, cerrar, aviso }: { r: Fila; cerrar: () => void; 
   const [sel, setSel] = useState<Record<string, { on: boolean; tipo: 'CANTIDAD' | 'PRECIO'; cantidad: string; monto: string }>>({})
   const [numero, setNumero] = useState(''); const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10))
   const [motivo, setMotivo] = useState(''); const [pdfUrl, setPdfUrl] = useState('')
+  const [subiendoNc, setSubiendoNc] = useState('')
+  async function tomarPdfNc(file: File | undefined) {
+    if (!file) return
+    setSubiendoNc('Subiendo ' + file.name + '…')
+    try { setPdfUrl(await subirPdfDrive(file, 'Notas de credito/' + new Date().toISOString().slice(0, 7), 'NC ' + (numero.trim() || r.id) + '.pdf')); setSubiendoNc('✓ ' + file.name + ' subido a Drive') }
+    catch (e) { setSubiendoNc(''); setMsg((e as Error).message) }
+  }
   const [msg, setMsg] = useState(''); const [guardando, setGuardando] = useState(false)
   const [recepcion, setRecepcion] = useState<{ id: string; cantidad: string; destino: string; fecha: string; observacion: string } | null>(null)
   const [recGuardando, setRecGuardando] = useState(false)
@@ -839,6 +862,7 @@ function ModalNotasCredito({ r, cerrar, aviso }: { r: Fila; cerrar: () => void; 
               <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className="fi-in" />
             </div>
             <textarea rows={2} value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo de la nota de crédito" className="fi-in mt-2" />
+            <label className="fi-drop mt-2" style={{ minHeight: 70 }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); tomarPdfNc(e.dataTransfer.files?.[0]) }}><input type="file" accept="application/pdf" className="hidden" onChange={(e) => tomarPdfNc(e.target.files?.[0])} /><span className="text-center"><b className="block text-[12px] text-slate-700">{subiendoNc || 'Subir el PDF de la nota (o soltarlo aquí)'}</b><small className="text-[10.5px] text-slate-400">Se guarda en la unidad compartida · o pega el enlace abajo</small></span></label>
             <input type="url" value={pdfUrl} onChange={(e) => setPdfUrl(e.target.value)} placeholder="https://… enlace al PDF de la nota" className="fi-in mt-2" />
           </div>
           {msg && <p className="fi-err">{msg}</p>}
@@ -1424,6 +1448,131 @@ function ModalObsequio({ r, cerrar, aviso, guardado }: { r: Fila; cerrar: () => 
               <button type="button" onClick={crear} disabled={creando || !nuevoNombre.trim()} className="pm-btn solid h-10 rounded-xl text-xs font-bold disabled:opacity-60" style={{ background: '#ec4899' }}>{creando ? 'Agregando…' : 'Agregar y asignar'}</button>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ============================ PDF a la unidad compartida (Drive) ============================ */
+/* Igual que subirFactura / la nota de crédito del original: el PDF se guarda en Drive (cuenta de servicio, Edge Function drive). */
+async function subirPdfDrive(file: File, carpeta: string, nombre: string): Promise<string> {
+  if (file.type !== 'application/pdf' && !/\.pdf$/i.test(file.name)) throw new Error('El archivo debe ser un PDF.')
+  if (file.size > 20 * 1024 * 1024) throw new Error('El PDF supera los 20 MB.')
+  const base64 = await new Promise<string>((ok, ko) => { const rd = new FileReader(); rd.onerror = () => ko(new Error('No se pudo leer el PDF.')); rd.onload = () => ok(String(rd.result).split(',')[1] || ''); rd.readAsDataURL(file) })
+  const { data, error } = await supabase.functions.invoke('drive', { body: { accion: 'subir', modulo: 'facturacion', carpeta, nombre, mime: 'application/pdf', base64 } })
+  const r = data as { enlace?: string; error?: string } | null
+  if (error || r?.error || !r?.enlace) throw new Error('No se pudo subir el PDF: ' + (r?.error || error?.message || 'sin respuesta'))
+  return r.enlace
+}
+
+/* ============================ Editar productos de la venta (antes de facturar) ============================ */
+/* vmFactEditarProductos: Facturación agrega, quita o ajusta productos de una venta ganada que aún no está
+   facturada. El servidor (fact_editar_productos) actualiza Facturación y la cotización del CRM y deja el motivo
+   en ambos historiales. Con factura, notas de crédito o inventario ya descontado no se permite. */
+type ProdBusq = { id: string; codigo: string | null; nombre: string; pvp: number | null; aplica_iva: boolean; imagen_url: string | null }
+function ModalEditarProductos({ r, cerrar, guardado, aviso }: { r: Fila; cerrar: () => void; guardado: (items: Linea[], total: number, msg: string) => void; aviso: (t: string) => void }) {
+  const [lineas, setLineas] = useState<Linea[] | null>(r.items ? r.items.map((l) => ({ ...l, cantidad: Math.abs(Number(l.cantidad) || 0) })) : null)
+  const [motivo, setMotivo] = useState('')
+  const [q, setQ] = useState('')
+  const [res, setRes] = useState<ProdBusq[]>([])
+  const [msg, setMsg] = useState('')
+  const [guardando, setGuardando] = useState(false)
+  useEffect(() => {
+    if (lineas) return
+    supabase.from('facturas').select('items').eq('id', r.uuid).single().then(({ data }) => setLineas((((data as { items?: Linea[] } | null)?.items) ?? []).map((l) => ({ ...l, cantidad: Math.abs(Number(l.cantidad) || 0) }))))
+  }, [lineas, r.uuid])
+  useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') cerrar() }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [cerrar])
+  useEffect(() => {
+    const t = q.trim().replace(/[,()%*\\]/g, ' ')
+    if (t.length < 2) { setRes([]); return }
+    const h = setTimeout(() => {
+      supabase.from('productos').select('id,codigo,nombre,pvp,aplica_iva,imagen_url').is('deleted_at', null).or('nombre.ilike.%' + t + '%,codigo.ilike.%' + t + '%')
+        .order('en_vista_publica', { ascending: false }).order('nombre').limit(8).then(({ data }) => setRes((data as ProdBusq[]) ?? []))
+    }, 250)
+    return () => clearTimeout(h)
+  }, [q])
+  const cambiar = (i: number, c: Partial<Linea>) => setLineas((a) => (a ?? []).map((l, k) => (k === i ? { ...l, ...c } : l)))
+  function agregar(p: ProdBusq) {
+    setLineas((a) => {
+      const l = a ?? []
+      const i = l.findIndex((x) => (x.id && x.id === p.id) || (x.codigo && x.codigo === p.codigo))
+      if (i >= 0) return l.map((x, k) => (k === i ? { ...x, cantidad: (Number(x.cantidad) || 0) + 1 } : x))
+      return [...l, { id: p.id, codigo: p.codigo ?? '', nombre: p.nombre, imagen: p.imagen_url ?? '', precio: Number(p.pvp) || 0, cantidad: 1, descuento: 0, iva: p.aplica_iva !== false, observacion: '' }]
+    })
+    setQ(''); setRes([])
+  }
+  let sub = 0, iva = 0
+  ;(lineas ?? []).forEach((l) => { const c = calc(l); sub += c.base; iva += c.ivaUsd })
+  const total = Math.round((sub + iva) * 100) / 100
+  async function guardar() {
+    setMsg('')
+    if (!lineas?.length) { setMsg('La venta debe tener al menos un producto.'); return }
+    if (!motivo.trim()) { setMsg('Escribe el motivo del cambio.'); return }
+    setGuardando(true)
+    const { data, error } = await supabase.rpc('fact_editar_productos', { p_factura: r.uuid, p_items: lineas, p_motivo: motivo.trim() })
+    setGuardando(false)
+    if (error) { setMsg(error.message); return }
+    const d = data as { items: Linea[]; total: number; aviso: string | null; cambios: string[] }
+    guardado(d.items, d.total, d.aviso || 'Productos actualizados en Facturación y en el CRM.')
+  }
+  void aviso
+  return (
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-[2px] z-[60] flex items-center justify-center p-0 sm:p-4 overlay" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
+      <div className="modal-panel bg-[#f6f9fc] sm:rounded-3xl shadow-2xl w-full h-full sm:h-auto sm:max-w-2xl sm:max-h-[92vh] flex flex-col overflow-hidden">
+        <div className="shrink-0 px-5 py-4 text-white" style={{ background: 'linear-gradient(135deg,#7b5a1e,#c98a1f)' }}>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-white/70 flex items-center gap-1.5"><Package className="w-3.5 h-3.5" />Editar productos · antes de facturar</span>
+            <button type="button" onClick={cerrar} className="w-8 h-8 rounded-xl bg-white/15 hover:bg-white/25 flex items-center justify-center" aria-label="Cerrar"><X className="w-4 h-4" /></button>
+          </div>
+          <h3 className="font-display font-bold text-lg leading-snug mt-1.5">{r.cliente || 'Venta'}</h3>
+          <div className="flex items-end justify-between gap-2 mt-1"><p className="text-[11px] text-white/70">{[r.id, r.asesor].filter(Boolean).join(' · ')}</p><p className="font-display font-bold text-xl">{money(total)}</p></div>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3">
+          <div className="relative">
+            <Search className="fi-ico" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Agregar producto: busca por código o nombre…" className="fi-in pl-9" />
+            {res.length > 0 && (
+              <div className="absolute z-10 left-0 right-0 bg-white border border-slate-200 rounded-xl shadow-lg mt-1 max-h-56 overflow-y-auto">
+                {res.map((p) => <button key={p.id} type="button" onClick={() => agregar(p)} className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center justify-between gap-2"><span className="min-w-0 truncate"><b className="font-mono-spec text-slate-500">{p.codigo}</b> · {p.nombre}</span><b className="shrink-0">{money(Number(p.pvp) || 0)}</b></button>)}
+              </div>
+            )}
+          </div>
+          {!lineas && <p className="text-xs text-slate-400 text-center py-6">Cargando productos…</p>}
+          {lineas?.map((l, i) => {
+            const c = calc(l)
+            return (
+              <div key={i} className="bg-white border border-slate-200 rounded-2xl p-3">
+                <div className="flex items-start gap-2">
+                  <div className="min-w-0 flex-1"><p className="text-[12px] font-bold text-slate-800 leading-snug"><span className="font-mono-spec text-[10.5px] text-slate-400 mr-1.5">{l.codigo || 'Sin ID'}</span>{l.nombre}</p></div>
+                  <b className="text-[12.5px] text-slate-800 shrink-0">{money(c.total)}</b>
+                  <button type="button" onClick={() => setLineas((a) => (a ?? []).filter((_, k) => k !== i))} className="w-7 h-7 rounded-lg border border-red-200 text-red-600 grid place-items-center shrink-0" aria-label="Quitar producto"><Trash2 className="w-3.5 h-3.5" /></button>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2">
+                  <label className="block"><span className="block text-[9.5px] font-bold text-slate-400 uppercase">Cantidad</span><input type="number" min="1" step="1" value={l.cantidad} onChange={(e) => cambiar(i, { cantidad: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} className="fi-in" /></label>
+                  <label className="block"><span className="block text-[9.5px] font-bold text-slate-400 uppercase">Precio unit.</span><input type="number" min="0" step="0.01" value={l.precio} onChange={(e) => cambiar(i, { precio: Number(e.target.value) || 0 })} className="fi-in" /></label>
+                  <label className="block"><span className="block text-[9.5px] font-bold text-slate-400 uppercase">Descuento %</span><input type="number" min="0" max="100" step="0.01" value={l.descuento ?? 0} onChange={(e) => cambiar(i, { descuento: Math.min(100, Math.max(0, Number(e.target.value) || 0)) })} className="fi-in" /></label>
+                  <label className="flex items-end gap-1.5 pb-2 text-[11px] font-semibold text-slate-600"><input type="checkbox" checked={l.iva !== false} onChange={(e) => cambiar(i, { iva: e.target.checked })} />IVA 15%</label>
+                </div>
+                <input value={l.observacion ?? ''} onChange={(e) => cambiar(i, { observacion: e.target.value })} placeholder="Observación de la línea (opcional)" className="fi-in mt-2" />
+              </div>
+            )
+          })}
+          {lineas && lineas.length > 0 && (
+            <div className="rounded-xl p-3 space-y-1" style={{ background: 'linear-gradient(180deg,#f7fbfe,#eef6fb)', border: '1px solid #dcebf5' }}>
+              <div className="flex justify-between text-[11px] text-slate-500"><span>Base imponible</span><span>{money(sub)}</span></div>
+              <div className="flex justify-between text-[11px] text-slate-500"><span>IVA 15%</span><span>{money(iva)}</span></div>
+              <div className="flex justify-between items-end pt-1.5 mt-1 border-t border-slate-200"><span className="text-[11px] font-bold uppercase text-slate-600">Total nuevo</span><span className="font-display font-bold text-xl" style={{ color: 'var(--teal)' }}>{money(total)}</span></div>
+              {r.total ? <p className="text-[10.5px] text-slate-500 text-right">Antes: {money(r.total)}</p> : null}
+            </div>
+          )}
+          <label className="block"><span className="block text-[11px] font-bold text-slate-600 mb-1">Motivo del cambio *</span><textarea rows={2} value={motivo} onChange={(e) => setMotivo(e.target.value)} maxLength={500} placeholder="Ej.: el cliente pidió una unidad más; cambio de modelo acordado con el asesor…" className="fi-in" /></label>
+          <p className="text-[10.5px] text-slate-500">El cambio se aplica también a la cotización del CRM y queda en el historial de ambos. Si la venta ya está facturada, usa una nota de crédito.</p>
+          {msg && <p className="fi-err">{msg}</p>}
+        </div>
+        <div className="shrink-0 border-t border-slate-200 bg-white p-4 flex items-center gap-2">
+          <button type="button" onClick={cerrar} className="h-11 px-4 rounded-2xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50">Cancelar</button>
+          <button type="button" onClick={guardar} disabled={guardando || !lineas} className="flex-1 h-11 rounded-2xl text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: 'linear-gradient(135deg,#9a6a12,#c98a1f)' }}>{guardando ? 'Guardando…' : 'Guardar cambios'}</button>
         </div>
       </div>
     </div>

@@ -1,0 +1,12 @@
+/* Piezas comunes (tarjeta, campo, botón, etiqueta) para pantallas que no tienen hoja de estilos propia:
+   Adquisiciones y Rutas y viáticos. Antes usaban .card / .inp, que solo existen dentro de otros módulos,
+   y se veían sin bordes ni estilo. */
+.vm-ui .card{background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+.vm-ui button.card{cursor:pointer;transition:box-shadow .15s}
+.vm-ui button.card:hover{box-shadow:0 10px 22px -14px rgba(11,37,69,.45)}
+.vm-ui .inp{border:1px solid #e2e8f0;border-radius:10px;padding:9px 11px;font:13px Inter,sans-serif;background:#fff;outline:none;min-width:0;color:#1e293b}
+.vm-ui .inp:focus{border-color:var(--primary,#055c9d);box-shadow:0 0 0 3px rgba(5,92,157,.14)}
+.vm-ui .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid #e2e8f0;background:#fff;border-radius:12px;padding:8px 13px;font:700 12.5px Inter,sans-serif;color:#0b2545;cursor:pointer;white-space:nowrap;min-height:38px}
+.vm-ui .btn.btn-primary{background:var(--primary,#055c9d);border-color:var(--primary,#055c9d);color:#fff}
+.vm-ui .btn:disabled{opacity:.55;cursor:not-allowed}
+.vm-ui .pill{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:800;padding:2px 8px;border-radius:999px;white-space:nowrap}
