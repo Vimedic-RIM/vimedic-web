@@ -17,8 +17,8 @@ Estados: ✅ existe en la app nueva · 🆕 recuperado en esta auditoría · ⚠
 7. ✅ Agenda
 8. ✅ Bodega y Logística
 9. ✅ Servicio Técnico
-10. ⏭️ **Importaciones, Artículos, Adquisiciones y Recepción** (en curso: partes 1 Recepción y 2 Tablero hechas; siguen artículos y material de proveedores)
-11. Empleados y Solicitudes del personal (módulo nuevo de la versión 4)
+10. ✅ Importaciones, Artículos, Adquisiciones y Recepción
+11. ⏭️ **Empleados y Solicitudes del personal** (siguiente; módulo nuevo de la versión 4)
 12. Talento Humano y Financiero
 13. Catálogos, Ofertas y Promociones
 14. Dashboard Ejecutivo
@@ -456,5 +456,22 @@ repetidas o ajenas rechazadas, permisos.
 Se corrigió el generador de códigos: con códigos de 3 cifras y otros más largos (EQM999 y EQM11815) recortaba el número al rellenar
 con ceros; además un código liberado ahora se puede volver a reservar.
 
-### Parte 3 · Artículos y Material de proveedores (siguiente)
-Pendiente en el Issue #30.
+### Parte 3 · Artículos, Adquisiciones y Material de proveedores
+
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `vmArtInicial`, `vmArtDetalle` (ArticulosImportar) | Análisis de qué importar: ventas 90/180/365, stock, tránsito, cotizaciones, parámetros | ✅ | `Articulos.tsx` + `art_analisis` |
+| `vmArtGuardarNota` | Nota por artículo | ✅ | `Articulos.tsx` (`imp_notas_articulos`) |
+| `vmArtGuardarLista`, `vmArtEstadoLista`, copiar / terminar / revisar lista | Listas de pedido con autoguardado y estado | ✅ | `Articulos.tsx` (`imp_listas_pedido`) |
+| `vmCatalogosIngreso`, `vmCrearProveedorIngreso`, `vmCrearProductoIngreso` (IngresosProveedores) | Ingreso de mercadería de proveedor | ✅ | `Adquisiciones.tsx` (ya revisado en el módulo 5; no se tocó) |
+| `vmMatContexto` | Proveedores y equipos nuevos de las importaciones para armar la solicitud | ✅ | RPC `material_contexto` |
+| `vmMatCrear` | Crear solicitud con código MS-AAAA-NNN y enlace temporal | ✅ | RPC `material_crear` + ventana "Nueva solicitud" en Marketing → Material de proveedores |
+| `vmMatActualizar` | Estado, vencimiento, nota, productos abiertos/cerrados, qué se pide, agregar y quitar productos, código interno | ✅ | RPC `material_actualizar` + detalle de la solicitud |
+| `vmMatArchivos` | Archivos recibidos por producto | ✅ | `MarketingExtra.tsx` (`material_archivos`) |
+| `vmMatPdf` | PDF bilingüe (español / inglés / chino) con foto, modelo, código interno y lo que se pide | ✅ | Botón "Descargar PDF" |
+| `vmMatPublico`, `matPorToken_`, `matExigirVigente_` | Página pública del proveedor sin cuenta | ✅ | `MaterialPublico.tsx` en `/material/?c=<código>` + RPC `material_publico` (anónima, solo si está abierta y vigente) |
+| `vmMatIniciarSubida`, `vmMatSubirParte`, `matCarpeta_` | Subida directa a Google Drive por partes (hasta 1 GB), carpeta por solicitud y producto | ✅ | Función `drive` (`material_iniciar` / `material_registrar`) + `subirPorPartes` |
+| `vmMatGuardarEnlace` | Pegar un enlace de descarga (WeTransfer, Drive…) | ✅ | RPC `material_guardar_enlace` |
+
+Nota: la página pública ahora vive en la app (`/material/?c=`) en lugar de pasar por el proxy de Apps Script del sitio.
+En QA la subida de archivos necesita que Google Drive esté conectado; el enlace de descarga funciona sin Drive.

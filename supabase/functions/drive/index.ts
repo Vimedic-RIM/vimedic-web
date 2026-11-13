@@ -36,11 +36,16 @@ Deno.serve(async (req) => {
   try {
     const url = Deno.env.get('SUPABASE_URL')!, anon = Deno.env.get('SUPABASE_ANON_KEY')!, srv = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const usuario = createClient(url, anon, { global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } } })
-    const { data: u } = await usuario.auth.getUser()
-    if (!u?.user) throw new Falla('Sesión no válida.', 401)
-    const admin = createClient(url, srv)
     const b = await req.json().catch(() => ({}))
     const accion = String(b.accion || '')
+    // Material de proveedores (MaterialProveedores.gs): el proveedor no tiene cuenta; lo autoriza el código de su enlace,
+    // que la base valida (solicitud abierta, vigente y producto abierto) antes de abrir la subida o registrar el archivo.
+    const esProveedor = accion === 'material_iniciar' || accion === 'material_registrar'
+    if (!esProveedor) {
+      const { data: u } = await usuario.auth.getUser()
+      if (!u?.user) throw new Falla('Sesión no válida.', 401)
+    }
+    const admin = createClient(url, srv)
     const puede = async (m: string, a: string) => (await usuario.rpc('app_puede', { p_modulo: m, p_accion: a })).data === true
 
     const [{ data: cfg }, { data: secreto }] = await Promise.all([
@@ -97,7 +102,7 @@ Deno.serve(async (req) => {
     }
 
     const modulo = String(b.modulo || '')
-    if (!MODULOS.includes(modulo)) throw new Falla('Módulo no válido.')
+    if (!esProveedor && !MODULOS.includes(modulo)) throw new Falla('Módulo no válido.')
     if (accion === 'listar') {
       if (!(await puede(modulo, 'ver'))) throw new Falla('Sin acceso a ese módulo.', 403)
       const padre = await ruta(String(b.carpeta || ''))
@@ -150,6 +155,41 @@ Deno.serve(async (req) => {
       try { await g(`/drive/v3/files/${id}/permissions?supportsAllDrives=true`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'reader', type: 'anyone' }) }) }
       catch (e) { publico = false; motivo = (e as Error).message }
       return responder({ ok: true, id: f.id, nombre: f.name, mime: f.mimeType, tamano: Number(f.size) || 0, enlace: f.webViewLink, descarga: publico ? `https://drive.usercontent.google.com/download?id=${f.id}&export=download&confirm=t` : '', publico, motivo })
+    }
+    /* Material de proveedores: subida por partes directo a Drive (vmMatIniciarSubida) y registro del archivo (vmMatSubirParte). */
+    if (esProveedor) {
+      const token = String(b.token || ''), clave = String(b.clave || '')
+      const TIPOS: Record<string, string> = { ficha: 'Ficha técnica', manual: 'Manual', cert: 'Certificaciones', video: 'Videos', otro: 'Otros' }
+      const tipoM = TIPOS[String(b.tipo || '')] ? String(b.tipo) : 'otro'
+      const v = await admin.rpc('material_validar_subida', { p_token: token, p_clave: clave })
+      if (v.error) throw new Falla(v.error.message)
+      const padre = await ruta(String((v.data as { carpeta: string }).carpeta || 'Material proveedores'))
+      if (accion === 'material_iniciar') {
+        const nombre = String(b.nombre || '').replace(/[\\/:*?"<>|]+/g, '_').trim().slice(0, 140) || 'archivo'
+        const mime = String(b.mime || 'application/octet-stream').slice(0, 120), tamano = Number(b.tamano) || 0, esVideo = /^video\//.test(mime)
+        if (/\.(exe|bat|cmd|com|scr|js|vbs|msi|ps1|sh|jar|apk|html?|php)$/i.test(nombre)) throw new Falla('Tipo de archivo no permitido. / File type not allowed.')
+        if (!/^(application\/(pdf|zip|x-zip-compressed|x-rar-compressed|vnd\.rar|x-7z-compressed|msword|vnd\.openxmlformats-officedocument\.[\w.]+|vnd\.ms-excel|vnd\.ms-powerpoint|octet-stream)|image\/(jpeg|png|webp|gif|tiff)|video\/[\w.+-]+|text\/plain)$/.test(mime))
+          throw new Falla('Tipo de archivo no permitido. / File type not allowed.')
+        if (tamano <= 0 || tamano > (esVideo ? 1024 * 1024 * 1024 : 100 * 1024 * 1024)) throw new Falla('El archivo es demasiado grande (máx. ' + (esVideo ? '1 GB' : '100 MB') + '). / File too large.')
+        const origen = req.headers.get('Origin') || ''
+        const r = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,webViewLink,size', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + tk, 'Content-Type': 'application/json; charset=UTF-8', 'X-Upload-Content-Type': mime, 'X-Upload-Content-Length': String(tamano), ...(origen ? { Origin: origen } : {}) },
+          body: JSON.stringify({ name: TIPOS[tipoM] + ' - ' + nombre, parents: [padre], description: 'Material de proveedor · ' + clave + ' · ' + TIPOS[tipoM] }),
+        })
+        const sesion = r.headers.get('Location')
+        if (!r.ok || !sesion) throw new Falla('No se pudo iniciar la subida. Intente de nuevo. / Could not start the upload.')
+        return responder({ ok: true, sesion })
+      }
+      // material_registrar: el archivo debe estar en la carpeta de ese producto
+      const id = String(b.id || '')
+      if (!/^[\w-]{10,120}$/.test(id)) throw new Falla('Archivo no válido.')
+      const f = await g(`/drive/v3/files/${id}?fields=id,name,size,webViewLink,parents&supportsAllDrives=true`)
+      if (!(f.parents ?? []).includes(padre)) throw new Falla('Archivo no válido.')
+      try { await g(`/drive/v3/files/${id}/permissions?supportsAllDrives=true`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'reader', type: 'anyone' }) }) } catch { /* queda privado */ }
+      const reg = await admin.rpc('material_registrar_archivo', { p_token: token, d: { clave, tipo: tipoM, nombre: String(b.nombre || f.name || '').slice(0, 140), url: f.webViewLink || `https://drive.google.com/file/d/${id}/view`, tamano: String(Number(f.size) || 0) } })
+      if (reg.error) throw new Falla(reg.error.message)
+      return responder({ ok: true })
     }
     throw new Falla('Acción no reconocida.')
   } catch (e) {

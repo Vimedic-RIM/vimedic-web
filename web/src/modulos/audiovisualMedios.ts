@@ -102,6 +102,11 @@ async function subirADrive(f: File, prog: (p: number) => void): Promise<{ id: st
   const ini = await supabase.functions.invoke('drive', { body: { accion: 'subida_iniciar', modulo: 'marketing', carpeta: 'Audiovisual/' + new Date().toISOString().slice(0, 7), nombre: f.name, mime: f.type, tamano: f.size } })
   const sesion = (ini.data as { sesion?: string; error?: string } | null)?.sesion
   if (ini.error || !sesion) throw new Error((ini.data as { error?: string } | null)?.error || ini.error?.message || 'Drive no abrió la subida.')
+  return subirPorPartes(sesion, f, prog)
+}
+
+/** Envía el archivo a una sesión de subida de Drive ya abierta, por partes de 16 MB, retomando si se corta. */
+export async function subirPorPartes(sesion: string, f: File, prog: (p: number) => void): Promise<{ id: string; webViewLink?: string }> {
   const PARTE = 16 * 1024 * 1024
   let desde = 0, intentos = 0
   for (;;) {

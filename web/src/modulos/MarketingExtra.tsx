@@ -77,31 +77,59 @@ export function Anuncios({ perfil, desde, hasta, aviso }: { perfil: Perfil; desd
   )
 }
 
-/* ============================ Material de proveedores ============================ */
-type Item = { clave: string; codigo?: string; marca?: string; nota?: string; pide?: Record<string, number> }
-type Sol = { id: string; codigo: string | null; titulo: string; estado: string; vence: string | null; proveedor_texto: string | null; nota: string | null; productos: Item[] }
-type Arch = { id: string; solicitud_id: string; clave: string | null; tipo: string | null; nombre: string | null; url: string | null; fecha: string }
-const PIDE: Record<string, string> = { ficha: 'Ficha técnica', manual: 'Manual', cert: 'Certificados', video: 'Video', foto: 'Fotos' }
+/* ============================ Material de proveedores (MaterialProveedores.gs) ============================ */
+type Item = { clave: string; codigo?: string; nombre?: string; modelo?: string; codInterno?: string; marca?: string; imagen?: string; nota?: string; abierto?: boolean; pide?: Record<string, number> }
+type Sol = { id: string; codigo: string | null; token: string | null; titulo: string; estado: string; vence: string | null; proveedor_texto: string | null; nota: string | null; productos: Item[] }
+type Arch = { id: string; solicitud_id: string; clave: string | null; tipo: string | null; nombre: string | null; url: string | null; fecha: string; origen: string | null }
+type Nuevo = { clave: string; codigo: string; nombre: string; modelo: string; codInterno: string; marca: string; proveedor: string; importacion: string; imagen: string; identificado: boolean }
+const PIDE: Record<string, string> = { ficha: 'Ficha técnica', manual: 'Manual', cert: 'Certificados', video: 'Video', foto: 'Fotos', otro: 'Otros' }
+const PIDE_K = ['ficha', 'manual', 'cert', 'video']
+const enlaceMaterial = (token: string | null) => (token ? window.location.origin + '/material/?c=' + token : '')
+const hoyMas = (d: number) => new Date(Date.now() + d * 864e5).toISOString().slice(0, 10)
+
+/** Lista en PDF para enviar al proveedor: foto, modelo, código interno y lo que se pide (vmMatPdf). */
+async function pdfSolicitud(s: Sol) {
+  const esc = (v: unknown) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string))
+  const fotos = await Promise.all(s.productos.slice(0, 60).map((p) => (p.imagen ? aDataUrl(imgUrl(p.imagen, 200)) : Promise.resolve(''))))
+  const tipos: [string, string, string, string][] = [['ficha', 'Ficha técnica', 'Datasheet', '技术规格书'], ['manual', 'Manual', 'User manual', '使用手册'], ['cert', 'Certificaciones', 'Certificates (CE, ISO, FDA…)', '认证证书'], ['video', 'Videos', 'Videos', '产品视频']]
+  const filas = s.productos.map((p, i) => `<tr><td style="width:18px;text-align:center;color:#8a95b3">${i + 1}</td><td style="width:58px;text-align:center">${fotos[i] ? `<img src="${fotos[i]}" style="width:54px;height:54px;object-fit:contain">` : ''}</td>
+    <td>${p.modelo ? `<div style="font-size:13px;font-weight:bold;color:#055c9d">Model / 型号: ${esc(p.modelo)}</div>` : ''}${p.codInterno ? `<div style="font-size:11px;font-weight:bold">Code / 编码: ${esc(p.codInterno)}</div>` : ''}<div>${esc(p.nombre || p.modelo || p.clave)}</div><div style="color:#56607e;font-size:9.5px">${p.codigo ? 'VIMEDIC: ' + esc(p.codigo) : ''}${p.marca ? ' · ' + esc(p.marca) : ''}</div>${p.nota ? `<div style="color:#56607e;font-size:9.5px">${esc(p.nota)}</div>` : ''}${p.abierto === false ? '<div style="color:#a3341f;font-size:9.5px;font-weight:bold">Cerrado / Closed</div>' : ''}</td>
+    ${tipos.map(([k]) => `<td style="width:70px;text-align:center;font-size:16px">${p.pide?.[k] ? '☐' : '—'}</td>`).join('')}</tr>`).join('')
+  const html = `<div style="font-family:Arial,sans-serif;color:#1d2344;font-size:10.5px">
+    <div style="background:#1d2344;color:#fff;padding:12px 16px;border-radius:10px"><div style="font-size:18px;font-weight:bold">VIMEDIC · Solicitud de material de productos</div><div style="color:#cfd6ea;font-size:11px;margin-top:3px">Product documentation request · 产品资料需求 · ${esc(s.codigo)}${s.proveedor_texto ? ' · ' + esc(s.proveedor_texto) : ''}</div></div>
+    <div style="margin:10px 0;padding:9px 12px;border:1px solid #cfd6e4;border-radius:8px;background:#f5f8fc;font-size:11px">Suba los archivos en este enlace / Upload the files at this link / 请通过以下链接上传文件:<br><b style="color:#055c9d">${esc(enlaceMaterial(s.token))}</b><br>Válido hasta / Valid until / 有效期至: <b>${esc((s.vence ?? '').slice(0, 10) || '—')}</b>${s.nota ? '<br>' + esc(s.nota) : ''}</div>
+    <table style="width:100%;border-collapse:collapse" border="1" cellpadding="5"><thead><tr style="background:#eef3f9;font-size:9px"><th>#</th><th>Foto</th><th>Producto / Product / 产品</th>${tipos.map(([, a, b, c]) => `<th>${a}<br><span style="font-weight:normal">${b}<br>${c}</span></th>`).join('')}</tr></thead><tbody>${filas}</tbody></table>
+    <p style="color:#8a95b3;font-size:9px;margin-top:8px">☐ = se solicita / requested / 需要 · — = no se solicita / not requested / 不需要 · Generado ${new Date().toLocaleString('es-EC')}</p></div>`
+  const html2pdf = (await import('html2pdf.js')).default
+  const caja = document.createElement('div'); caja.style.cssText = 'position:fixed;left:-10000px;top:0;width:270mm;background:#fff'; caja.innerHTML = html; document.body.appendChild(caja)
+  try { await html2pdf().set({ margin: 8, filename: 'Solicitud-material-' + (s.codigo || '') + (s.proveedor_texto ? '-' + s.proveedor_texto.replace(/[^\w]+/g, '-').slice(0, 40) : '') + '.pdf', image: { type: 'jpeg', quality: 0.92 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' } }).from(caja).save() }
+  finally { caja.remove() }
+}
 
 export function Material({ perfil, aviso }: { perfil: Perfil; aviso: (t: string) => void }) {
   const [sols, setSols] = useState<Sol[] | null>(null)
   const [arch, setArch] = useState<Arch[]>([])
   const [error, setError] = useState('')
   const [abierta, setAbierta] = useState<Sol | null>(null)
+  const [nueva, setNueva] = useState(false)
   const editar = puede(perfil, 'marketing', 'editar')
   const cargar = useCallback(async () => {
     const [s, a] = await Promise.all([
-      supabase.from('material_solicitudes').select('id,codigo,titulo,estado,vence,proveedor_texto,nota,productos').is('deleted_at', null).order('created_at', { ascending: false }).limit(200),
-      supabase.from('material_archivos').select('id,solicitud_id,clave,tipo,nombre,url,fecha').is('deleted_at', null).order('fecha', { ascending: false }).limit(2000),
+      supabase.from('material_solicitudes').select('id,codigo,token,titulo,estado,vence,proveedor_texto,nota,productos').is('deleted_at', null).order('created_at', { ascending: false }).limit(200),
+      supabase.from('material_archivos').select('id,solicitud_id,clave,tipo,nombre,url,fecha,origen').is('deleted_at', null).order('fecha', { ascending: false }).limit(2000),
     ])
-    if (s.error || a.error) { setError((s.error || a.error)!.message); return }
-    setError(''); setSols((s.data as unknown as Sol[]) ?? []); setArch((a.data as Arch[]) ?? [])
+    if (s.error || a.error) { setError((s.error || a.error)!.message); return null }
+    const l = (s.data as unknown as Sol[]) ?? []
+    setError(''); setSols(l); setArch((a.data as Arch[]) ?? [])
+    return l
   }, [])
   useEffect(() => { cargar() }, [cargar])
-  async function estado(s: Sol, nuevo: string) {
-    const { error } = await supabase.from('material_solicitudes').update({ estado: nuevo }).eq('id', s.id)
-    if (error) { aviso('No se pudo cambiar: ' + error.message); return }
-    aviso('Solicitud ' + nuevo.toLowerCase() + '.'); setAbierta(null); cargar()
+  // Cambios de la solicitud abierta (vmMatActualizar): estado, vencimiento, productos abiertos/cerrados, qué se pide, agregar o quitar
+  async function cambiar(s: Sol, c: Record<string, unknown>, ok?: string) {
+    const { error } = await supabase.rpc('material_actualizar', { p_id: s.id, c })
+    if (error) { aviso('No se pudo guardar: ' + error.message); return }
+    if (ok) aviso(ok)
+    const l = await cargar(); const x = l?.find((y) => y.id === s.id); if (x) setAbierta(x)
   }
   const hoy = new Date().toISOString().slice(0, 10)
   if (error) return <div className="card p-6 text-sm text-amber-800 bg-amber-50 border-amber-200">{error}</div>
@@ -109,7 +137,8 @@ export function Material({ perfil, aviso }: { perfil: Perfil; aviso: (t: string)
   return (
     <section>
       <div className="card p-4 text-xs text-slate-600 flex gap-3 items-start mb-4"><FolderUp className="w-4 h-4 mt-0.5 shrink-0 text-[var(--primary)]" />
-        <p>Solicitudes de fichas, manuales, certificaciones y videos enviadas a proveedores. Los archivos que ellos suban aparecen aquí. La página pública de carga para proveedores (con enlace de un solo uso) se activa en una próxima fase.</p></div>
+        <p style={{ flex: 1 }}>Pide a un proveedor fichas técnicas, manuales, certificaciones y videos de sus productos. Cada solicitud tiene un <b>enlace temporal</b> donde el proveedor sube los archivos sin crear una cuenta; se descarga en PDF para enviarla. Los archivos llegan a Google Drive y aparecen aquí.</p>
+        {editar && <button className="btn btn-primary" onClick={() => setNueva(true)}><Plus />Nueva solicitud</button>}</div>
       {!sols.length && <div className="card p-10 text-center text-sm text-slate-400">Todavía no hay solicitudes.</div>}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {sols.map((s) => {
@@ -125,24 +154,115 @@ export function Material({ perfil, aviso }: { perfil: Perfil; aviso: (t: string)
           )
         })}
       </div>
-      {abierta && (
-        <Ventana titulo={abierta.titulo} cerrar={() => setAbierta(null)} pie={editar ? <>
-          {abierta.estado === 'Abierta' ? <button className="btn btn-primary" onClick={() => estado(abierta, 'Cerrada')}><Check />Marcar como cerrada</button> : <button className="btn" onClick={() => estado(abierta, 'Abierta')}>Reabrir</button>}</> : <span className="text-[11px] text-slate-400">Solo lectura</span>}>
-          <p className="text-[11px] text-slate-500">{abierta.codigo} · {abierta.proveedor_texto || 'Proveedor'} · vence {fecha(abierta.vence)}</p>
-          {abierta.nota && <p className="text-xs text-slate-600 bg-slate-50 rounded-lg p-2.5">{abierta.nota}</p>}
-          <div className="space-y-2">{(abierta.productos ?? []).map((p) => {
-            const recibidos = arch.filter((a) => a.solicitud_id === abierta.id && a.clave === p.clave)
-            return (
-              <div key={p.clave} className="rounded-xl border border-slate-200 p-3">
-                <p className="text-xs font-bold text-slate-800">{p.codigo || p.clave}{p.marca ? ' · ' + p.marca : ''}</p>
-                <p className="text-[11px] text-slate-500 mt-0.5">Se pide: {Object.entries(p.pide ?? {}).filter(([, v]) => v).map(([k]) => PIDE[k] ?? k).join(', ') || '—'}</p>
-                {recibidos.length ? <div className="flex flex-wrap gap-1.5 mt-2">{recibidos.map((r) => <a key={r.id} href={r.url ?? '#'} target="_blank" rel="noopener noreferrer" className="pill" style={{ background: '#ecfaf5', color: '#04896f' }}>{r.tipo || 'archivo'} · {r.nombre || 'ver'}</a>)}</div>
-                  : <p className="text-[11px] text-amber-700 mt-1.5">Aún sin archivos.</p>}
-              </div>)
-          })}</div>
-        </Ventana>
-      )}
+      {abierta && <DetalleSolicitud s={abierta} arch={arch.filter((a) => a.solicitud_id === abierta.id)} editar={editar} cerrar={() => setAbierta(null)} cambiar={cambiar} aviso={aviso} />}
+      {nueva && <NuevaSolicitud cerrar={() => setNueva(false)} aviso={aviso} creada={async (id) => { setNueva(false); const l = await cargar(); const x = l?.find((y) => y.id === id); if (x) setAbierta(x) }} />}
     </section>
+  )
+}
+
+function DetalleSolicitud({ s, arch, editar, cerrar, cambiar, aviso }: { s: Sol; arch: Arch[]; editar: boolean; cerrar: () => void; cambiar: (s: Sol, c: Record<string, unknown>, ok?: string) => Promise<void>; aviso: (t: string) => void }) {
+  const [agregar, setAgregar] = useState(false)
+  const [pdf, setPdf] = useState(false)
+  const link = enlaceMaterial(s.token)
+  return (
+    <Ventana titulo={s.titulo} cerrar={cerrar} ancha pie={<>
+      <button className="btn" disabled={pdf} onClick={async () => { setPdf(true); try { await pdfSolicitud(s) } catch (e) { aviso('No se pudo generar el PDF: ' + (e as Error).message) } setPdf(false) }}><FileDown />{pdf ? 'Generando…' : 'Descargar PDF'}</button>
+      <span style={{ flex: 1 }} />
+      {editar && (s.estado === 'Abierta' ? <button className="btn btn-primary" onClick={() => cambiar(s, { estado: 'Cerrada' }, 'Solicitud cerrada: el enlace deja de funcionar.')}><Check />Cerrar solicitud</button> : <button className="btn" onClick={() => cambiar(s, { estado: 'Abierta' }, 'Solicitud reabierta.')}>Reabrir</button>)}</>}>
+      <p className="text-[11px] text-slate-500">{s.codigo} · {s.proveedor_texto || 'Proveedor'} · vence {fecha(s.vence)}</p>
+      {link && <div className="rounded-xl border border-slate-200 p-3 text-xs" style={{ background: '#f8fafc' }}>
+        <p className="font-bold text-slate-700 mb-1">Enlace para el proveedor</p>
+        <div className="flex gap-2 items-center flex-wrap"><code className="text-[11px] break-all" style={{ flex: 1 }}>{link}</code>
+          <button className="btn" onClick={() => navigator.clipboard?.writeText(link).then(() => aviso('Enlace copiado'), () => aviso(link))}>Copiar</button>
+          <a className="btn" href={link} target="_blank" rel="noopener noreferrer">Abrir</a></div>
+        {editar && <label className="flex items-center gap-2 mt-2">Vence<input type="date" className="inp" style={{ width: 'auto' }} defaultValue={(s.vence ?? '').slice(0, 10)} onBlur={(e) => { if (e.target.value && e.target.value !== (s.vence ?? '').slice(0, 10)) cambiar(s, { vence: e.target.value }, 'Vencimiento actualizado') }} /></label>}
+      </div>}
+      {s.nota && <p className="text-xs text-slate-600 bg-slate-50 rounded-lg p-2.5">{s.nota}</p>}
+      <div className="space-y-2">{(s.productos ?? []).map((p) => {
+        const recibidos = arch.filter((a) => a.clave === p.clave), cerrado = p.abierto === false
+        return (
+          <div key={p.clave} className="rounded-xl border border-slate-200 p-3" style={cerrado ? { opacity: 0.7 } : undefined}>
+            <div className="flex gap-2 items-start">
+              {p.imagen ? <img src={imgUrl(p.imagen, 96)} alt="" className="w-10 h-10 rounded-lg object-contain bg-slate-50" /> : null}
+              <div style={{ flex: 1, minWidth: 0 }}><p className="text-xs font-bold text-slate-800">{p.nombre || p.codigo || p.clave}</p>
+                <p className="text-[11px] text-slate-500">{[p.codigo, p.modelo ? 'Modelo ' + p.modelo : '', p.codInterno ? 'Código interno ' + p.codInterno : '', p.marca].filter(Boolean).join(' · ')}</p></div>
+              {editar && <><button className="btn" onClick={() => cambiar(s, { productos: [{ clave: p.clave, abierto: cerrado }] })}>{cerrado ? 'Abrir' : 'Cerrar'}</button>
+                <button className="btn" aria-label="Quitar producto" onClick={() => { if (confirm('¿Quitar ' + (p.nombre || p.clave) + ' de la solicitud?')) cambiar(s, { productos: [{ clave: p.clave, quitar: true }] }) }}><Trash2 /></button></>}
+            </div>
+            <div className="flex flex-wrap gap-1.5 mt-2">{PIDE_K.map((k) => {
+              const on = !!p.pide?.[k], n = recibidos.filter((r) => r.tipo === k).length
+              return <button key={k} type="button" disabled={!editar} className="pill" style={{ border: 0, cursor: editar ? 'pointer' : 'default', ...(n ? { background: '#ecfaf5', color: '#04896f' } : on ? { background: '#fff7e8', color: '#b45309' } : { background: '#f1f5f9', color: '#94a3b8' }) }}
+                onClick={() => { const pide = { ...(p.pide ?? {}) }; if (on) delete pide[k]; else pide[k] = 1; if (Object.keys(pide).length) cambiar(s, { productos: [{ clave: p.clave, pide }] }) }}>{n ? '✓ ' : ''}{PIDE[k]}{n ? ' (' + n + ')' : on ? '' : ' · no se pide'}</button>
+            })}{cerrado && <span className="pill" style={{ background: '#fdecea', color: '#c0392b' }}>Cerrado para el proveedor</span>}</div>
+            {recibidos.length ? <div className="flex flex-wrap gap-1.5 mt-2">{recibidos.map((r) => <a key={r.id} href={r.url ?? '#'} target="_blank" rel="noopener noreferrer" className="pill" style={{ background: '#eff6ff', color: '#055c9d' }}>{PIDE[r.tipo ?? ''] ?? r.tipo} · {r.nombre}{r.origen === 'Enlace' ? ' (enlace)' : ''}</a>)}</div>
+              : <p className="text-[11px] text-amber-700 mt-1.5">Aún sin archivos.</p>}
+          </div>)
+      })}</div>
+      {editar && (agregar ? <SelectorProductos excluir={(s.productos ?? []).map((p) => p.clave)} listo={(lista) => { setAgregar(false); if (lista.length) cambiar(s, { productos: lista.map((x) => ({ agregar: x })) }, lista.length + ' producto(s) agregado(s)') }} />
+        : <button className="btn" onClick={() => setAgregar(true)}><Plus />Agregar productos</button>)}
+    </Ventana>
+  )
+}
+
+/** Elegir productos: equipos nuevos de las importaciones o cualquiera del inventario. */
+function SelectorProductos({ excluir, listo, nuevos: nuevosIni }: { excluir: string[]; listo: (l: Item[]) => void; nuevos?: Nuevo[] }) {
+  const [nuevos, setNuevos] = useState<Nuevo[] | null>(nuevosIni ?? null)
+  const [q, setQ] = useState('')
+  const [res, setRes] = useState<{ codigo: string; nombre: string; marca: string | null; imagen_url: string | null; codigo_unico: string | null; referencia_proveedor: string | null }[]>([])
+  const [sel, setSel] = useState<Record<string, Item>>({})
+  useEffect(() => { if (!nuevos) supabase.rpc('material_contexto').then(({ data }) => setNuevos(((data as { nuevos?: Nuevo[] } | null)?.nuevos) ?? [])) }, [nuevos])
+  useEffect(() => {
+    const t = q.trim().replace(/[,()%*\\"']/g, ' '); if (t.length < 2) { setRes([]); return }
+    const h = setTimeout(() => {
+      supabase.from('productos').select('codigo,nombre,marca,imagen_url,codigo_unico,referencia_proveedor').is('deleted_at', null).or(`nombre.ilike.%${t}%,codigo.ilike.%${t}%,codigo_unico.ilike.%${t}%`)
+        .order('en_vista_publica', { ascending: false }).order('nombre').limit(30).then(({ data }) => setRes((data as never) ?? []))
+    }, 250)
+    return () => clearTimeout(h)
+  }, [q])
+  const marcar = (it: Item) => setSel((x) => { const y = { ...x }; if (y[it.clave]) delete y[it.clave]; else y[it.clave] = it; return y })
+  const libres = (nuevos ?? []).filter((n) => !excluir.includes(n.clave))
+  return (
+    <div className="rounded-xl border border-slate-200 p-3 space-y-2">
+      {libres.length > 0 && <><p className="text-xs font-bold text-slate-700">Equipos nuevos de las importaciones</p>
+        <div className="space-y-1" style={{ maxHeight: 220, overflowY: 'auto' }}>{libres.map((n) => <label key={n.clave} className="flex items-center gap-2 text-xs cursor-pointer"><input type="checkbox" checked={!!sel[n.clave]} onChange={() => marcar({ clave: n.clave, codigo: n.codigo, nombre: n.nombre, modelo: n.modelo, codInterno: n.codInterno, marca: n.marca, imagen: n.imagen })} />
+          <span style={{ flex: 1, minWidth: 0 }}><b>{n.nombre || n.codigo}</b> <span className="text-slate-400">{[n.codigo, n.codInterno, n.importacion, n.proveedor].filter(Boolean).join(' · ')}</span></span></label>)}</div></>}
+      <p className="text-xs font-bold text-slate-700">Buscar en el inventario</p>
+      <div className="relative"><Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input className="inp w-full" style={{ paddingLeft: 30 }} placeholder="Código, nombre o código interno" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+      {res.filter((p) => !excluir.includes(p.codigo.toUpperCase())).map((p) => <label key={p.codigo} className="flex items-center gap-2 text-xs cursor-pointer"><input type="checkbox" checked={!!sel[p.codigo.toUpperCase()]} onChange={() => marcar({ clave: p.codigo.toUpperCase(), codigo: p.codigo, nombre: p.nombre, modelo: p.referencia_proveedor ?? '', codInterno: p.codigo_unico && p.codigo_unico !== p.codigo ? p.codigo_unico : '', marca: p.marca ?? '', imagen: p.imagen_url ?? '' })} />
+        <span><b>{p.codigo}</b> · {p.nombre}</span></label>)}
+      <div className="flex gap-2"><span className="text-[11px] text-slate-500" style={{ flex: 1 }}>{Object.keys(sel).length} elegido(s) · se pide ficha, manual, certificados y video (puedes cambiarlo después)</span>
+        <button className="btn btn-primary" onClick={() => listo(Object.values(sel))}><Check />{Object.keys(sel).length ? 'Agregar' : 'Listo'}</button></div>
+    </div>
+  )
+}
+
+function NuevaSolicitud({ cerrar, aviso, creada }: { cerrar: () => void; aviso: (t: string) => void; creada: (id: string) => void }) {
+  const [f, setF] = useState({ proveedor: '', titulo: '', vence: hoyMas(30), nota: '' })
+  const [items, setItems] = useState<Item[]>([])
+  const [provs, setProvs] = useState<string[]>([])
+  const [eligiendo, setEligiendo] = useState(true)
+  const [ocupado, setOcupado] = useState(false)
+  useEffect(() => { supabase.from('proveedores').select('nombre:razon_social').is('deleted_at', null).order('razon_social').limit(500).then(({ data }) => setProvs(((data ?? []) as { nombre: string }[]).map((x) => x.nombre))) }, [])
+  return (
+    <Ventana titulo="Nueva solicitud de material" cerrar={cerrar} ancha pie={<><button className="btn" onClick={cerrar}>Cancelar</button><span style={{ flex: 1 }} />
+      <button className="btn btn-primary" disabled={ocupado || !items.length} onClick={async () => {
+        setOcupado(true)
+        const { data, error } = await supabase.rpc('material_crear', { d: { ...f, titulo: f.titulo || 'Material de productos — ' + f.proveedor, productos: items } })
+        setOcupado(false)
+        if (error) { aviso(error.message); return }
+        aviso('Solicitud ' + (data as { codigo: string }).codigo + ' creada: copia el enlace o descarga el PDF para enviarla.'); creada((data as { id: string }).id)
+      }}><Check />{ocupado ? 'Creando…' : 'Crear solicitud'}</button></>}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <label className="block text-[11px] font-bold text-slate-500">Proveedor<input className="inp w-full mt-1" list="dlMatProv" value={f.proveedor} onChange={(e) => setF({ ...f, proveedor: e.target.value })} /><datalist id="dlMatProv">{provs.map((p) => <option key={p} value={p} />)}</datalist></label>
+        <label className="block text-[11px] font-bold text-slate-500">Vence<input type="date" className="inp w-full mt-1" value={f.vence} onChange={(e) => setF({ ...f, vence: e.target.value })} /></label>
+      </div>
+      <label className="block text-[11px] font-bold text-slate-500">Título<input className="inp w-full mt-1" value={f.titulo} placeholder={'Material de productos — ' + (f.proveedor || 'proveedor')} onChange={(e) => setF({ ...f, titulo: e.target.value })} /></label>
+      <label className="block text-[11px] font-bold text-slate-500">Nota para el proveedor (opcional)<textarea className="inp w-full mt-1" rows={2} value={f.nota} onChange={(e) => setF({ ...f, nota: e.target.value })} /></label>
+      <p className="text-xs font-bold text-slate-700">Productos ({items.length})</p>
+      {items.map((it) => <div key={it.clave} className="flex items-center gap-2 text-xs rounded-lg border border-slate-200 px-2 py-1.5"><span style={{ flex: 1 }}><b>{it.nombre || it.codigo || it.clave}</b> <span className="text-slate-400">{it.codigo}</span></span><button className="btn" aria-label="Quitar" onClick={() => setItems((x) => x.filter((y) => y.clave !== it.clave))}><X /></button></div>)}
+      {eligiendo ? <SelectorProductos excluir={items.map((x) => x.clave)} listo={(l) => { setItems((x) => [...x, ...l]); setEligiendo(false) }} />
+        : <button className="btn" onClick={() => setEligiendo(true)}><Plus />Agregar productos</button>}
+    </Ventana>
   )
 }
 

@@ -71,3 +71,23 @@
 .sp-eventos li{padding:7px 0;border-bottom:1px solid #f1f5f9}
 .sp-eventos small{display:block;color:#94a3b8;font-size:11px}
 .sp-wa{display:block;text-align:center;margin-top:16px;background:#25d366;color:#fff;text-decoration:none;font-weight:800;border-radius:12px;padding:13px;font-size:14px}
+/* Material de productos para proveedores (/material/?c=…) */
+.mt-nota{font-size:13px;color:#334155;background:#f8fafc;border-radius:10px;padding:9px 12px;margin:10px 0 0}
+.mt-sub{display:flex;gap:10px;align-items:center;font-size:12.5px;margin-top:10px}
+.mt-sub span:first-child{max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mt-prod{border:1px solid var(--line);border-radius:14px;padding:12px;margin-top:14px}
+.mt-cab{display:flex;gap:12px;align-items:flex-start}
+.mt-cab img,.mt-n{width:64px;height:64px;border-radius:10px;object-fit:contain;background:#f1f5f9;flex-shrink:0}
+.mt-n{display:grid;place-items:center;font-weight:800;color:#94a3b8}
+.mt-cab b,.mt-cab span,.mt-cab small{display:block}
+.mt-mod{font-size:15px;color:var(--primary)}.mt-ci{font-size:13px;color:var(--navy)}
+.mt-nom{font-size:13.5px;color:#334155;margin-top:2px}.mt-cab small{font-size:11.5px;color:#64748b;margin-top:2px}
+.mt-pide{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.mt-pide span{font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:99px;background:#fff7e8;color:#b45309}
+.mt-pide span.ok{background:#e6f6f1;color:var(--teal)}
+.mt-acc{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}.mt-acc .enc-inp{min-width:200px}
+.mt-btn{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:10px;padding:10px 14px;background:var(--primary);color:#fff;font:inherit;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap}
+.mt-btn.sec{background:#fff;color:var(--primary);border:1.5px solid #cfe0f0}
+.mt-btn:disabled{opacity:.55;cursor:default}
+.mt-arch{margin:10px 0 0;padding-left:18px;font-size:12.5px;color:#334155}
+.mt-arch li{margin:3px 0}
