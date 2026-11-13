@@ -575,6 +575,15 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
   const [abierto, setAbierto] = useState(false)
   useEffect(() => { const t = setTimeout(() => setAbierto(true), 10); return () => clearTimeout(t) }, [])
   const campo = g.tabla === 'leads' ? 'lead_id' : 'cotizacion_id'
+  const [comprobante, setComprobante] = useState<{ ruta: string; url: string } | null>(null)
+  useEffect(() => {
+    setComprobante(null)
+    if (g.tabla !== 'cotizaciones') return
+    supabase.from('cotizaciones').select('detalle_venta').eq('id', g.id).single().then(({ data }) => {
+      const ruta = (data?.detalle_venta as { comprobantePagoUrl?: string } | null)?.comprobantePagoUrl
+      if (ruta) supabase.storage.from('crm').createSignedUrl(ruta, 3600).then(({ data: s }) => { if (s) setComprobante({ ruta, url: s.signedUrl }) })
+    })
+  }, [g.id, g.tabla])
 
   const cargarHistorial = useCallback(() => {
     supabase.from('interacciones').select('id,fecha,tipo,nota,usuario_texto').eq(campo, g.id).is('deleted_at', null).order('fecha', { ascending: false }).limit(200)
@@ -655,6 +664,22 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
       items: await enriquecerItems(((r.items ?? []) as Record<string, any>[]).map((i) => ({ ...i, precio: Number(i.precio) || 0, cantidad: Number(i.cantidad) || 0, descuento: Number(i.descuento) || 0, iva: i.iva !== false })) as never), // eslint-disable-line @typescript-eslint/no-explicit-any
       pagoEntrega: venta ? { pago: [r.estado_pago, r.metodo_pago].filter(Boolean).join(' · '), entrega: r.tipo_entrega ?? '', detalle: [r.direccion_entrega, r.fecha_entrega ? 'Fecha de entrega: ' + r.fecha_entrega : ''].filter(Boolean) } : null,
     })
+  }
+
+  async function revertirGanado() {
+    if (g.codigo) {
+      const { data: fact } = await supabase.from('facturas').select('estado,numero_contifico').eq('codigo', g.codigo).is('deleted_at', null).maybeSingle()
+      if (fact && fact.estado === 'Facturado') { aviso('Ya tiene factura' + (fact.numero_contifico ? ' N.º ' + fact.numero_contifico : '') + ' generada: no se puede revertir. Usa Notas de Crédito en Facturación.'); return }
+    }
+    const { error } = await supabase.from(g.tabla).update({ estado_crm: 'En Negociación', ultima_actividad: new Date().toISOString() }).eq('id', g.id)
+    if (error) { aviso('No se pudo revertir: ' + error.message); return }
+    // Era "Ganado" solo por error (sin venta válida): la factura "Pendiente" que se creó al marcarlo se elimina para no dejarla huérfana.
+    if (g.codigo) await supabase.from('facturas').update({ deleted_at: new Date().toISOString() }).eq('codigo', g.codigo).is('deleted_at', null)
+    await supabase.from('interacciones').insert({
+      id: crypto.randomUUID(), codigo: 'INT-' + crypto.randomUUID().slice(0, 8), ref_tipo: g.tipo, ref_codigo: g.codigo || null,
+      [campo]: g.id, tipo: 'Cambio de Estado', nota: 'Revertido de Ganado a En Negociación por ' + perfil.nombre + ' (sin venta válida asociada).', empleado_id: perfil.id, usuario_texto: perfil.nombre,
+    })
+    aviso('Revertido a En Negociación.'); cerrar(); recargar()
   }
 
   async function eliminarGestion(motivo: string) {
@@ -740,6 +765,9 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
           {g.tabla === 'cotizaciones' && (
             <button onClick={abrirProforma} className="w-full text-sm font-bold py-2.5 rounded-xl border flex items-center justify-center gap-1.5" style={{ borderColor: '#c0392b', color: '#c0392b' }}><FileText className="w-4 h-4" /> Ver proforma (PDF A4)</button>
           )}
+          {comprobante && (
+            <a href={comprobante.url} target="_blank" rel="noopener noreferrer" className="w-full text-sm font-bold py-2.5 rounded-xl border flex items-center justify-center gap-1.5" style={{ borderColor: '#16a34a', color: '#16a34a' }}><ImagePlus className="w-4 h-4" /> Ver comprobante de transferencia</a>
+          )}
 
           {g.tabla === 'leads' && g.estado !== 'Ganado' && g.estado !== 'Perdido' && (
             <button onClick={cotizar} className="w-full text-sm font-bold py-2.5 rounded-xl border flex items-center justify-center gap-1.5" style={{ borderColor: 'var(--primary)', color: 'var(--primary)' }}><FilePlus2 className="w-4 h-4" /> Crear cotización</button>
@@ -774,6 +802,10 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
             </div>
             <button onClick={guardarNota} disabled={guardando} className="mt-1.5 w-full text-white text-xs font-bold py-2 rounded-lg transition-transform hover:-translate-y-0.5" style={{ background: 'var(--teal)' }}>{guardando ? 'Guardando…' : 'Guardar Nota'}</button>
           </div>
+
+          {g.estado === 'Ganado' && puede(perfil, mod, 'editar') && (
+            <button onClick={revertirGanado} className="w-full text-xs font-bold py-2 rounded-lg border flex items-center justify-center gap-1.5" style={{ borderColor: '#fcd34d', color: '#92400e', background: '#fffbeb' }}><Repeat className="w-3.5 h-3.5" /> Revertir a En Negociación (fue un error)</button>
+          )}
 
           {(g.estado === 'Ganado' ? perfil.es_superadmin : puede(perfil, mod, 'eliminar')) && (
             <button onClick={() => setElim(true)} className="w-full text-xs font-bold py-2 rounded-lg border flex items-center justify-center gap-1.5" style={{ borderColor: '#fecaca', color: '#b91c1c', background: '#fff5f5' }}><Trash2 className="w-3.5 h-3.5" /> Eliminar {g.estado === 'Ganado' ? 'venta' : 'gestión'}</button>

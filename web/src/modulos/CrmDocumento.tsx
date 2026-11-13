@@ -111,6 +111,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   const [tipoPago, setTipoPago] = useState('')
   const [plazo, setPlazo] = useState('')
   const [obsPago, setObsPago] = useState('')
+  const [comprobante, setComprobante] = useState<File | null>(null)
   const [anticipo, setAnticipo] = useState('')
   const [entrega, setEntrega] = useState('')
   const [dirEntrega, setDirEntrega] = useState('')
@@ -237,6 +238,13 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     const existente = ed ? { id: ed.id as string, codigo: ed.codigo as string } : origen?.tabla === 'cotizaciones' ? { id: origen.id, codigo: origen.codigo } : null
     let id = existente ? existente.id : crypto.randomUUID()
     let codigo = existente ? existente.codigo : (esVenta ? 'VEN-' : 'COT-') + crypto.randomUUID().slice(0, 6).toUpperCase()
+    if (esVenta && comprobante) {
+      const ext = (comprobante.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 5) || 'jpg'
+      const ruta = `ventas/${id}/comprobante_${Date.now()}.${ext}`
+      const { error: errSubida } = await supabase.storage.from('crm').upload(ruta, comprobante, { contentType: comprobante.type || 'image/jpeg' })
+      if (errSubida) { setError('No se pudo subir el comprobante: ' + errSubida.message); setGuardando(false); return }
+      ;(datos.detalle_venta as Record<string, unknown>).comprobantePagoUrl = ruta
+    }
     const r = existente
       ? await supabase.from('cotizaciones').update(datos).eq('id', id)
       : await supabase.from('cotizaciones').insert({ id, codigo, empresa, fecha: ahora, lead_id: origen?.tabla === 'leads' ? origen.id : null, ...datos })
@@ -460,7 +468,10 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
                 <div className="flex flex-wrap gap-1.5">{PLAZOS.map((p) => botonOpc(p, plazo, setPlazo, 'ns-plazo-btn', p.toLowerCase().replace('dias', 'días')))}</div></div>
             )}
             {pago === 'Pagado' && tipoPago === 'Transferencia' && (
-              <label className="ns-drop ns-reveal" style={{ opacity: 0.6, cursor: 'not-allowed' }}><ImagePlus className="w-4 h-4" /><span>Comprobante de transferencia (foto) <span className="text-[10px] text-slate-400 font-normal">· disponible al conectar el almacenamiento de archivos</span></span></label>
+              <label className="ns-drop ns-reveal" style={{ cursor: 'pointer' }}>
+                <ImagePlus className="w-4 h-4" /><span>{comprobante ? comprobante.name : 'Comprobante de transferencia (foto)'}</span>
+                <input type="file" accept="image/*" className="hidden" onChange={(e) => setComprobante(e.target.files?.[0] ?? null)} />
+              </label>
             )}
             {pago && <input type="text" value={obsPago} onChange={(e) => setObsPago(e.target.value)} placeholder="Observación de pago (condiciones, abonos…)" className="ns-input mb-2 ns-reveal" />}
             {(pago === 'Contraentrega' || pago === 'Acuerdo de Pago' || pago === 'Crédito') && <input type="number" min="0" step="0.01" value={anticipo} onChange={(e) => setAnticipo(e.target.value)} placeholder="Anticipo recibido ($)" className="ns-input" />}
