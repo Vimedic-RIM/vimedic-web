@@ -295,7 +295,7 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
           </section>
         )}
         {tab === 'ofertas' && <ListaOfertas ofertas={ofertasVis} prods={P} abrir={(o) => abrirProd(P.find((p) => p.id === o.productoId) ?? productoDesdeOferta(o), o)} />}
-        {tab === 'aprobar' && <PorAprobar campanas={campanasPendientes} prods={P} aviso={aviso} recargar={cargar} />}
+        {tab === 'aprobar' && <PorAprobar campanas={campanasPendientes} prods={P} margenMinimo={cfg.margenMinimo} aviso={aviso} recargar={cargar} />}
         {tab === 'res' && <Resultados ofertas={ofertasVis.filter((o) => o.estado !== 'Programada')} />}
       </main>
 
@@ -351,10 +351,12 @@ function Tarjeta({ p, sel, click }: { p: Prod; sel: boolean; click: () => void }
 }
 
 type ProdPend = { id: string; codigo: string; nombre: string; imagen: string; categoria: string; pvp: number; costo: number | null }
-function PorAprobar({ campanas, prods, aviso, recargar }: { campanas: CampanaPend[]; prods: Prod[]; aviso: (t: string) => void; recargar: () => void }) {
+function PorAprobar({ campanas, prods, margenMinimo, aviso, recargar }: { campanas: CampanaPend[]; prods: Prod[]; margenMinimo: number; aviso: (t: string) => void; recargar: () => void }) {
   const [extra, setExtra] = useState<Record<string, ProdPend>>({})
   const [ventasTot, setVentasTot] = useState<Record<string, number>>({})
   const [orden, setOrden] = useState('cat')
+  const [busca, setBusca] = useState('')
+  const [filtroCamp, setFiltroCamp] = useState('')
   const [ediciones, setEdiciones] = useState<Record<string, string>>({})
   const [ocupado, setOcupado] = useState('')
   const filas = useMemo(() => campanas.flatMap((c) => itemsPendientes(c).map((it) => ({ campana: c, item: it }))), [campanas])
@@ -415,10 +417,14 @@ function PorAprobar({ campanas, prods, aviso, recargar }: { campanas: CampanaPen
     }
   }
 
+  const descDe = (campanaId: string, item: ItemCampana) => Math.max(0, Math.min(90, Number(ediciones[campanaId + ':' + item.id] ?? item.desc ?? 0) || 0))
+  // Máximo % que respeta el margen mínimo; solo se sabe cuando el costo está cargado (si no, decide el servidor).
+  const maxDe = (p: Prod | null) => (p && p.costo > 0 && p.pvp > 0 ? Math.max(0, Math.floor((1 - R2(p.costo * (1 + margenMinimo / 100)) / p.pvp) * 100)) : null)
+
   async function decidir(campanaId: string, codigo: string, decision: 'Aprobar' | 'Rechazar', descAprobado?: number) {
     const clave = campanaId + ':' + codigo
     let comentario: string | null = null
-    if (decision === 'Rechazar') comentario = window.prompt('¿Por qué se rechaza? (opcional, lo verá Marketing)', '') ?? ''
+    if (decision === 'Rechazar') { const r = window.prompt('¿Por qué se rechaza? (opcional, lo verá Marketing)', ''); if (r === null) return; comentario = r }
     setOcupado(clave)
     const { error } = await supabase.rpc('revisar_item_promocion', { p_campana_id: campanaId, p_item_codigo: codigo, p_decision: decision, p_desc_aprobado: descAprobado ?? null, p_comentario: comentario || null })
     setOcupado('')
@@ -427,46 +433,102 @@ function PorAprobar({ campanas, prods, aviso, recargar }: { campanas: CampanaPen
     recargar()
   }
 
-  const ordenadas = [...filas].sort((a, b) => {
+  // Uno por uno y en orden: cada decisión reescribe los productos de la campaña, en paralelo se pisarían.
+  async function decidirTodos(c: CampanaPend, lista: ItemCampana[], decision: 'Aprobar' | 'Rechazar') {
+    let comentario: string | null = null
+    if (decision === 'Rechazar') {
+      const r = window.prompt(`¿Rechazar los ${lista.length} producto(s) de "${c.nombre}"? Motivo (opcional, lo verá Marketing):`, '')
+      if (r === null) return
+      comentario = r
+    } else if (!confirm(`¿Aprobar ${lista.length} producto(s) de "${c.nombre}" con el % que tiene cada tarjeta?`)) return
+    setOcupado('grupo:' + c.id)
+    let ok = 0, omitidos = 0; const errores: string[] = []
+    for (const it of lista) {
+      const d = descDe(c.id, it), mx = maxDe(prodDe(it.id))
+      if (decision === 'Aprobar' && (d <= 0 || (mx != null && d > mx))) { omitidos++; continue }
+      const { error } = await supabase.rpc('revisar_item_promocion', { p_campana_id: c.id, p_item_codigo: it.id, p_decision: decision, p_desc_aprobado: decision === 'Aprobar' ? d : null, p_comentario: comentario || null })
+      if (error) errores.push(it.id + ': ' + error.message); else ok++
+    }
+    setOcupado('')
+    aviso(`${ok} producto(s) ${decision === 'Aprobar' ? 'aprobados' : 'rechazados'}${omitidos ? ` · ${omitidos} omitido(s) por pasar el máximo o estar en 0%` : ''}${errores.length ? ` · ${errores.length} con error` : ''}`)
+    if (errores.length) setTimeout(() => aviso(errores[0]), 2900)
+    recargar()
+  }
+
+  const cmp = (a: { campana: CampanaPend; item: ItemCampana }, b: { campana: CampanaPend; item: ItemCampana }) => {
     const pa = prodDe(a.item.id), pb = prodDe(b.item.id)
     if (orden === 'pvp') return (pb?.pvp ?? 0) - (pa?.pvp ?? 0)
-    if (orden === 'desc') return (Number(b.item.desc) || 0) - (Number(a.item.desc) || 0)
+    if (orden === 'desc') return descDe(b.campana.id, b.item) - descDe(a.campana.id, a.item)
     if (orden === 'nombre') return (pa?.nombre ?? a.item.id).localeCompare(pb?.nombre ?? b.item.id, 'es')
     return (pa?.categoria ?? '').localeCompare(pb?.categoria ?? '', 'es') || (pa?.nombre ?? '').localeCompare(pb?.nombre ?? '', 'es')
-  })
+  }
+  const palabras = norm(busca).split(/\s+/).filter(Boolean)
+  const visibles = filas.filter((f) => (!filtroCamp || f.campana.id === filtroCamp)
+    && (!palabras.length || palabras.every((w) => norm([f.item.id, prodDe(f.item.id)?.nombre, prodDe(f.item.id)?.categoria].join(' ')).includes(w))))
+  const grupos = campanas.map((c) => ({ c, filas: visibles.filter((f) => f.campana.id === c.id).sort(cmp) })).filter((g) => g.filas.length)
+  const resumen = visibles.reduce((a, f) => {
+    const p = prodDe(f.item.id), d = descDe(f.campana.id, f.item)
+    a.desc += d; if (p && p.pvp > 0) a.ahorro += R2(p.pvp * d / 100)
+    return a
+  }, { desc: 0, ahorro: 0 })
 
   if (!filas.length) return <div className="vacio"><BadgePercent className="mx-auto mb-2" style={{ width: 34, height: 34 }} /><p className="font-semibold">No hay productos por aprobar.</p><p className="text-sm">Cuando Marketing envíe una campaña de Promociones a aprobación, sus productos aparecen aquí.</p></div>
   return (
-    <>
-    <div className="flex justify-end mb-3">
-      <select className="inp" style={{ width: 'auto' }} value={orden} onChange={(e) => setOrden(e.target.value)}>
-        <option value="cat">Categoría (A-Z)</option><option value="pvp">Precio (mayor a menor)</option><option value="desc">% Descuento (mayor a menor)</option><option value="nombre">Nombre (A-Z)</option></select>
-    </div>
-    <div className="grid-p">
-      {ordenadas.map(({ campana, item }) => {
-        const p = prodDe(item.id)
-        const clave = campana.id + ':' + item.id
-        const valor = ediciones[clave] ?? String(item.desc ?? 0)
-        const trabajando = ocupado === clave
-        if (!p) return <article key={clave} className="pc"><p className="text-[11px] text-amber-700 p-3">Cargando {item.id}…</p></article>
+    <section className="space-y-4">
+      <div className="pa-kpis">
+        <div className="pa-kpi"><small>Productos por aprobar</small><b>{visibles.length}</b></div>
+        <div className="pa-kpi"><small>Campañas</small><b>{grupos.length}</b></div>
+        <div className="pa-kpi"><small>Descuento promedio</small><b>{visibles.length ? Math.round(resumen.desc / visibles.length * 10) / 10 : 0}%</b></div>
+        <div className="pa-kpi"><small>Ahorro total para clientes</small><b>{money0(resumen.ahorro)}</b><span>por unidad, con los % actuales</span></div>
+      </div>
+      <div className="flex gap-2 flex-wrap items-center">
+        <div className="relative flex-1 min-w-[220px]"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input className="inp" style={{ paddingLeft: 36 }} placeholder="Buscar producto, código o categoría…" value={busca} onChange={(e) => setBusca(e.target.value)} /></div>
+        {campanas.length > 1 && <select className="inp" style={{ width: 'auto' }} value={filtroCamp} onChange={(e) => setFiltroCamp(e.target.value)}>
+          <option value="">Todas las campañas</option>{campanas.map((c) => <option key={c.id} value={c.id}>{c.nombre} ({itemsPendientes(c).length})</option>)}</select>}
+        <select className="inp" style={{ width: 'auto' }} value={orden} onChange={(e) => setOrden(e.target.value)}>
+          <option value="cat">Categoría (A-Z)</option><option value="pvp">Precio (mayor a menor)</option><option value="desc">% Descuento (mayor a menor)</option><option value="nombre">Nombre (A-Z)</option></select>
+      </div>
+      {!grupos.length && <div className="vacio"><p className="font-semibold">Ningún producto coincide con el filtro.</p></div>}
+      {grupos.map(({ c, filas: fs }) => {
+        const enGrupo = ocupado === 'grupo:' + c.id
         return (
-          <TarjetaAprobar key={clave} p={p} conAnalitica={porCodigo.has(item.id)} ventasTotales={ventasTot[item.id]} campana={campana} valor={valor} setValor={(v) => setEdiciones((x) => ({ ...x, [clave]: v }))} nota={item.nota}
-            trabajando={trabajando} onAprobar={(d) => decidir(campana.id, item.id, 'Aprobar', d)} onRechazar={() => decidir(campana.id, item.id, 'Rechazar')} />
+          <div key={c.id} className="pa-grupo">
+            <div className="pa-cab">
+              <div className="min-w-0 flex-1">
+                <p className="font-bold text-[15px] text-slate-800">{c.nombre}</p>
+                <p className="text-[12px] text-slate-500">{c.codigo ? c.codigo + ' · ' : ''}{(c.inicio || c.fin) ? `vigente ${fechaC(c.inicio ?? '')} → ${fechaC(c.fin ?? '')} · ` : ''}{fs.length} producto{fs.length === 1 ? '' : 's'} por revisar</p>
+              </div>
+              <button className="btn" disabled={enGrupo} style={{ color: '#c0392b', borderColor: '#fecaca' }} onClick={() => decidirTodos(c, fs.map((f) => f.item), 'Rechazar')}><XCircle style={{ width: 16, height: 16 }} />Rechazar todos</button>
+              <button className="btn" disabled={enGrupo} style={{ background: '#04896f', borderColor: '#04896f', color: '#fff' }} onClick={() => decidirTodos(c, fs.map((f) => f.item), 'Aprobar')}><Check style={{ width: 16, height: 16 }} />{enGrupo ? 'Procesando…' : `Aprobar todos (${fs.length})`}</button>
+            </div>
+            <div className="grid-p">
+              {fs.map(({ campana, item }) => {
+                const p = prodDe(item.id)
+                const clave = campana.id + ':' + item.id
+                const valor = ediciones[clave] ?? String(item.desc ?? 0)
+                if (!p) return <article key={clave} className="pc"><p className="text-[11px] text-amber-700 p-3">Cargando {item.id}…</p></article>
+                return (
+                  <TarjetaAprobar key={clave} p={p} conAnalitica={porCodigo.has(item.id)} ventasTotales={ventasTot[item.id]} maxDesc={maxDe(p)} valor={valor} setValor={(v) => setEdiciones((x) => ({ ...x, [clave]: v }))} nota={item.nota}
+                    trabajando={ocupado === clave || enGrupo} onAprobar={(d) => decidir(campana.id, item.id, 'Aprobar', d)} onRechazar={() => decidir(campana.id, item.id, 'Rechazar')} />
+                )
+              })}
+            </div>
+          </div>
         )
       })}
-    </div>
-    </>
+    </section>
   )
 }
 
-function TarjetaAprobar({ p, conAnalitica, ventasTotales, campana, valor, setValor, nota, trabajando, onAprobar, onRechazar }: {
-  p: Prod; conAnalitica: boolean; ventasTotales?: number; campana: CampanaPend; valor: string; setValor: (v: string) => void; nota?: string; trabajando: boolean; onAprobar: (desc: number) => void; onRechazar: () => void
+function TarjetaAprobar({ p, conAnalitica, ventasTotales, maxDesc, valor, setValor, nota, trabajando, onAprobar, onRechazar }: {
+  p: Prod; conAnalitica: boolean; ventasTotales?: number; maxDesc: number | null; valor: string; setValor: (v: string) => void; nota?: string; trabajando: boolean; onAprobar: (desc: number) => void; onRechazar: () => void
 }) {
   const g = GRUPOS[p.grupo]
   const desc = Math.max(0, Math.min(90, Number(valor) || 0))
   const precio = p.pvp > 0 ? R2(p.pvp * (1 - desc / 100)) : 0
   const ahorro = p.pvp > 0 ? R2(p.pvp - precio) : 0
   const sobrestock = p.stock >= 3
+  const pasa = maxDesc != null && desc > maxDesc
   return (
     <article className="pc">
       <div className="pc-top"><div className="ph">{p.img ? <img loading="lazy" src={p.img} alt="" onError={(ev) => ev.currentTarget.remove()} /> : <Package style={{ width: 28, height: 28 }} />}</div>
@@ -482,7 +544,6 @@ function TarjetaAprobar({ p, conAnalitica, ventasTotales, campana, valor, setVal
           </div>
           <p className="font-bold text-[14px] leading-snug text-slate-800 line-clamp-2">{p.nombre}</p>
           <p className="text-[11px] text-slate-400 mono">{p.codigo} · {p.categoria}</p>
-          <p className="text-[11.5px] mt-1" style={{ color: '#055c9d' }}><b>{campana.nombre}</b>{(campana.inicio || campana.fin) && <> · vigente {fechaC(campana.inicio ?? '')} → {fechaC(campana.fin ?? '')}</>}</p>
           {conAnalitica && <p className="text-[12px] text-slate-600 mt-1"><b>{p.stock}</b> u. · {money0(p.capitalPvp)} detenido{p.ultVenta ? ' · última venta ' + meses(p.diasSinVenta ?? 0) : ' · sin ventas registradas'}</p>}
           {p.conObs && <p className="text-[11.5px] text-violet-700 font-semibold mt-1 line-clamp-2">{p.motivosObs.join(' · ')}</p>}
           {nota && <p className="text-[11.5px] text-slate-500 mt-1 italic">"{nota}"</p>}
@@ -498,10 +559,16 @@ function TarjetaAprobar({ p, conAnalitica, ventasTotales, campana, valor, setVal
           </div>
         </div>
         {p.pvp > 0 && desc > 0 && <p className="text-[11.5px] font-semibold mt-1.5" style={{ color: '#04896f' }}>El cliente ahorra {money(ahorro)}</p>}
+        {pasa && (
+          <p className="text-[11.5px] font-semibold mt-1.5" style={{ color: '#c0392b' }}>
+            Pasa el máximo permitido ({maxDesc}%) para no bajar del margen mínimo.{' '}
+            <button type="button" className="underline" disabled={trabajando} onClick={() => setValor(String(maxDesc))}>Ajustar a {maxDesc}%</button>
+          </p>
+        )}
       </div>
       <div className="flex gap-2" style={{ margin: '0 12px 12px' }}>
         <button className="btn flex-1 justify-center" disabled={trabajando} style={{ background: '#c0392b', borderColor: '#c0392b', color: '#fff' }} onClick={onRechazar}><XCircle className="w-4 h-4" />Rechazar</button>
-        <button className="btn flex-1 justify-center" disabled={trabajando || desc <= 0} style={{ background: '#04896f', borderColor: '#04896f', color: '#fff' }} onClick={() => onAprobar(desc)}><Check className="w-4 h-4" />Aprobar</button>
+        <button className="btn flex-1 justify-center" disabled={trabajando || desc <= 0 || pasa} style={{ background: '#04896f', borderColor: '#04896f', color: '#fff' }} onClick={() => onAprobar(desc)}><Check className="w-4 h-4" />Aprobar</button>
       </div>
     </article>
   )

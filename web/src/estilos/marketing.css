@@ -843,3 +843,20 @@
 body.vm-con-rail .vm-mkt #sideNav{left:calc(var(--vr-w) + 10px)}
 @media(max-width:639px){body.vm-con-rail .vm-mkt #sideNav{left:50%}}
 @media (min-width:640px){.sm\:max-w-lg{max-width:32rem}}
+/* Promociones: campaña abierta a pantalla completa (barra superior + panel lateral) */
+.vm-mkt .mkc{display:flex;flex-direction:column;gap:14px}
+.vm-mkt .mkc-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:#fff;border:1px solid #e2e8f0;border-radius:18px;padding:10px 12px;box-shadow:0 1px 2px #0b25450a}
+.vm-mkt .mkc-cuerpo{display:grid;gap:14px;grid-template-columns:minmax(0,1fr);align-items:start}
+.vm-mkt .mkc-lado{display:flex;flex-direction:column;gap:12px}
+@media(min-width:1024px){
+  .vm-mkt .mkc-bar{position:sticky;top:60px;z-index:20}
+  .vm-mkt .mkc-cuerpo{grid-template-columns:290px minmax(0,1fr)}
+  .vm-mkt .mkc-lado{position:sticky;top:132px;max-height:calc(100vh - 150px);overflow:auto}
+}
+.vm-mkt .mkc-res{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.vm-mkt .mkc-res>div{background:#f8fafc;border-radius:12px;padding:8px 10px}
+.vm-mkt .mkc-res small{display:block;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em}
+.vm-mkt .mkc-res b{display:block;font-size:18px;color:#0b2545}
+.vm-mkt .mkc-chips{display:flex;gap:6px;flex-wrap:wrap}
+.vm-mkt .mkc-chips button{font-size:11px;font-weight:700;padding:6px 10px;border-radius:999px;border:1px solid #e2e8f0;background:#fff;color:#475569}
+.vm-mkt .mkc-chips button.on{background:#0b2545;border-color:#0b2545;color:#fff}

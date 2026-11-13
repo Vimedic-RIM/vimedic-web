@@ -275,3 +275,12 @@
 body.vm-con-rail .vm-of .planbar{left:var(--vr-w);z-index:130}
 @media(max-width:639px){body.vm-con-rail .vm-of .planbar{left:0}.vm-of .vm-head-pad{padding-left:56px}}
 .vm-of input[type=range]{width:100%;accent-color:var(--acc)}
+/* Por aprobar: resumen y cabecera por campaña */
+.vm-of .pa-kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+@media(min-width:900px){.vm-of .pa-kpis{grid-template-columns:repeat(4,1fr)}}
+.vm-of .pa-kpi{background:#fff;border:1px solid var(--line);border-radius:16px;padding:12px}
+.vm-of .pa-kpi small{display:block;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.vm-of .pa-kpi b{display:block;font-family:"Space Grotesk",sans-serif;font-size:24px;color:var(--navy);margin-top:2px}
+.vm-of .pa-kpi span{display:block;font-size:11.5px;color:#475569;margin-top:2px}
+.vm-of .pa-grupo{display:flex;flex-direction:column;gap:12px}
+.vm-of .pa-cab{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:#fff;border:1px solid var(--line);border-left:4px solid #055c9d;border-radius:16px;padding:12px 14px}

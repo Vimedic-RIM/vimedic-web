@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, BadgePercent, Check, FileDown, FolderUp, Megaphone, Package, Plus, Search, Send, Trash2, Users, X, XCircle } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AlertTriangle, ArrowLeft, BadgePercent, Check, FileDown, FolderUp, Megaphone, Package, Plus, Search, Send, Sparkles, Trash2, Users, X, XCircle } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
 import { imagen as imgUrl } from './Inventario'
@@ -205,6 +205,8 @@ export function Promociones({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
   }
   if (error) return <div className="card p-6 text-sm text-amber-800 bg-amber-50 border-amber-200">{error}</div>
   if (!lista) return <p className="text-xs text-slate-400">Cargando…</p>
+  // La campaña abierta ocupa toda el área de Marketing (con su barra superior y menú lateral a la vista).
+  if (abierta) return <DetalleCampana c={abierta} perfil={perfil} aprobar={aprobar} editar={crear} puedeEliminar={puedeEliminar} cerrar={() => { setAbierta(null); cargar() }} mover={mover} eliminar={eliminar} actualizarCampo={actualizarCampo} />
   return (
     <section>
       <div className="flex items-center gap-2 mb-4"><p className="text-xs text-slate-500 mr-auto">{lista.length} campaña{lista.length === 1 ? '' : 's'}</p>
@@ -220,7 +222,6 @@ export function Promociones({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
             <p className="text-[11px] text-slate-400">{(c.items ?? []).length} producto{(c.items ?? []).length === 1 ? '' : 's'} · {(c.combos ?? []).length} combo{(c.combos ?? []).length === 1 ? '' : 's'}</p>
           </article>) })}
       </div>
-      {abierta && <DetalleCampana c={abierta} perfil={perfil} aprobar={aprobar} editar={crear} puedeEliminar={puedeEliminar} cerrar={() => setAbierta(null)} mover={mover} eliminar={eliminar} actualizarCampo={actualizarCampo} />}
       {nueva && <NuevaCampana perfil={perfil} cerrar={() => setNueva(false)} hecho={() => { setNueva(false); cargar(); aviso('Campaña creada.') }} aviso={aviso} />}
     </section>
   )
@@ -259,11 +260,12 @@ function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mov
   const verCostos = puede(perfil, 'promociones', 'ver_costos') || puede(perfil, 'ofertas', 'ver_costos')
   const [prods, setProds] = useState<ProdPromo[] | null>(null)
   const [analisis, setAnalisis] = useState<Prod[] | null>(null)
-  const [ventasTot, setVentasTot] = useState<Record<string, number>>({})
   const [orden, setOrden] = useState('cat')
   const [generando, setGenerando] = useState(false)
-  const [buscando, setBuscando] = useState(false)
+  const [vista, setVista] = useState<'productos' | 'agregar'>('productos')
+  const [filtro, setFiltro] = useState('')
   const items = c.items ?? []
+  useEffect(() => { window.scrollTo({ top: 0 }) }, [c.id])
 
   // Misma analítica de "stock dormido" que usa Oportunidades (antigüedad, interés, observaciones):
   // solo trae candidatos (dormidos o con novedades), por eso los que no aparecen ahí quedan en blanco.
@@ -312,25 +314,16 @@ function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mov
     return () => { vivo = false }
   }, [items, verCostos, analisis])
 
-  // Ventas totales de siempre (no solo los últimos 12 meses), para la etiqueta "N ventas registradas".
-  useEffect(() => {
-    const ids = [...new Set((prods ?? []).map((p) => p.id).filter(Boolean))]
-    if (!ids.length) return
-    let vivo = true
-    supabase.from('movimientos_inventario').select('producto_id,cantidad').in('producto_id', ids).eq('tipo', 'SALIDA').is('deleted_at', null).then(({ data }) => {
-      if (!vivo) return
-      const porId: Record<string, number> = {}
-      ;((data ?? []) as { producto_id: string; cantidad: number }[]).forEach((m) => { porId[m.producto_id] = (porId[m.producto_id] || 0) + Math.abs(Number(m.cantidad) || 0) })
-      const porCod: Record<string, number> = {}
-      ;(prods ?? []).forEach((p) => { if (p.id) porCod[p.codigo] = porId[p.id] || 0 })
-      setVentasTot((x) => ({ ...x, ...porCod }))
-    })
-    return () => { vivo = false }
-  }, [prods])
+  const ventasPorId = useVentasTotales((prods ?? []).map((p) => p.id))
 
-  async function agregarProducto(codigo: string) {
-    if (items.some((i) => i.id === codigo)) return
-    await actualizarCampo(c, { items: [...items, { id: codigo, desc: 0, nota: '' }] })
+  // Agrega uno o varios de una sola vez (un solo guardado, así no se pisan entre sí).
+  async function agregarProductos(nuevos: { codigo: string; desc: number }[]) {
+    const ya = new Set(items.map((i) => i.id))
+    const lista = nuevos.filter((n) => !ya.has(n.codigo))
+    if (!lista.length) return
+    const todos = [...items, ...lista.map((n) => ({ id: n.codigo, desc: n.desc, descPropuesto: n.desc, nota: '' }))]
+    const reabrir = lista.some((n) => n.desc > 0) && ['Aprobada', 'Rechazada'].includes(c.estado)
+    await actualizarCampo(c, reabrir ? { items: todos, estado: 'En aprobación' } : { items: todos })
   }
   async function quitarProducto(codigo: string) {
     if (!confirm('¿Quitar este producto de la campaña?')) return
@@ -398,58 +391,120 @@ function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mov
     setGenerando(false)
   }
 
+  const [col, bg] = COLOR_P[c.estado] ?? COLOR_P.Borrador
+  const puedeAgregar = editar && c.estado !== 'Cancelada'
+  const conDesc = items.filter((i) => Number(i.desc) > 0)
+  const res = {
+    aprobados: items.filter((i) => i.estadoAprobacion === 'Aprobado').length,
+    rechazados: items.filter((i) => i.estadoAprobacion === 'Rechazado').length,
+    pendientes: conDesc.filter((i) => !i.estadoAprobacion || i.estadoAprobacion === 'Pendiente').length,
+    promedio: conDesc.length ? Math.round(conDesc.reduce((a, i) => a + (Number(i.desc) || 0), 0) / conDesc.length * 10) / 10 : 0,
+    ahorro: (prods ?? []).reduce((a, p) => a + Math.max(0, p.pvp - p.precioFinal), 0),
+  }
+  const palabras = normalize(filtro).split(/\s+/).filter(Boolean)
+  const visibles = palabras.length ? filas.filter((f) => palabras.every((w) => normalize([f.codigo, f.nombre, f.categoria].join(' ')).includes(w))) : filas
+
   return (
-    <Ventana titulo={c.nombre} ancha cerrar={cerrar} pie={<>
-      {editar && ['Borrador', 'Devuelta'].includes(c.estado) && <button className="btn btn-primary" onClick={() => mover(c, 'En aprobación')}><Send />Enviar a aprobación</button>}
-      {aprobar && c.estado === 'En aprobación' && <>
-        <button className="btn" style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => mover(c, 'Rechazada', com.trim())}>Rechazar campaña</button>
-        <button className="btn" onClick={() => { if (!com.trim()) { alert('Escribe qué se debe corregir.'); return } mover(c, 'Devuelta', com.trim()) }}>Devolver</button>
-        {items.filter((i) => Number(i.desc) > 0).length === 0
-          ? <button className="btn btn-primary" onClick={() => mover(c, 'Aprobada', com.trim())}><Check />Aprobar</button>
-          : <p className="text-[11px] text-slate-500 self-center">Los productos se aprueban o rechazan uno por uno desde Ofertas y Liquidación › Por aprobar.</p>}</>}
-      {editar && ['Aprobada', 'Borrador'].includes(c.estado) && <button className={'btn' + (puedeEliminar ? '' : ' ml-auto')} style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => { if (confirm('¿Cancelar esta campaña?')) mover(c, 'Cancelada') }}><X />Cancelar campaña</button>}
-      {puedeEliminar && <button className="btn ml-auto" style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => eliminar(c)}><Trash2 />Eliminar</button>}</>}>
-      {editar ? (
-        <>
-          <label className="block text-[11px] font-bold text-slate-500">Nombre de la campaña
-            <input className="inp w-full mt-1 font-bold" value={nombreEd} onChange={(e) => setNombreEd(e.target.value)} onBlur={guardarNombre}
-              onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} /></label>
-          <div className="grid grid-cols-2 gap-2.5">
-            <label className="block text-[11px] font-bold text-slate-500">Vigente desde
-              <input type="date" className="inp w-full mt-1" value={inicioEd} onChange={(e) => setInicioEd(e.target.value)} onBlur={guardarVigencia} /></label>
-            <label className="block text-[11px] font-bold text-slate-500">Vigente hasta
-              <input type="date" className="inp w-full mt-1" value={finEd} onChange={(e) => setFinEd(e.target.value)} onBlur={guardarVigencia} /></label>
+    <section className="mkc">
+      <div className="mkc-bar">
+        <button className="btn" onClick={cerrar} title="Volver a las campañas"><ArrowLeft className="w-4 h-4" />Campañas</button>
+        <div className="min-w-0 flex-1">
+          <p className="font-mono-spec text-[11px] text-slate-400">{c.codigo}{c.preventa ? ' · Preventa' : ''}</p>
+          <p className="font-bold text-[15px] text-slate-800 truncate">{c.nombre}</p>
+        </div>
+        <span className="pill" style={{ background: bg, color: col }}>{c.estado}</span>
+        {editar && ['Borrador', 'Devuelta'].includes(c.estado) && <button className="btn btn-primary" onClick={() => mover(c, 'En aprobación')}><Send className="w-4 h-4" />Enviar a aprobación</button>}
+        {aprobar && c.estado === 'En aprobación' && <>
+          <button className="btn" style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => mover(c, 'Rechazada', com.trim())}>Rechazar campaña</button>
+          <button className="btn" onClick={() => { if (!com.trim()) { alert('Escribe en el panel lateral qué se debe corregir.'); return } mover(c, 'Devuelta', com.trim()) }}>Devolver</button>
+          {conDesc.length === 0 && <button className="btn btn-primary" onClick={() => mover(c, 'Aprobada', com.trim())}><Check className="w-4 h-4" />Aprobar</button>}
+        </>}
+        {editar && ['Aprobada', 'Borrador'].includes(c.estado) && <button className="btn" style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => { if (confirm('¿Cancelar esta campaña?')) mover(c, 'Cancelada') }}><X className="w-4 h-4" />Cancelar</button>}
+        {puedeEliminar && <button className="btn" title="Eliminar campaña" style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => eliminar(c)}><Trash2 className="w-4 h-4" /></button>}
+      </div>
+
+      <div className="mkc-cuerpo">
+        <aside className="mkc-lado">
+          <div className="card p-4 space-y-2.5">
+            <p className="text-[10px] font-bold uppercase text-slate-400">Datos de la campaña</p>
+            {editar ? (
+              <>
+                <label className="block text-[11px] font-bold text-slate-500">Nombre
+                  <input className="inp w-full mt-1 font-bold" value={nombreEd} onChange={(e) => setNombreEd(e.target.value)} onBlur={guardarNombre}
+                    onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} /></label>
+                <label className="block text-[11px] font-bold text-slate-500">Vigente desde
+                  <input type="date" className="inp w-full mt-1" value={inicioEd} onChange={(e) => setInicioEd(e.target.value)} onBlur={guardarVigencia} /></label>
+                <label className="block text-[11px] font-bold text-slate-500">Vigente hasta
+                  <input type="date" className="inp w-full mt-1" value={finEd} onChange={(e) => setFinEd(e.target.value)} onBlur={guardarVigencia} /></label>
+              </>
+            ) : <p className="text-xs text-slate-600">{fecha(c.inicio)} → {fecha(c.fin)}</p>}
           </div>
-        </>
-      ) : null}
-      <p className="text-[11px] text-slate-500">{c.codigo} · {fecha(c.inicio)} → {fecha(c.fin)}{c.preventa ? ' · Preventa' : ''} · <b>{c.estado}</b></p>
-      {c.comentario && <p className="text-xs rounded-lg p-2.5 bg-amber-50 text-amber-800">Comentario: {c.comentario}</p>}
-      {aprobar && c.estado === 'En aprobación' && <textarea className="inp w-full" rows={2} placeholder="Comentario para quien envió la campaña" value={com} onChange={(e) => setCom(e.target.value)} />}
 
-      <div className="flex items-center gap-2 flex-wrap">
-        <p className="text-[11px] text-slate-500 mr-auto">{items.length} producto{items.length === 1 ? '' : 's'} en promoción.</p>
-        <select className="inp" style={{ width: 'auto' }} value={orden} onChange={(e) => setOrden(e.target.value)}>{ORDENES_PROMO.map(([v, t]) => (!verCostos && (v === 'costo' || v === 'margen')) ? null : <option key={v} value={v}>{t}</option>)}</select>
-        {editar && !['Cancelada'].includes(c.estado) && <button className="btn btn-sm btn-primary" onClick={() => setBuscando(true)}><Plus className="w-3.5 h-3.5" />Agregar producto</button>}
-        <button className="btn btn-sm" disabled={!filas.length || generando} onClick={exportarPdf}><FileDown className="w-3.5 h-3.5" />{generando ? 'Generando…' : 'Exportar PDF'}</button>
+          <div className="card p-4">
+            <p className="text-[10px] font-bold uppercase text-slate-400 mb-2">Resumen</p>
+            <div className="mkc-res">
+              <div><small>Productos</small><b>{items.length}</b></div>
+              <div><small>Con descuento</small><b>{conDesc.length}</b></div>
+              <div><small>Por aprobar</small><b style={{ color: '#a16207' }}>{res.pendientes}</b></div>
+              <div><small>Aprobados</small><b style={{ color: '#04896f' }}>{res.aprobados}</b></div>
+              <div><small>Rechazados</small><b style={{ color: '#c0392b' }}>{res.rechazados}</b></div>
+              <div><small>% promedio</small><b>{res.promedio}%</b></div>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-2">Ahorro total para clientes: <b className="text-slate-700">{money(res.ahorro)}</b> <span className="text-slate-400">(una unidad de cada uno)</span></p>
+            {res.pendientes > 0 && c.estado === 'En aprobación' && <p className="text-[11px] text-slate-500 mt-1.5">Los productos se aprueban uno por uno en Ofertas y Liquidación › Por aprobar.</p>}
+          </div>
+
+          {(c.comentario || (aprobar && c.estado === 'En aprobación')) && (
+            <div className="card p-4 space-y-2">
+              <p className="text-[10px] font-bold uppercase text-slate-400">Comentarios</p>
+              {c.comentario && <p className="text-xs rounded-lg p-2.5 bg-amber-50 text-amber-800">{c.comentario}</p>}
+              {aprobar && c.estado === 'En aprobación' && <textarea className="inp w-full" rows={3} placeholder="Comentario para quien envió la campaña (obligatorio para devolver)" value={com} onChange={(e) => setCom(e.target.value)} />}
+            </div>
+          )}
+
+          <div className="card p-4">
+            <p className="text-[10px] font-bold uppercase text-slate-400 mb-1.5">Historial</p>
+            {!(c.historial ?? []).length && <p className="text-[11px] text-slate-400">Sin movimientos.</p>}
+            <ul className="space-y-1.5">{[...(c.historial ?? [])].reverse().map((h, i) => <li key={i} className="text-[11px] text-slate-600"><b>{h.accion}</b> · {h.por} · {new Date(h.fecha).toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' })}{h.comentario ? ' — ' + h.comentario : ''}</li>)}</ul>
+          </div>
+        </aside>
+
+        <div className="space-y-3 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="seg">
+              <button type="button" className={vista === 'productos' ? 'active' : ''} onClick={() => setVista('productos')}>Productos de la campaña ({items.length})</button>
+              {puedeAgregar && <button type="button" className={vista === 'agregar' ? 'active' : ''} onClick={() => setVista('agregar')}><Plus className="w-3.5 h-3.5 inline -mt-0.5" /> Agregar productos</button>}
+            </div>
+            {vista === 'productos' && <>
+              <div className="relative flex-1 min-w-[220px]"><Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input className="inp w-full" style={{ paddingLeft: 34 }} placeholder="Buscar dentro de la campaña…" value={filtro} onChange={(e) => setFiltro(e.target.value)} /></div>
+              <select className="inp" style={{ width: 'auto' }} value={orden} onChange={(e) => setOrden(e.target.value)}>{ORDENES_PROMO.map(([v, t]) => (!verCostos && (v === 'costo' || v === 'margen')) ? null : <option key={v} value={v}>{t}</option>)}</select>
+              <button className="btn" disabled={!filas.length || generando} onClick={exportarPdf}><FileDown className="w-4 h-4" />{generando ? 'Generando…' : 'Exportar PDF'}</button>
+            </>}
+          </div>
+
+          {vista === 'productos' && <>
+            {!prods && <p className="p-4 text-center text-xs text-slate-400">Cargando productos…</p>}
+            {prods && !filas.length && (
+              <div className="card p-10 text-center text-sm text-slate-400">Esta campaña todavía no tiene productos.
+                {puedeAgregar && <div className="mt-3"><button className="btn btn-primary" onClick={() => setVista('agregar')}><Plus className="w-4 h-4" />Agregar productos</button></div>}</div>
+            )}
+            {filas.length > 0 && !visibles.length && <p className="p-4 text-center text-xs text-slate-400">Ningún producto coincide con la búsqueda.</p>}
+            {visibles.length > 0 && (
+              <div className="vm-of" style={ESTILO_TARJETAS}><div className="grid-p">{visibles.map((f) => (
+                <TarjetaPromo key={f.codigo} f={f} ventas={f.id ? ventasPorId[f.id] : undefined}
+                  editable={editar && (!f.estadoAprobacion || f.estadoAprobacion === 'Pendiente')}
+                  onGuardar={(d) => guardarDesc(f.codigo, d)} onQuitar={() => quitarProducto(f.codigo)} />
+              ))}</div></div>
+            )}
+          </>}
+
+          {vista === 'agregar' && puedeAgregar && (
+            <AgregarProductos excluir={items.map((i) => i.id)} analisis={analisis} agregar={agregarProductos} />
+          )}
+        </div>
       </div>
-
-      <div>
-        {!prods && <p className="p-4 text-center text-xs text-slate-400">Cargando productos…</p>}
-        {prods && !filas.length && <p className="p-4 text-center text-xs text-slate-400">Esta campaña todavía no tiene productos.</p>}
-        {filas.length > 0 && (
-          <div className="vm-of" style={ESTILO_TARJETAS}><div className="grid-p">{filas.map((f) => (
-            <TarjetaPromo key={f.codigo} f={f} ventas={ventasTot[f.codigo]}
-              editable={editar && (!f.estadoAprobacion || f.estadoAprobacion === 'Pendiente')}
-              onGuardar={(d) => guardarDesc(f.codigo, d)} onQuitar={() => quitarProducto(f.codigo)} />
-          ))}</div></div>
-        )}
-      </div>
-      {buscando && <BuscarProductoPromo excluir={items.map((i) => i.id)} analisis={analisis ?? []} cerrar={() => setBuscando(false)} agregar={agregarProducto} />}
-
-      <div><p className="text-[10px] font-bold uppercase text-slate-400 mb-1.5">Historial</p>
-        {!(c.historial ?? []).length && <p className="text-[11px] text-slate-400">Sin movimientos.</p>}
-        <ul className="space-y-1.5">{[...(c.historial ?? [])].reverse().map((h, i) => <li key={i} className="text-[11px] text-slate-600"><b>{h.accion}</b> · {h.por} · {new Date(h.fecha).toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' })}{h.comentario ? ' — ' + h.comentario : ''}</li>)}</ul></div>
-    </Ventana>
+    </section>
   )
 }
 
@@ -525,14 +580,54 @@ function TarjetaPromo({ f, ventas, editable, onGuardar, onQuitar }: { f: ProdPro
   )
 }
 
-/* Buscador libre: cualquier producto del inventario, no solo lo que sugiere el sistema. */
+/* Ventas totales de siempre (movimientos de salida) por id de producto; pide solo los que faltan, en tandas. */
+function useVentasTotales(ids: string[]) {
+  const [v, setV] = useState<Record<string, number>>({})
+  const pedidos = useRef(new Set<string>())
+  const clave = [...new Set(ids.filter(Boolean))].sort().join(',')
+  useEffect(() => {
+    const faltan = clave ? clave.split(',').filter((id) => !pedidos.current.has(id)) : []
+    if (!faltan.length) return
+    faltan.forEach((id) => pedidos.current.add(id))
+    for (let i = 0; i < faltan.length; i += 20) {
+      const tanda = faltan.slice(i, i + 20)
+      supabase.from('movimientos_inventario').select('producto_id,cantidad').in('producto_id', tanda).eq('tipo', 'SALIDA').is('deleted_at', null).then(({ data }) => {
+        const porId: Record<string, number> = Object.fromEntries(tanda.map((id) => [id, 0]))
+        ;((data ?? []) as { producto_id: string; cantidad: number }[]).forEach((m) => { porId[m.producto_id] = (porId[m.producto_id] || 0) + Math.abs(Number(m.cantidad) || 0) })
+        setV((x) => ({ ...x, ...porId }))
+      })
+    }
+  }, [clave])
+  return v
+}
+
+/* Agregar productos: sin buscar, recomienda lo que conviene liquidar (lo mismo que Oportunidades) y que aún no
+   está en la campaña; al escribir, busca en TODO el inventario, sin depender de lo que sugiera el sistema. */
+type Cand = { id: string; codigo: string; nombre: string; categoria: string; img: string; pvp: number; stock: number; enCatalogo: boolean | null; an?: Prod }
 type ProdBusqueda = { id: string; codigo: string; nombre: string; pvp: number | null; stock: number | null; imagen_url: string | null; en_catalogo: boolean | null; categoria: { nombre: string } | null }
-function BuscarProductoPromo({ excluir, analisis, cerrar, agregar }: { excluir: string[]; analisis: Prod[]; cerrar: () => void; agregar: (codigo: string) => Promise<void> | void }) {
+const FILTROS_REC: [string, string, (p: Prod) => boolean][] = [
+  ['', 'Todos', () => true],
+  ['12', 'Más de 12 meses', (p) => p.grupo === '12'],
+  ['612', '6 a 12 meses', (p) => p.grupo === '612'],
+  ['36', '3 a 6 meses', (p) => p.grupo === '36'],
+  ['obs', 'Con observaciones', (p) => p.conObs],
+  ['int', 'Con interesados', (p) => p.interes > 0],
+  ['sob', 'Sobrestock', (p) => p.stock >= 3],
+  ['nunca', 'Nunca vendidos', (p) => p.nuncaVendido],
+]
+function AgregarProductos({ excluir, analisis, agregar }: { excluir: string[]; analisis: Prod[] | null; agregar: (n: { codigo: string; desc: number }[]) => Promise<void> }) {
   const [q, setQ] = useState('')
   const [res, setRes] = useState<ProdBusqueda[] | null>(null)
-  const [orden, setOrden] = useState('cat')
+  const [orden, setOrden] = useState('urg')
+  const [filtro, setFiltro] = useState('')
+  const [cat, setCat] = useState('')
+  const [mostrar, setMostrar] = useState(24)
+  const [pct, setPct] = useState<Record<string, string>>({})
   const [agregando, setAgregando] = useState('')
-  const porCodigo = useMemo(() => new Map(analisis.map((p) => [p.codigo, p])), [analisis])
+  const porCodigo = useMemo(() => new Map((analisis ?? []).map((p) => [p.codigo, p])), [analisis])
+  const fuera = useMemo(() => new Set(excluir), [excluir])
+  const buscando = normalize(q).trim().length > 0
+
   useEffect(() => {
     const palabras = normalize(q).split(/\s+/).filter(Boolean)
     if (!palabras.length) { setRes(null); return }
@@ -540,52 +635,104 @@ function BuscarProductoPromo({ excluir, analisis, cerrar, agregar }: { excluir: 
     const t = setTimeout(() => {
       let consulta = supabase.from('productos').select('id,codigo,nombre,pvp,stock,imagen_url,en_catalogo,categoria:categorias(nombre)').is('deleted_at', null)
       for (const w of palabras) consulta = consulta.ilike('busqueda_normalizada', `%${w}%`)
-      consulta.limit(40).then(({ data }) => { if (vivo) setRes((data as unknown as ProdBusqueda[]) ?? []) })
+      consulta.limit(60).then(({ data }) => { if (vivo) setRes((data as unknown as ProdBusqueda[]) ?? []) })
     }, 300)
     return () => { vivo = false; clearTimeout(t) }
   }, [q])
-  const lista = useMemo(() => {
-    const cmp: Record<string, (a: ProdBusqueda, b: ProdBusqueda) => number> = {
-      cat: (a, b) => (a.categoria?.nombre ?? '').localeCompare(b.categoria?.nombre ?? '', 'es') || a.nombre.localeCompare(b.nombre, 'es'),
-      pvp: (a, b) => (Number(b.pvp) || 0) - (Number(a.pvp) || 0),
+  useEffect(() => { setMostrar(24) }, [q, filtro, cat, orden])
+
+  const recomendados = useMemo(() => {
+    const f = FILTROS_REC.find(([k]) => k === filtro)?.[2] ?? (() => true)
+    return (analisis ?? []).filter((p) => !fuera.has(p.codigo) && !p.oculto && p.pvp > 0 && f(p) && (!cat || p.categoria === cat))
+  }, [analisis, fuera, filtro, cat])
+  const categorias = useMemo(() => [...new Set((analisis ?? []).filter((p) => !fuera.has(p.codigo)).map((p) => p.categoria).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es')), [analisis, fuera])
+
+  const lista: Cand[] = useMemo(() => {
+    const base: Cand[] = buscando
+      ? (res ?? []).map((p) => ({ id: p.id, codigo: p.codigo, nombre: p.nombre, categoria: p.categoria?.nombre ?? '—', img: p.imagen_url ? imgUrl(p.imagen_url, 300) : '', pvp: Number(p.pvp) || 0, stock: Number(p.stock) || 0, enCatalogo: p.en_catalogo, an: porCodigo.get(p.codigo) }))
+      : recomendados.map((p) => ({ id: p.id, codigo: p.codigo, nombre: p.nombre, categoria: p.categoria, img: p.img, pvp: p.pvp, stock: p.stock, enCatalogo: null, an: p }))
+    const cmp: Record<string, (a: Cand, b: Cand) => number> = {
+      urg: (a, b) => (b.an?.urgencia ?? -1) - (a.an?.urgencia ?? -1),
+      cat: (a, b) => a.categoria.localeCompare(b.categoria, 'es') || a.nombre.localeCompare(b.nombre, 'es'),
+      pvp: (a, b) => b.pvp - a.pvp,
+      desc: (a, b) => (b.an?.estrategia.descuento ?? 0) - (a.an?.estrategia.descuento ?? 0),
       nombre: (a, b) => a.nombre.localeCompare(b.nombre, 'es'),
     }
-    return [...(res ?? [])].sort((a, b) => (Number(!!b.en_catalogo) - Number(!!a.en_catalogo)) || cmp[orden](a, b))
-  }, [res, orden])
+    // Visibles en el catálogo público primero; luego el orden elegido.
+    return [...base].sort((a, b) => (Number(!!b.enCatalogo) - Number(!!a.enCatalogo)) || cmp[orden](a, b))
+  }, [buscando, res, recomendados, porCodigo, orden])
+  const pagina = lista.slice(0, mostrar)
+  const ventas = useVentasTotales(pagina.map((p) => p.id))
+  const descDe = (p: Cand) => Math.max(0, Math.min(90, Number(pct[p.codigo] ?? p.an?.estrategia.descuento ?? 0) || 0))
+
+  async function agregarUno(p: Cand) { setAgregando(p.codigo); await agregar([{ codigo: p.codigo, desc: descDe(p) }]); setAgregando('') }
+  async function agregarPagina() {
+    const nuevos = pagina.filter((p) => !fuera.has(p.codigo))
+    if (!nuevos.length || !confirm(`¿Agregar estos ${nuevos.length} producto(s) a la campaña, cada uno con el % que muestra su tarjeta?`)) return
+    setAgregando('*'); await agregar(nuevos.map((p) => ({ codigo: p.codigo, desc: descDe(p) }))); setAgregando('')
+  }
+
   return (
-    <Ventana titulo="Agregar productos a la campaña" ancha cerrar={cerrar} pie={<button className="btn ml-auto" onClick={cerrar}>Listo</button>}>
-      <div className="flex gap-2 flex-wrap items-center">
-        <div className="relative flex-1 min-w-[220px]"><Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input autoFocus className="inp w-full" style={{ paddingLeft: 34 }} placeholder="Buscar por nombre, código o marca…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
-        <select className="inp" style={{ width: 'auto' }} value={orden} onChange={(e) => setOrden(e.target.value)}>
-          <option value="cat">Categoría (A-Z)</option><option value="pvp">Precio (mayor a menor)</option><option value="nombre">Nombre (A-Z)</option></select>
+    <div className="space-y-3">
+      <div className="card p-3 space-y-2.5">
+        <div className="flex gap-2 flex-wrap items-center">
+          <div className="relative flex-1 min-w-[220px]"><Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input autoFocus className="inp w-full" style={{ paddingLeft: 34 }} placeholder="Buscar cualquier producto del inventario por nombre, código o marca…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+          {!buscando && <select className="inp" style={{ width: 'auto' }} value={cat} onChange={(e) => setCat(e.target.value)}><option value="">Todas las categorías</option>{categorias.map((c) => <option key={c} value={c}>{c}</option>)}</select>}
+          <select className="inp" style={{ width: 'auto' }} value={orden} onChange={(e) => setOrden(e.target.value)}>
+            <option value="urg">Más urgentes de liquidar</option><option value="cat">Categoría (A-Z)</option><option value="pvp">Precio (mayor a menor)</option>
+            <option value="desc">% sugerido (mayor a menor)</option><option value="nombre">Nombre (A-Z)</option></select>
+        </div>
+        {!buscando && <div className="mkc-chips">{FILTROS_REC.map(([k, t]) => <button key={k} type="button" className={filtro === k ? 'on' : ''} onClick={() => setFiltro(k)}>{t}</button>)}</div>}
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="text-[12px] text-slate-500 mr-auto">
+            {buscando
+              ? (res === null ? 'Buscando…' : `${lista.length} resultado(s) en todo el inventario.`)
+              : analisis === null ? 'Cargando recomendaciones…' : <><Sparkles className="w-3.5 h-3.5 inline -mt-0.5 text-[var(--amber)]" /> {lista.length} producto(s) recomendados que aún no están en la campaña (stock dormido o con novedades).</>}
+          </p>
+          {!buscando && pagina.length > 0 && <button className="btn" disabled={agregando === '*'} onClick={agregarPagina}><Plus className="w-4 h-4" />{agregando === '*' ? 'Agregando…' : `Agregar estos ${pagina.length}`}</button>}
+        </div>
       </div>
-      {res === null && <p className="text-xs text-slate-400 text-center py-6">Escribe para buscar cualquier producto del inventario.</p>}
-      {res && !res.length && <p className="text-xs text-slate-400 text-center py-6">Sin resultados.</p>}
-      {lista.length > 0 && (
-        <div className="vm-of" style={ESTILO_TARJETAS}><div className="grid-p">{lista.map((p) => {
-          const an = porCodigo.get(p.codigo), ya = excluir.includes(p.codigo)
+
+      {buscando && res && !res.length && <p className="text-xs text-slate-400 text-center py-6">Sin resultados.</p>}
+      {!buscando && analisis && !lista.length && <div className="card p-8 text-center text-sm text-slate-400">No hay más recomendaciones con este filtro. Usa el buscador para agregar cualquier otro producto.</div>}
+      {pagina.length > 0 && (
+        <div className="vm-of" style={ESTILO_TARJETAS}><div className="grid-p">{pagina.map((p) => {
+          const ya = fuera.has(p.codigo), an = p.an, d = descDe(p)
+          const precio = p.pvp > 0 ? Math.round(p.pvp * (1 - d / 100) * 100) / 100 : 0
           return (
             <article key={p.id} className="pc">
-              <div className="pc-top"><div className="ph">{p.imagen_url ? <img loading="lazy" src={imgUrl(p.imagen_url, 300)} alt="" onError={(ev) => ev.currentTarget.remove()} /> : <Package style={{ width: 28, height: 28 }} />}</div>
+              <div className="pc-top"><div className="ph">{p.img ? <img loading="lazy" src={p.img} alt="" onError={(ev) => ev.currentTarget.remove()} /> : <Package style={{ width: 28, height: 28 }} />}</div>
                 <div className="min-w-0 flex-1">
-                  <EtiquetasProducto conObs={an?.conObs ?? false} grupo={an?.grupo ?? ''} dias={an?.dias ?? 0} stock={Number(p.stock) || 0} interes={an?.interes ?? 0} />
+                  <EtiquetasProducto conObs={an?.conObs ?? false} grupo={an?.grupo ?? ''} dias={an?.dias ?? 0} ventas={ventas[p.id]} stock={p.stock} interes={an?.interes ?? 0} />
                   <p className="font-bold text-[14px] leading-snug text-slate-800 line-clamp-2">{p.nombre}</p>
-                  <p className="text-[11px] text-slate-400 mono">{p.codigo} · {p.categoria?.nombre ?? '—'}{!p.en_catalogo ? ' · No está en el catálogo' : ''}</p>
-                  <p className="text-[12px] text-slate-600 mt-1"><b>{Number(p.stock) || 0}</b> u. · PVP {money(Number(p.pvp) || 0)}</p>
+                  <p className="text-[11px] text-slate-400 mono">{p.codigo} · {p.categoria}{p.enCatalogo === false ? ' · No está en el catálogo' : ''}</p>
+                  <p className="text-[12px] text-slate-600 mt-1"><b>{p.stock}</b> u.{an ? ` · ${money(an.capitalPvp)} detenido` : ''}</p>
+                  {an?.conObs && <p className="text-[11.5px] text-violet-700 font-semibold mt-1 line-clamp-2">{an.motivosObs.join(' · ')}</p>}
                 </div>
               </div>
-              <div style={{ margin: '0 12px 12px' }}>
-                <button className="btn w-full" disabled={ya || agregando === p.codigo} style={ya ? undefined : { background: '#04896f', borderColor: '#04896f', color: '#fff' }}
-                  onClick={async () => { setAgregando(p.codigo); await agregar(p.codigo); setAgregando('') }}>
-                  {ya ? <><Check className="w-4 h-4" />Ya está en la campaña</> : <><Plus className="w-4 h-4" />{agregando === p.codigo ? 'Agregando…' : 'Agregar'}</>}
-                </button>
-              </div>
+              {ya ? (
+                <div style={{ margin: '0 12px 12px' }}><button className="btn w-full" disabled><Check className="w-4 h-4" />Ya está en la campaña</button></div>
+              ) : (
+                <div className="jug">
+                  <div className="t"><BadgePercent style={{ width: 13, height: 13 }} />{an && an.estrategia.descuento > 0 ? `Sugerido: ${an.estrategia.tipo} -${an.estrategia.descuento}%` : '% de descuento'}</div>
+                  {an?.estrategia.porque && <p className="text-[11px] text-slate-500 mt-1 line-clamp-2">{an.estrategia.porque}</p>}
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <input type="number" min="0" max="90" step="0.5" className="inp font-bold" style={{ fontSize: 20, height: 42, width: 78, color: 'var(--acc)' }} value={pct[p.codigo] ?? String(an?.estrategia.descuento ?? 0)} onChange={(e) => setPct((x) => ({ ...x, [p.codigo]: e.target.value }))} />
+                    <span className="font-bold" style={{ color: 'var(--acc)' }}>%</span>
+                    <div className="ml-auto text-right">{p.pvp > 0 && d > 0 && <span className="precio-a">{money(p.pvp)}</span>} <span className="precio-n">{money(precio)}</span></div>
+                  </div>
+                  <button className="btn w-full mt-2" disabled={agregando === p.codigo || agregando === '*'} style={{ background: '#04896f', borderColor: '#04896f', color: '#fff' }} onClick={() => agregarUno(p)}>
+                    <Plus className="w-4 h-4" />{agregando === p.codigo ? 'Agregando…' : d > 0 ? `Agregar con -${d}%` : 'Agregar sin descuento'}
+                  </button>
+                </div>
+              )}
             </article>
           )
         })}</div></div>
       )}
-    </Ventana>
+      {lista.length > mostrar && <div className="text-center"><button className="btn" onClick={() => setMostrar(mostrar + 24)}>Ver más ({lista.length - mostrar})</button></div>}
+    </div>
   )
 }
 
