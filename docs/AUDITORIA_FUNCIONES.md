@@ -9,8 +9,8 @@ Estados: ✅ existe en la app nueva · 🆕 recuperado en esta auditoría · ⚠
 ## Orden de trabajo (acordado con el usuario)
 
 1. ✅ CRM Vimedic y FEMEDICS
-2. ⏭️ **Facturación** (siguiente)
-3. Marketing
+2. ✅ Facturación
+3. ⏭️ **Marketing** (siguiente)
 4. Carga del Excel actualizado (`datos_origen/Web App Vimedic (2).xlsx`) en vimedic-pruebas
 5. Inventario y Movimientos
 6. Clientes
@@ -78,3 +78,44 @@ Además:
 Para activar en el uso real (no se puede hacer desde la app):
 - Zernio → Webhooks: apuntar a `https://<proyecto>.supabase.co/functions/v1/crm-mensajes?webhook=1` y guardar el secreto como `webhookSecret` en la integración de Zernio. Hacerlo solo al pasar a producción: hoy el webhook apunta a la app de Apps Script.
 - Leads de Meta: falta la entrada automática (webhook de Meta Lead Ads). El reparto ya funciona con cualquier lead que entre con `origen_tipo = 'meta'`. Pasa a la vuelta de Marketing.
+
+---
+
+## 2. Facturación — Issue #21 (cierra #6)
+
+Pantalla: `Facturacion.html` (26 funciones de servidor). Commits: 5d6d8b3, c3c7f52 y ca5ca83.
+
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `getFacturacionInicial`, `getFacturacionVista`, `getFacturacionVersion` | Cola de ventas y aviso de cambios | ✅ | `Facturacion.tsx` con tiempo real |
+| `getDetalleFacturacion` | Detalle de la venta | ✅ | `Detalle` |
+| `subirFactura` | Número y PDF de la factura | ✅ + 🆕 | El PDF se sube a la unidad compartida (Drive); antes solo se podía pegar un enlace |
+| `vmFactEditarProductos` | Editar productos antes de facturar | 🆕 | `fact_editar_productos` + `ModalEditarProductos`; actualiza también la cotización del CRM |
+| `getMovimientosPorOperacion` | Líneas de la operación | ✅ | Desde `facturas.items` |
+| `generarActaCompleta`, `getDatosActaParaEditar` | Acta de entrega / garantía | ✅ | #5 |
+| `generarGuiaEnvio`, `getDatosEnvioParaGuia` | Etiqueta de envío | ✅ | `ModalGuiaEnvio` |
+| `registrarNotaCredito`, `registrarRecepcionNC`, `getNotasCreditoFactura` | Notas de crédito y recepción de devoluciones | ✅ + 🆕 | `nc_*`; ahora también se sube el PDF de la nota (cierra #6) |
+| `completarNotaCredito`, `completarRecepcionNC`, `vmNcRegistrosDanados` | Reintentos y reparación de datos de la hoja | ➖ | En la base nueva cada operación es atómica |
+| `crearIngreso`, `getIngresosList`, `vmCatalogosIngreso` | Ingresos de proveedor (modo Adquisiciones) | ✅ + 🆕 | `Adquisiciones.tsx`: indicadores, buscador, detalle de cada ingreso |
+| `vmCrearProveedorIngreso` | Crear proveedor desde el ingreso | 🆕 | `Adquisiciones.tsx` |
+| `vmCrearProductoIngreso` | Crear producto desde el ingreso | 🆕 | `Adquisiciones.tsx` (con permiso de Inventario) |
+| filtros, agrupar, exportar CSV, indicadores | Herramientas de la cola | ✅ | `Facturacion.tsx` |
+| `vmPdfDocumentoBase64` | Abrir PDFs de Drive dentro de la app | ➖ | Se abren directo |
+
+Pedidos del usuario durante la vuelta (CRM): al vender o cotizar, el cliente que ya existe se vincula solo
+(c3c7f52); el medio de captación de la venta se guarda aparte del medio del lead (ca5ca83).
+
+Además: Adquisiciones y Rutas y viáticos se veían sin estilo (usaban clases que solo existen dentro de otros
+módulos); ahora tienen una hoja común (`estilos/comun.css`).
+
+### Datos (13-nov-2026): CRM y Facturación al día con el Excel nuevo
+
+Pedido del usuario: actualizar CRM y Facturación y depurar lo que no exista (pruebas hechas en qa).
+- Clientes, leads (contactos, WhatsApp, citas, Meta), cotizaciones y ventas, interacciones, facturas, notas de
+  crédito, ingresos de proveedor y movimientos: lo nuevo se insertó y lo existente quedó igual que en la app
+  original (insertar o actualizar por código).
+- Se dieron de baja (borrado lógico con motivo) los registros de prueba que no están en el Excel: 2 clientes,
+  52 interacciones y 1 factura, además de las versiones de proforma y los despachos que dependían de pruebas.
+- Las pruebas de qa habían modificado cotizaciones reales (convertidas en venta, etapas cambiadas): con la
+  actualización volvieron a su estado real.
+- El stock de los productos se vuelve a tomar del Excel en la vuelta de Inventario.
