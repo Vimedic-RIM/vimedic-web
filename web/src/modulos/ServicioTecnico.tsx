@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Archive, BookOpen, Calendar, CalendarCheck, CalendarPlus, Check, CheckCheck, ClipboardList, Cpu, FileCheck2, FileText, Gauge, GraduationCap, Hammer, History, Hourglass, Lightbulb, List, ListChecks, MapPin, MessageCircle, PackageOpen, Package, Pencil, Phone, Play, Plus, PlugZap, RefreshCw, RotateCcw, Save, ScanSearch, Search, ShieldAlert, Stethoscope, User, UserPlus, Users, Wrench, X, XCircle, BadgeCheck, Camera } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
+import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
 import { descargarInforme, TITULOS, type OrdenDoc, type EquipoDoc } from './servicioInforme'
 import '../estilos/servicio.css'
@@ -130,8 +131,9 @@ export default function ServicioTecnico({ perfil, aviso }: { perfil: Perfil; avi
     ;(async () => { if (editar && !yaPreventivos.current) { yaPreventivos.current = true; await supabase.rpc('st_programar_preventivos') } await cargarOrdenes(); cargarEquipos() })()
   }, [cargarTecnicos, cargarOrdenes, cargarEquipos, editar])
   useEffect(() => {
-    const c = supabase.channel('st-ordenes').on('postgres_changes', { event: '*', schema: 'public', table: 'st_ordenes' }, () => cargarOrdenes()).subscribe()
-    return () => { supabase.removeChannel(c) }
+    const recargar = agrupar(() => cargarOrdenes())
+    const c = supabase.channel('st-ordenes').on('postgres_changes', { event: '*', schema: 'public', table: 'st_ordenes' }, recargar).subscribe()
+    return () => { recargar.cancelar(); supabase.removeChannel(c) }
   }, [cargarOrdenes])
   useEffect(() => { if (externo && (tab === 'inventario' || tab === 'agendar')) setTab('mias') }, [externo, tab])
 

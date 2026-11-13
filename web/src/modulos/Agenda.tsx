@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, ArrowLeft, Bell, Calendar, CalendarDays, ChevronLeft, ChevronRight, Download, ExternalLink, GanttChartSquare, Check, CheckSquare, Clock, Columns3, FolderKanban, Gift, Inbox, Layers3, LayoutGrid, Paperclip, Pause, Pencil, Play, Plus, RefreshCw, Search, Send, SlidersHorizontal, Table2, Timer, Trash2, UserRound, Users, UsersRound, X, XCircle } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
+import { agrupar as agruparAvisos } from '../tiempoReal'
 import { puede } from '../permisos'
 import '../estilos/agenda.css'
 
@@ -94,7 +95,7 @@ export default function Agenda({ perfil, aviso, accion, limpiarAccion }: { perfi
     setProyectos(((data ?? []) as unknown as Record<string, any>[]).map((p) => ({ id: p.id, nombre: p.nombre, descripcion: p.descripcion ?? '', estado: p.estado ?? 'Activo', areas: p.areas ?? [], responsable: p.responsable?.nombre ?? '' }))) // eslint-disable-line @typescript-eslint/no-explicit-any
   }, [])
   useEffect(() => { cargar(); cargarEco(); cargarProyectos(); supabase.rpc('ag_empleados').then(({ data }) => setEmps((data as Emp[]) ?? [])) }, [cargar, cargarEco, cargarProyectos])
-  useEffect(() => { const c = supabase.channel('ag-act').on('postgres_changes', { event: '*', schema: 'public', table: 'actividades' }, () => cargar()).subscribe(); return () => { supabase.removeChannel(c) } }, [cargar])
+  useEffect(() => { const recargar = agruparAvisos(() => cargar()); const c = supabase.channel('ag-act').on('postgres_changes', { event: '*', schema: 'public', table: 'actividades' }, recargar).subscribe(); return () => { recargar.cancelar(); supabase.removeChannel(c) } }, [cargar])
 
   const A = acts ?? []
   const timer = A.find((a) => a.estado === 'En marcha' && a.sesion?.por === yo) ?? null

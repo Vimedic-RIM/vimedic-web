@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Calendar, Plus, RefreshCw, Search, Trash2, User, type LucideIcon } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
+import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
 import { ConfirmarEliminar } from './CrmClientes'
 import '../estilos/tablero.css'
@@ -37,8 +38,9 @@ export default function Tablero({ perfil, aviso, modulo, titulo, desc, color, ic
   useEffect(() => { setRegs(null); cargar() }, [cargar])
   useEffect(() => { supabase.from('empleados').select('id,nombre').is('deleted_at', null).eq('estado', 'activo').order('nombre').limit(300).then(({ data }) => setEmps((data as Emp[]) ?? [])) }, [])
   useEffect(() => {
-    const c = supabase.channel('tab-' + modulo).on('postgres_changes', { event: '*', schema: 'public', table: 'tareas_modulo', filter: 'modulo=eq.' + modulo }, () => cargar()).subscribe()
-    return () => { supabase.removeChannel(c) }
+    const recargar = agrupar(() => cargar())
+    const c = supabase.channel('tab-' + modulo).on('postgres_changes', { event: '*', schema: 'public', table: 'tareas_modulo', filter: 'modulo=eq.' + modulo }, recargar).subscribe()
+    return () => { recargar.cancelar(); supabase.removeChannel(c) }
   }, [modulo, cargar])
 
   const lista = regs ?? []

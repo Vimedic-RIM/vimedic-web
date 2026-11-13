@@ -3,6 +3,7 @@ import {
   ArrowDown, ArrowUp, BookOpen, CalendarClock, Check, CircleCheck, ClipboardCheck, Copy, Eye, FileBadge, FileText, Film, Globe, ImagePlus, KeyRound, Link2, Plug, RefreshCw, Search, Send, Sparkles, Tag, Trash2, Upload, Video, X, XCircle,
 } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
+import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
 import { imagen, Interruptor } from './Inventario'
 
@@ -1064,8 +1065,9 @@ export function Revision({ perfil, aviso }: { perfil: Perfil; aviso: (t: string)
   }, [])
   useEffect(() => {
     cargar()
-    const c = supabase.channel('mk-cambios').on('postgres_changes', { event: '*', schema: 'public', table: 'marketing_cambios' }, cargar).subscribe()
-    return () => { supabase.removeChannel(c) }
+    const recargar = agrupar(() => cargar())
+    const c = supabase.channel('mk-cambios').on('postgres_changes', { event: '*', schema: 'public', table: 'marketing_cambios' }, recargar).subscribe()
+    return () => { recargar.cancelar(); supabase.removeChannel(c) }
   }, [cargar])
   async function decidir(c: Cambio, ok: boolean) {
     if (ok) {

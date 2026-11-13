@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Barcode, Calendar, Camera, Check, CheckCheck, Columns3, Download, ImageUp, Inbox, List, MinusCircle, Package, PackageCheck, Play, PlayCircle, RefreshCw, RotateCcw, Save, ScanLine, ScanSearch, Search, Send, ShieldCheck, Split, Truck, Upload, Video, Warehouse, X } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
+import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
 import '../estilos/bodega.css'
 
@@ -110,8 +111,9 @@ export default function Bodega({ perfil, aviso }: { perfil: Perfil; aviso: (t: s
   }, [])
   useEffect(() => { cargar() }, [cargar])
   useEffect(() => {
-    const c = supabase.channel('bodega-lista').on('postgres_changes', { event: '*', schema: 'public', table: 'despachos' }, () => cargar()).subscribe()
-    return () => { supabase.removeChannel(c) }
+    const recargar = agrupar(() => cargar())
+    const c = supabase.channel('bodega-lista').on('postgres_changes', { event: '*', schema: 'public', table: 'despachos' }, recargar).subscribe()
+    return () => { recargar.cancelar(); supabase.removeChannel(c) }
   }, [cargar])
   useEffect(() => { lsSet('bd:vista', vista) }, [vista])
 

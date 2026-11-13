@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, BadgeCheck, Camera, Check, CheckCircle2, ClipboardList, Copy, ExternalLink, FileText, History, ListChecks, MapPin, MessageCircle, Navigation, Package, Pencil, PenLine, Phone, Radar, RefreshCw, Search, Send, Store, Truck, Upload, X, XCircle } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
+import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
 import '../estilos/logistica.css'
 
@@ -90,7 +91,7 @@ export default function Logistica({ perfil, aviso }: { perfil: Perfil; aviso: (t
     ;(async () => { if (editar && !yaPostventa.current) { yaPostventa.current = true; await supabase.rpc('lg_activar_postventas') } cargar() })()
     supabase.rpc('lg_equipo').then(({ data }) => setEquipo(((data ?? []) as { nombre: string }[]).map((x) => x.nombre)))
   }, [cargar, editar])
-  useEffect(() => { const c = supabase.channel('lg-entregas').on('postgres_changes', { event: '*', schema: 'public', table: 'entregas' }, () => cargar()).subscribe(); return () => { supabase.removeChannel(c) } }, [cargar])
+  useEffect(() => { const recargar = agrupar(() => cargar()); const c = supabase.channel('lg-entregas').on('postgres_changes', { event: '*', schema: 'public', table: 'entregas' }, recargar).subscribe(); return () => { recargar.cancelar(); supabase.removeChannel(c) } }, [cargar])
 
   const L = lista ?? []
   const enTab = (e: Entrega, t: string) => t === 'confirmar' ? e.estado === 'Por confirmar' || e.estado === 'Por reprogramar' : t === 'programadas' ? e.estado === 'Programada' : t === 'camino' ? e.estado === 'En ruta' || e.estado === 'Con transportista'

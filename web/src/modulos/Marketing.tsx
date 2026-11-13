@@ -9,6 +9,7 @@ import { Anuncios, Material, Promociones } from './MarketingExtra'
 import { SubirMaterial, PapeleraAv } from './MarketingArchivos'
 import { Chart, registerables, type ChartConfiguration } from 'chart.js'
 import { supabase, type Perfil } from '../supabase'
+import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
 import '../estilos/marketing.css'
 
@@ -162,8 +163,9 @@ export default function Marketing({ perfil, aviso, accion, limpiarAccion }: { pe
   }, [hasta])
   useEffect(() => { cargarDatos() }, [cargarDatos])
   useEffect(() => {
-    const canalRt = supabase.channel('marketing-av').on('postgres_changes', { event: '*', schema: 'public', table: 'audiovisual' }, () => cargarDatos()).subscribe()
-    return () => { supabase.removeChannel(canalRt) }
+    const recargar = agrupar(() => cargarDatos())
+    const canalRt = supabase.channel('marketing-av').on('postgres_changes', { event: '*', schema: 'public', table: 'audiovisual' }, recargar).subscribe()
+    return () => { recargar.cancelar(); supabase.removeChannel(canalRt) }
   }, [cargarDatos])
 
   const rango = (k: 'mes' | '3m' | 'anio') => { const t = ecHoy(); setHasta(t); setDesde(k === 'mes' ? t.slice(0, 7) + '-01' : k === '3m' ? monthKeys(t, 3)[0] + '-01' : t.slice(0, 4) + '-01-01') }

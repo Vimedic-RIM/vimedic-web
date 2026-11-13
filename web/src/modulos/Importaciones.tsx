@@ -3,6 +3,7 @@ import {
   ArrowLeft, ArrowRight, CheckCheck, Boxes, FileText, ImageOff, MoveRight, PackagePlus, Pencil, Plus, RefreshCw, Search, Ship, Trash2, Unlock, X,
 } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
+import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
 import { imagen } from './Inventario'
 import { ConfirmarEliminar } from './CrmClientes'
@@ -73,8 +74,9 @@ export default function Importaciones({ perfil, aviso, accion, limpiarAccion }: 
   }, [])
   useEffect(() => { cargar() }, [cargar])
   useEffect(() => {
-    const c = supabase.channel('imp-exp').on('postgres_changes', { event: '*', schema: 'public', table: 'imp_expedientes' }, () => cargar()).subscribe()
-    return () => { supabase.removeChannel(c) }
+    const recargar = agrupar(() => cargar())
+    const c = supabase.channel('imp-exp').on('postgres_changes', { event: '*', schema: 'public', table: 'imp_expedientes' }, recargar).subscribe()
+    return () => { recargar.cancelar(); supabase.removeChannel(c) }
   }, [cargar])
 
   const filtrados = useMemo(() => {

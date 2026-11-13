@@ -4,6 +4,7 @@ import {
   Layers, Link2, List, Lock, Megaphone, Package, Plus, Printer, Receipt, ReceiptText, RefreshCw, Search, ShieldCheck, SlidersHorizontal, Trash2, Truck, TriangleAlert, Upload, X,
 } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
+import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
 import { imagen } from './Inventario'
 import '../estilos/facturacion.css'
@@ -108,8 +109,9 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
   // Si no hay nada pendiente por facturar, se abre directo la pestaña "Todos" en vez de dejar la vista vacía.
   useEffect(() => { if (statsListas && stats.pendientes === 0 && filtro === 'Pendiente') setFiltro('ALL') }, [statsListas, stats.pendientes, filtro])
   useEffect(() => {
-    const canal = supabase.channel('facturas-cola').on('postgres_changes', { event: '*', schema: 'public', table: 'facturas' }, () => { cargar(filtro); cargarStats() }).subscribe()
-    return () => { supabase.removeChannel(canal) }
+    const recargar = agrupar(() => { cargar(filtro); cargarStats() })
+    const canal = supabase.channel('facturas-cola').on('postgres_changes', { event: '*', schema: 'public', table: 'facturas' }, recargar).subscribe()
+    return () => { recargar.cancelar(); supabase.removeChannel(canal) }
   }, [filtro, cargar, cargarStats])
   useEffect(() => {
     const cerrar = (e: MouseEvent) => { if (filtrosRef.current && !filtrosRef.current.contains(e.target as Node)) setPanelFiltros(false) }

@@ -7,6 +7,7 @@ import {
   Users, UserX, Wallet, X, CircleX, Pencil, Megaphone, Building2,
 } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
+import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
 import { ClientesLista, Papelera, ConfirmarEliminar } from './CrmClientes'
 import RutasViaticos from './RutasViaticos'
@@ -212,11 +213,12 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
   }, [])
   useEffect(() => { cargar() }, [cargar])
   useEffect(() => {
+    const recargar = agrupar(() => cargar())
     const canal = supabase.channel('crm-gestiones-' + empresa)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => cargar())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'cotizaciones' }, () => cargar())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, recargar)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cotizaciones' }, recargar)
       .subscribe()
-    return () => { supabase.removeChannel(canal) }
+    return () => { recargar.cancelar(); supabase.removeChannel(canal) }
   }, [cargar])
   useEffect(() => {
     const f = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest('#vmFiltrosWrap,#vmMovePanel,.vm-card-move')) { setPanelFiltros(false); setMover(null) } }

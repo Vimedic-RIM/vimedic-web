@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Calculator, Download, ExternalLink, FileText, Layers, List, Package, Pencil, RefreshCw, Search, X } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
+import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
 import { imagen } from './Inventario'
 import '../estilos/movimientos.css'
@@ -85,8 +86,9 @@ export default function Movimientos({ perfil, aviso, productoInicial, limpiarPro
   }, [aplicar, pagina, qDeb, tipo, prod, resp, desde, hasta])
   useEffect(() => { cargar() }, [cargar])
   useEffect(() => {
-    const c = supabase.channel('mov-lista').on('postgres_changes', { event: '*', schema: 'public', table: 'movimientos_inventario' }, () => cargar()).subscribe()
-    return () => { supabase.removeChannel(c) }
+    const recargar = agrupar(() => cargar())
+    const c = supabase.channel('mov-lista').on('postgres_changes', { event: '*', schema: 'public', table: 'movimientos_inventario' }, recargar).subscribe()
+    return () => { recargar.cancelar(); supabase.removeChannel(c) }
   }, [cargar])
 
   const totPag = Math.max(1, Math.ceil(total / POR_PAGINA))

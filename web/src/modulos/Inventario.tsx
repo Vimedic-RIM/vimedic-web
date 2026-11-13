@@ -6,6 +6,7 @@ import {
   Trash2, TriangleAlert, Video, X,
 } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
+import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
 import '../estilos/inventario-original.css'
 
@@ -536,10 +537,11 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
 
   // Tiempo real: refresca lo que ya está cargado cuando alguien cambia un producto.
   useEffect(() => {
+    const recargar = agrupar(() => cargar(Math.max(LOTE, itemsRef.current.length)))
     const canal = supabase.channel('inventario-productos')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'productos' }, () => cargar(Math.max(LOTE, itemsRef.current.length)))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'productos' }, recargar)
       .subscribe()
-    return () => { supabase.removeChannel(canal) }
+    return () => { recargar.cancelar(); supabase.removeChannel(canal) }
   }, [cargar])
 
   // En PC siempre hay un producto seleccionado en el panel lateral.
