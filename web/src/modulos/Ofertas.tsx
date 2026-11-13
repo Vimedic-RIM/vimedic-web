@@ -423,11 +423,11 @@ function PorAprobar({ campanas, prods, aviso, recargar }: { campanas: CampanaPen
 function TarjetaAprobar({ p, conAnalitica, campana, valor, setValor, nota, trabajando, onAprobar, onRechazar }: {
   p: Prod; conAnalitica: boolean; campana: string; valor: string; setValor: (v: string) => void; nota?: string; trabajando: boolean; onAprobar: (desc: number) => void; onRechazar: () => void
 }) {
-  const e = p.estrategia, I = TIPO_IC[e.tipo] || Tag, g = GRUPOS[p.grupo]
+  const g = GRUPOS[p.grupo]
   const desc = Math.max(0, Math.min(90, Number(valor) || 0))
   const precio = p.pvp > 0 ? R2(p.pvp * (1 - desc / 100)) : 0
   const ahorro = p.pvp > 0 ? R2(p.pvp - precio) : 0
-  const margen = p.costo > 0 && precio > 0 ? Math.round((precio - p.costo) / precio * 1000) / 10 : null
+  const sobrestock = p.stock >= 3
   return (
     <article className="pc">
       <div className="pc-top"><div className="ph">{p.img ? <img loading="lazy" src={p.img} alt="" onError={(ev) => ev.currentTarget.remove()} /> : <Package style={{ width: 28, height: 28 }} />}</div>
@@ -435,7 +435,10 @@ function TarjetaAprobar({ p, conAnalitica, campana, valor, setValor, nota, traba
           <div className="flex gap-1.5 flex-wrap mb-1">
             {p.conObs && <span className="pill" style={{ background: '#f3e8ff', color: '#6d28d9' }}><AlertTriangle style={{ width: 11, height: 11 }} />Con observaciones</span>}
             {g && <span className="pill" style={{ background: g.hex + '1f', color: g.hex }}>Antigüedad · {meses(p.dias)}</span>}
-            {p.nuncaVendido && <span className="pill" style={{ background: '#f1f5f9', color: '#334155' }}>Nunca vendido</span>}
+            {conAnalitica && (p.nuncaVendido
+              ? <span className="pill" style={{ background: '#f1f5f9', color: '#334155' }}>Nunca vendido</span>
+              : <span className="pill" style={{ background: '#ecfdf5', color: '#047857' }}>{p.v365} venta{p.v365 === 1 ? '' : 's'} en 12 meses</span>)}
+            {sobrestock && <span className="pill" style={{ background: '#fff1e6', color: '#c2410c' }}>Sobrestock · {p.stock} u.</span>}
             {p.interes > 0 && <span className="pill" style={{ background: '#fff7ed', color: '#c2410c' }}><Users style={{ width: 11, height: 11 }} />{p.interes} cotizaron sin comprar</span>}
             <span className="pill" style={{ background: '#eff6ff', color: '#055c9d' }}>{campana}</span>
           </div>
@@ -446,21 +449,13 @@ function TarjetaAprobar({ p, conAnalitica, campana, valor, setValor, nota, traba
           {nota && <p className="text-[11.5px] text-slate-500 mt-1 italic">"{nota}"</p>}
         </div>
       </div>
-      {conAnalitica && p.pvp > 0 && (
-        <div className="jug"><div className="t"><I style={{ width: 13, height: 13 }} />Jugada sugerida por el sistema · {e.tipo}</div>
-          <div className="flex items-end justify-between gap-2 mt-1"><div><span className="precio-n">{money(e.precio)}</span> <span className="precio-a">{money(p.pvp)}</span></div>
-            <div className="text-right text-[11.5px] text-slate-600"><b className="text-[var(--acc)] text-[15px]">-{e.descuento}%</b>{e.margen != null ? <><br />margen {e.margen}%</> : <><br /><span className="text-amber-700">sin costo</span></>}</div></div>
-          <p className="text-[11px] text-slate-500 mt-1">Esto ayuda a juzgar si el % propuesto por Marketing es razonable.</p>
-        </div>
-      )}
-      <div className="rounded-xl border border-slate-200 p-3 mt-2.5">
-        <p className="text-[11px] font-bold text-slate-500 mb-1.5">Propuesta de Marketing (puedes ajustarla antes de aprobar)</p>
-        <div className="flex items-center gap-2">
-          <input type="number" min="0" max="90" step="0.5" className="inp w-20" value={valor} disabled={trabajando} onChange={(ev) => setValor(ev.target.value)} /><span className="text-xs text-slate-500">%</span>
+      <div className="jug">
+        <div className="t"><BadgePercent style={{ width: 13, height: 13 }} />% propuesto por Marketing</div>
+        <div className="flex items-center gap-2 mt-1.5">
+          <input type="number" min="0" max="90" step="0.5" className="inp font-bold" style={{ fontSize: 26, height: 48, width: 92, color: 'var(--acc)' }} value={valor} disabled={trabajando} onChange={(ev) => setValor(ev.target.value)} />
+          <span className="text-lg font-bold" style={{ color: 'var(--acc)' }}>%</span>
           <div className="ml-auto text-right">
-            {p.pvp > 0 && <span className="text-[11px] text-slate-400 line-through mr-1.5">{money(p.pvp)}</span>}
-            <span className="text-base font-bold" style={{ color: '#c2410c' }}>{money(precio)}</span>
-            {margen != null && <span className="text-[10px] text-slate-400 block">margen {margen}%</span>}
+            {p.pvp > 0 && <span className="precio-a">{money(p.pvp)}</span>} <span className="precio-n">{money(precio)}</span>
           </div>
         </div>
         {p.pvp > 0 && desc > 0 && <p className="text-[11.5px] font-semibold mt-1.5" style={{ color: '#04896f' }}>El cliente ahorra {money(ahorro)}</p>}
