@@ -119,76 +119,323 @@ Deno.serve(async (req) => {
       return responder({ ok, mensaje, extra })
     }
 
-    /* ---------------- Zernio: planificador de publicaciones ---------------- */
+    /* ---------------- Zernio: planificador de publicaciones ----------------
+       Igual que el original (Data Marketing.gs: mkPublicaciones, mkPresign, mkPublicar, mkEditarPublicacion,
+       mkReprogramar, mkEliminarPublicacion) y su flujo de aprobación (MarketingFlujo.gs: mkfDiferir_):
+       lo que publica Asistente o Audiovisual espera al coordinador; un borrador no necesita aprobación. */
     if (accion.startsWith('zernio_')) {
       if (!(await puede('ver'))) throw new Falla('Sin acceso a Marketing.', 403)
-      if (accion === 'zernio_cuentas') {
-        const r = await zernio('/accounts'); if (!r.ok) throw new Falla(`No se pudieron cargar las cuentas (código ${r.status}).`)
-        // deno-lint-ignore no-explicit-any
-        return responder({ cuentas: ((r.data?.accounts ?? r.data ?? []) as any[]).map((a) => ({ id: a.id || a._id, plataforma: a.platform, nombre: a.name || a.username || a.platform })) })
+      const EDITABLES = ['draft', 'scheduled', 'failed', 'partial', 'cancelled']
+      const TZ = 'America/Guayaquil'
+      // deno-lint-ignore no-explicit-any
+      type Cualquiera = any
+      const errorZernio = (r: { status: number; data: Cualquiera; texto: string }, que: string) => {
+        const det = String(r.data?.error?.message ?? r.data?.error ?? r.data?.message ?? r.texto ?? '').replace(/\s+/g, ' ').slice(0, 220)
+        if (r.status === 401) return new Falla('Zernio rechazó la clave API (401). Revisa Marketing › Configuración.')
+        if (r.status === 403) return new Falla('Zernio denegó el acceso (403). Revisa el permiso de la clave y las cuentas conectadas.')
+        if (r.status === 429) return new Falla('Zernio alcanzó su límite de consultas. Reintenta en unos minutos.')
+        return new Falla(`${que} (código ${r.status}).${det ? ' ' + det : ''}`)
       }
-      if (accion === 'zernio_posts') {
-        const r = await zernio('/posts?limit=100'); if (!r.ok) throw new Falla(`No se pudieron cargar las publicaciones (código ${r.status}).`)
-        // deno-lint-ignore no-explicit-any
-        const posts = ((r.data?.posts ?? r.data ?? []) as any[]).map((p) => ({
-          id: p._id || p.id, contenido: p.content || '', estado: p.status || '', fecha: p.scheduledFor || p.publishedAt || p.createdAt || '',
-          // deno-lint-ignore no-explicit-any
-          plataformas: ((p.platforms ?? []) as any[]).map((x) => x.platform), imagen: p.mediaItems?.[0]?.url || '',
-        }))
-        return responder({ posts })
+      const cuentasZ = async () => {
+        const r = await zernio('/accounts'); if (!r.ok) throw errorZernio(r, 'No se pudieron cargar las cuentas')
+        return ((r.data?.accounts ?? r.data ?? []) as Cualquiera[]).map((a) => ({ id: String(a._id || a.id), plataforma: String(a.platform || ''), nombre: String(a.name || a.username || a.platform || '') }))
       }
-      if (!(await puede('crear'))) throw new Falla('No tienes permiso para publicar.', 403)
-      if (accion === 'zernio_crear') {
-        const contenido = String(b.contenido || '').trim()
-        if (!contenido) throw new Falla('El contenido no puede estar vacío.')
-        if (!Array.isArray(b.plataformas) || !b.plataformas.length) throw new Falla('Elige al menos una cuenta donde publicar.')
-        const media: { url: string; type: string }[] = []
-        if (b.imagenBase64) {
-          const tipo = String(b.imagenTipo || 'image/jpeg')
-          const pre = await zernio('/media/presign', { method: 'POST', body: JSON.stringify({ fileName: b.imagenNombre || 'imagen.jpg', fileType: tipo }) })
-          if (!pre.ok || !pre.data?.uploadUrl) throw new Falla(`No se pudo preparar la subida de la imagen (código ${pre.status}).`)
-          const bytes = Uint8Array.from(atob(String(b.imagenBase64)), (c) => c.charCodeAt(0))
+      const idPost = (v: unknown) => { const s = String(v || ''); if (!/^[a-zA-Z0-9_-]{1,100}$/.test(s)) throw new Falla('ID de publicación inválido.'); return s }
+      const leerPost = async (id: string) => {
+        const r = await zernio('/posts/' + encodeURIComponent(id)); if (!r.ok) throw errorZernio(r, 'No se encontró la publicación en Zernio')
+        return (r.data?.post ?? r.data ?? {}) as Cualquiera
+      }
+      const miRol = async () => ((await usuario.rpc('marketing_mi_rol')).data ?? {}) as { empleado_id?: string; nombre?: string; rol?: string; coord?: boolean; requiere?: boolean }
+      const fechaFutura = (v: unknown, maxDias = 400) => {
+        const t = Date.parse(String(v || ''))
+        if (!isFinite(t) || t < Date.now() + 60000) throw new Falla('Elige una fecha y hora al menos un minuto en el futuro.')
+        if (t > Date.now() + maxDias * 86400000) throw new Falla('La fecha está demasiado lejos.')
+        return new Date(t).toISOString()
+      }
+      // Enlaces que no caducan: Drive, el almacenamiento de la app (Audiovisual) y media.vimedic.com.ec.
+      const enlacePermanente = (url: string) => /^https:\/\/(drive\.usercontent\.google\.com|drive\.google\.com|lh3\.googleusercontent\.com|docs\.google\.com|media\.vimedic\.com\.ec|[a-z0-9]+\.supabase\.co\/storage\/v1\/object\/public)\//i.test(url)
+      /** Guarda la acción para que la apruebe Coordinación (mkfDiferir_). Devuelve null si no hace falta. */
+      const diferir = async (fn: string, datos: Record<string, unknown>, resumen: string, aplicando: boolean) => {
+        if (aplicando) return null
+        const r = await miRol()
+        if (!r.requiere) return null
+        const ahora = new Date(Date.now() - 5 * 3600000).toISOString().replace(/\D/g, '').slice(2, 14)
+        const { data, error } = await admin.from('marketing_cambios').insert({
+          codigo: 'MKC-' + ahora + '-' + crypto.randomUUID().slice(0, 4), fecha: new Date().toISOString(),
+          producto_id: (datos.productoId as string) || null, producto_texto: (datos.productoTexto as string) || null,
+          campo: 'accion:' + fn, nivel: 'Revisión', valor_anterior: resumen.slice(0, 2000), valor_nuevo: JSON.stringify(datos),
+          estado: 'Pendiente', autor_id: r.empleado_id ?? null, autor_rol: r.rol ?? null,
+        }).select('id').single()
+        if (error) throw new Falla('No se pudo enviar al coordinador: ' + error.message)
+        return { ok: true, enRevision: true, id: data.id, mensaje: 'Enviado al coordinador para aprobación. Aparece en Revisión.' }
+      }
+
+      /** mkPublicar: valida formato y reglas de cada red, evita duplicados y registra la publicación. */
+      const crearPost = async (d: Cualquiera, aplicando: boolean) => {
+        const cuentas = await cuentasZ()
+        const ids: string[] = Array.isArray(d.cuentas) ? d.cuentas.map(String)
+          : Array.isArray(d.plataformas) ? d.plataformas.map((x: Cualquiera) => String(x.accountId || '')) : []
+        if (!ids.length || ids.length > 20) throw new Falla('Elige las cuentas donde publicar.')
+        const formato = String(d.formato || 'feed')
+        if (!['feed', 'story', 'reel'].includes(formato)) throw new Falla('Formato no válido.')
+        const contenido = String(d.contenido || '').trim()
+        if (!contenido && formato !== 'story') throw new Falla('Escribe el contenido.')
+        if ([...contenido].length > 2200) throw new Falla('El texto supera 2.200 caracteres (límite de Instagram y TikTok). Acórtalo.')
+        let media: { url: string; type: string } | null = d.media && d.media.url ? { url: String(d.media.url), type: String(d.media.type) } : null
+        // Compatibilidad: imagen enviada en base64 desde una pantalla anterior.
+        if (!media && d.imagenBase64) {
+          const tipo = String(d.imagenTipo || 'image/jpeg')
+          const bytes = Uint8Array.from(atob(String(d.imagenBase64)), (c) => c.charCodeAt(0))
+          const pre = await zernio('/media/presign', { method: 'POST', body: JSON.stringify({ filename: String(d.imagenNombre || 'imagen.jpg').slice(0, 150), contentType: tipo, size: bytes.length }) })
+          if (!pre.ok || !pre.data?.uploadUrl) throw errorZernio(pre, 'No se pudo preparar la subida de la imagen')
           const up = await fetch(pre.data.uploadUrl, { method: 'PUT', headers: { 'Content-Type': tipo }, body: bytes })
           if (!up.ok) throw new Falla(`No se pudo subir la imagen (código ${up.status}).`)
-          media.push({ url: pre.data.publicUrl, type: 'image' })
-        } else if (b.imagenUrl && /^https:\/\//.test(String(b.imagenUrl))) media.push({ url: String(b.imagenUrl), type: 'image' })
-        const cuerpo: Record<string, unknown> = { content: contenido, platforms: b.plataformas }
-        if (media.length) cuerpo.mediaItems = media
-        if (b.fechaISO) cuerpo.scheduledFor = b.fechaISO; else cuerpo.publishNow = true
-        const r = await zernio('/posts', { method: 'POST', body: JSON.stringify(cuerpo) })
-        if (!r.ok) throw new Falla(`Zernio no aceptó la publicación (código ${r.status}). ${String(r.texto).slice(0, 160)}`)
-        const postId = String(r.data?.post?._id ?? r.data?.post?.id ?? r.data?._id ?? r.data?.id ?? '')
-        // Sincronía con la pieza audiovisual y el registro de publicaciones
-        if (b.audiovisualId && postId) {
-          await admin.from('audiovisual').update({ estado: b.fechaISO ? 'Programado' : 'Publicado', publicacion_id: postId }).eq('id', b.audiovisualId)
-          await admin.from('marketing_publicaciones').upsert({ post_id: postId, audiovisual_id: b.audiovisualId, por: u.user.email ?? null }, { onConflict: 'post_id' })
+          media = { url: String(pre.data.publicUrl), type: 'image' }
+        } else if (!media && d.imagenUrl) media = { url: String(d.imagenUrl), type: 'image' }
+        if (media && (!/^https:\/\//.test(media.url) || !['image', 'video'].includes(media.type))) throw new Falla('Multimedia no válida.')
+        if (formato === 'reel' && media?.type !== 'video') throw new Falla('Reels requiere un video.')
+        if (formato === 'story' && !media) throw new Falla('Historias requiere imagen o video.')
+        let conTikTok = false
+        const platforms = ids.map((id) => {
+          const a = cuentas.find((c) => c.id === id); if (!a) throw new Falla('Cuenta no autorizada.')
+          const pl = a.plataforma.toLowerCase(), esVideo = media?.type === 'video'
+          if (pl === 'instagram' && !media) throw new Falla('Instagram requiere una imagen o un video.')
+          if (pl === 'tiktok') {
+            if (!media) throw new Falla('TikTok requiere un video o una imagen.')
+            if (formato === 'story') throw new Falla('TikTok no admite historias: usa formato Reel o Feed.')
+            conTikTok = true; return { platform: a.plataforma, accountId: a.id }
+          }
+          if (pl === 'youtube') {
+            if (!esVideo) throw new Falla('YouTube requiere un video.')
+            if (formato === 'story') throw new Falla('YouTube no admite historias: usa formato Reel o Feed.')
+            const titulo = (contenido.split('\n').map((x) => x.trim()).filter(Boolean)[0] || 'VIMEDIC').replace(/[<>]/g, '').slice(0, 100)
+            return { platform: a.plataforma, accountId: a.id, platformSpecificData: { title: titulo, visibility: 'public', madeForKids: false, containsSyntheticMedia: false } }
+          }
+          if (formato !== 'feed' && !['facebook', 'instagram'].includes(pl)) throw new Falla(`El formato ${formato === 'story' ? 'Historia' : 'Reel'} solo funciona en Facebook, Instagram, TikTok y YouTube. Quita ${a.plataforma} o usa Feed.`)
+          const p: Record<string, unknown> = { platform: a.plataforma, accountId: a.id }
+          if (formato === 'story' || (formato === 'reel' && pl === 'facebook')) p.platformSpecificData = { contentType: formato }
+          return p
+        })
+        const cuerpo: Record<string, unknown> = { content: contenido, platforms, timezone: TZ }
+        if (conTikTok) cuerpo.tiktokSettings = { privacy_level: 'PUBLIC_TO_EVERYONE', allow_comment: true, allow_duet: true, allow_stitch: true, content_preview_confirmed: true, express_consent_given: true }
+        if (media) cuerpo.mediaItems = [{ url: media.url, type: media.type }]
+        const borrador = d.borrador === true
+        if (d.fechaISO) {
+          cuerpo.scheduledFor = fechaFutura(d.fechaISO)
+          if (media && !enlacePermanente(media.url) && Date.parse(cuerpo.scheduledFor as string) > Date.now() + 6.9 * 86400000)
+            throw new Falla('Este archivo se subió directo (temporal) y solo se puede programar dentro de los próximos 6 días. Súbelo en Audiovisual para programarlo con más anticipación.')
+        } else if (!borrador) cuerpo.publishNow = true
+        if (borrador) cuerpo.isDraft = true
+        // Un borrador no se publica: no necesita aprobación (mkfDiferir_).
+        if (!borrador) {
+          const guardado = { ...d, media, imagenBase64: undefined }
+          const dif = await diferir('zernio_crear', guardado, contenido || '(Historia sin texto)', aplicando)
+          if (dif) return dif
         }
-        return responder({ ok: true, postId })
+        // Registro de la solicitud: una respuesta incierta nunca repite la publicación.
+        const solicitud = String(d.requestId || '')
+        if (!/^[a-zA-Z0-9-]{16,80}$/.test(solicitud)) throw new Falla('Solicitud inválida. Cierra y vuelve a abrir la publicación.')
+        const { data: previa } = await admin.from('marketing_publicaciones').select('id,post_id').eq('solicitud_id', solicitud).is('deleted_at', null).maybeSingle()
+        if (previa?.post_id) return { ok: true, postId: previa.post_id, repetida: true }
+        if (previa) throw new Falla('La publicación anterior todavía no tiene respuesta de Zernio. Sincroniza el planificador y revisa si ya se creó antes de intentarlo de nuevo.')
+        const { data: reg, error: eReg } = await admin.from('marketing_publicaciones').insert({
+          solicitud_id: solicitud, audiovisual_id: d.audiovisualId || null, producto_id: d.productoId || null, producto_texto: d.productoTexto || null,
+          formato, por: u.user.email ?? null,
+        }).select('id').single()
+        if (eReg) throw new Falla(/duplicate|unique/i.test(eReg.message) ? 'Esta publicación ya se está enviando.' : 'No se pudo registrar la publicación: ' + eReg.message)
+        const r = await zernio('/posts', { method: 'POST', body: JSON.stringify(cuerpo) })
+        if (!r.ok) {
+          await admin.from('marketing_publicaciones').update({ deleted_at: new Date().toISOString() }).eq('id', reg.id)
+          throw errorZernio(r, 'Zernio no aceptó la publicación')
+        }
+        const postId = String(r.data?.post?._id ?? r.data?.post?.id ?? r.data?._id ?? r.data?.id ?? '')
+        await admin.from('marketing_publicaciones').update({ post_id: postId || null }).eq('id', reg.id)
+        // La pieza de Audiovisual queda Programada o Publicada (avVincularPublicacion).
+        if (d.audiovisualId && postId && !borrador) await admin.from('audiovisual').update({ estado: d.fechaISO ? 'Programado' : 'Publicado', publicacion_id: postId }).eq('id', d.audiovisualId)
+        return { ok: true, postId }
       }
+      /** mkEditarPublicacion: texto y/o fecha de una publicación pendiente; un borrador puede pasar a publicarse. */
+      const editarPost = async (d: Cualquiera, aplicando: boolean) => {
+        const id = idPost(d.id)
+        const p = await leerPost(id)
+        if (!EDITABLES.includes(String(p.status))) throw new Falla('Solo se pueden editar borradores, programadas o fallidas.')
+        const contenido = String(d.contenido ?? '').trim()
+        if ([...contenido].length > 5000) throw new Falla('El texto supera 5000 caracteres.')
+        const cuerpo: Record<string, unknown> = { timezone: TZ, content: contenido }
+        if (d.fechaISO) cuerpo.scheduledFor = fechaFutura(d.fechaISO)
+        if (d.borrador === false && p.status === 'draft') cuerpo.isDraft = false
+        // Seguir editando un borrador (sin fecha ni publicarlo) no necesita aprobación.
+        if (!(p.status === 'draft' && d.borrador !== false && !d.fechaISO)) {
+          const dif = await diferir('zernio_editar', { ...d, id }, contenido, aplicando)
+          if (dif) return dif
+        }
+        const r = await zernio('/posts/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify(cuerpo) })
+        if (!r.ok) throw errorZernio(r, 'Zernio no aceptó el cambio')
+        return { ok: true }
+      }
+      /** mkReprogramar: mover la fecha (arrastrar en el calendario). */
+      const reprogramarPost = async (d: Cualquiera, aplicando: boolean) => {
+        const id = idPost(d.id)
+        const fecha = fechaFutura(d.fechaISO)
+        const p = await leerPost(id)
+        if (!EDITABLES.includes(String(p.status))) throw new Falla('Las publicaciones ya publicadas no se pueden mover.')
+        const dif = await diferir('zernio_reprogramar', { ...d, id, fechaISO: fecha }, 'Nueva fecha: ' + new Date(fecha).toLocaleString('es-EC', { timeZone: TZ, dateStyle: 'full', timeStyle: 'short' }), aplicando)
+        if (dif) return dif
+        const r = await zernio('/posts/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify({ scheduledFor: fecha, timezone: TZ }) })
+        if (!r.ok) throw errorZernio(r, 'Zernio no aceptó la nueva fecha')
+        return { ok: true, fecha }
+      }
+
+      if (accion === 'zernio_cuentas') return responder({ cuentas: await cuentasZ() })
+      if (accion === 'zernio_rol') return responder(await miRol())
+      if (accion === 'zernio_posts') {
+        const pagina = Math.max(1, Math.min(1000, Number(b.pagina) || 1))
+        const r = await zernio('/posts?limit=100&page=' + pagina); if (!r.ok) throw errorZernio(r, 'No se pudieron cargar las publicaciones')
+        const lista = (r.data?.posts ?? r.data ?? []) as Cualquiera[]
+        const ids = lista.map((p) => String(p._id || p.id)).filter(Boolean)
+        // Producto y pieza de Audiovisual de cada publicación (MK_PostMeta del original).
+        const [{ data: regs }, { data: avs }] = await Promise.all([
+          ids.length ? admin.from('marketing_publicaciones').select('post_id,audiovisual_id,producto_id,producto_texto,formato,producto:productos(codigo,nombre)').in('post_id', ids).is('deleted_at', null) : Promise.resolve({ data: [] }),
+          ids.length ? admin.from('audiovisual').select('id,titulo,archivo_url,mime,tipo,campana,publicacion_id').in('publicacion_id', ids).is('deleted_at', null) : Promise.resolve({ data: [] }),
+        ])
+        const avIds = [...new Set(((regs ?? []) as Cualquiera[]).map((x) => x.audiovisual_id).filter(Boolean))]
+        const { data: avs2 } = avIds.length ? await admin.from('audiovisual').select('id,titulo,archivo_url,mime,tipo,campana,publicacion_id').in('id', avIds) : { data: [] }
+        const avPorId = new Map<string, Cualquiera>([...((avs ?? []) as Cualquiera[]), ...((avs2 ?? []) as Cualquiera[])].map((a) => [a.id, a]))
+        const avPorPost = new Map<string, Cualquiera>(((avs ?? []) as Cualquiera[]).map((a) => [a.publicacion_id, a]))
+        const regPorPost = new Map<string, Cualquiera>(((regs ?? []) as Cualquiera[]).map((x) => [x.post_id, x]))
+        const posts = lista.map((p) => {
+          const id = String(p._id || p.id), m = (p.mediaItems?.[0] ?? {}) as Cualquiera
+          const plats = (p.platforms ?? []) as Cualquiera[]
+          const reg = regPorPost.get(id), av = (reg?.audiovisual_id && avPorId.get(reg.audiovisual_id)) || avPorPost.get(id)
+          return {
+            id, contenido: p.content || '', estado: p.status || '', fecha: p.scheduledFor || p.publishedAt || p.createdAt || '',
+            programada: p.scheduledFor || '', creado: p.createdAt || '', publicado: p.publishedAt || '',
+            plataformas: plats.map((x) => x.platform), imagen: m.url || '', tipoMedia: m.type || '', nMedia: (p.mediaItems ?? []).length,
+            urls: plats.map((x) => x.platformPostUrl || '').filter(Boolean),
+            detalle: plats.map((x) => ({ plataforma: x.platform || '', estado: x.status || '', url: x.platformPostUrl || '', error: String(x.errorMessage || x.error || '').slice(0, 200) })),
+            avId: av?.id || '', avTitulo: av?.titulo || '', avUrl: av?.archivo_url || '', avVideo: /^video\//.test(av?.mime || '') || ['Video', 'Reel'].includes(av?.tipo || ''),
+            campana: av?.campana || '', formato: reg?.formato || '',
+            productoId: reg?.producto_id || '', producto: reg?.producto ? `${reg.producto.codigo} · ${reg.producto.nombre}` : (reg?.producto_texto || ''),
+          }
+        })
+        const pag = r.data?.pagination ?? {}
+        return responder({ posts, pagina, paginas: Number(pag.pages || pag.totalPages || pagina) })
+      }
+      if (!(await puede('crear'))) throw new Falla('No tienes permiso para publicar.', 403)
+      if (accion === 'zernio_presign') {
+        const tipo = String(b.tipo || ''), tamano = Number(b.tamano) || 0
+        if (!/^image\/(jpeg|png|webp|gif)$|^video\/(mp4|quicktime|webm)$/.test(tipo) || !tamano || tamano > 300 * 1024 * 1024) throw new Falla('Formato o tamaño no admitido (JPG, PNG, WebP, GIF, MP4, MOV o WebM; máximo 300 MB).')
+        const r = await zernio('/media/presign', { method: 'POST', body: JSON.stringify({ filename: String(b.nombre || 'archivo').slice(0, 150), contentType: tipo, size: tamano }) })
+        if (!r.ok || !r.data?.uploadUrl) throw errorZernio(r, 'No se pudo preparar la subida')
+        return responder({ uploadUrl: r.data.uploadUrl, publicUrl: r.data.publicUrl })
+      }
+      if (accion === 'zernio_crear') return responder(await crearPost(b, false))
+      if (accion === 'zernio_editar') return responder(await editarPost(b, false))
+      if (accion === 'zernio_reprogramar') return responder(await reprogramarPost(b, false))
       if (accion === 'zernio_eliminar') {
-        if (!b.postId) throw new Falla('Falta el ID de la publicación.')
-        const r = await zernio('/posts/' + encodeURIComponent(String(b.postId)), { method: 'DELETE' })
-        if (!r.ok) throw new Falla(`No se pudo borrar la publicación (código ${r.status}).`)
-        await admin.from('audiovisual').update({ estado: 'Listo', publicacion_id: null }).eq('publicacion_id', String(b.postId))
+        const id = idPost(b.postId)
+        const p = await leerPost(id)
+        if (!['draft', 'scheduled', 'failed'].includes(String(p.status))) throw new Falla('Solo se pueden eliminar borradores, programadas o fallidas.')
+        const r = await zernio('/posts/' + encodeURIComponent(id), { method: 'DELETE' })
+        if (!r.ok) throw errorZernio(r, 'No se pudo borrar la publicación')
+        await admin.from('audiovisual').update({ estado: 'Listo', publicacion_id: null }).eq('publicacion_id', id)
+        await admin.from('marketing_publicaciones').update({ deleted_at: new Date().toISOString() }).eq('post_id', id)
         return responder({ ok: true })
+      }
+      /** Coordinación aprueba una publicación que esperaba: se ejecuta tal como se pidió (mkfAprobar). */
+      if (accion === 'zernio_aplicar') {
+        const r = await miRol()
+        if (!r.coord) throw new Falla('Solo Coordinación de Marketing puede aprobar publicaciones.', 403)
+        const { data: c } = await admin.from('marketing_cambios').select('id,campo,valor_nuevo,estado').eq('id', String(b.cambioId || '')).is('deleted_at', null).maybeSingle()
+        if (!c || !String(c.campo).startsWith('accion:')) throw new Falla('No se encontró la publicación por aprobar.')
+        if (!['Pendiente', 'Con cambios'].includes(String(c.estado))) throw new Falla('Esta publicación ya fue revisada.')
+        let datos: Cualquiera
+        try { datos = JSON.parse(String(c.valor_nuevo || '{}')) } catch { throw new Falla('Los datos guardados de la publicación no son válidos.') }
+        // Solicitudes guardadas por la app original: [datos] o [id, fecha].
+        const fn = String(c.campo).slice(7)
+        if (Array.isArray(datos)) {
+          if (fn === 'mkReprogramar') datos = { id: datos[0], fechaISO: datos[1] }
+          else { const o = datos[0] ?? {}; datos = { ...o, cuentas: o.accounts, fechaISO: o.fecha, productoId: undefined, productoTexto: o.meta?.producto } }
+        }
+        if (b.contenido !== undefined && typeof b.contenido === 'string') datos.contenido = b.contenido
+        if (b.fechaISO !== undefined) datos.fechaISO = b.fechaISO || ''
+        const out = fn === 'zernio_crear' || fn === 'mkPublicar' ? await crearPost({ ...datos, requestId: datos.requestId || crypto.randomUUID() }, true)
+          : fn === 'zernio_editar' || fn === 'mkEditarPublicacion' ? await editarPost(datos, true)
+          : fn === 'zernio_reprogramar' || fn === 'mkReprogramar' ? await reprogramarPost(datos, true)
+          : null
+        if (!out) throw new Falla('Acción no reconocida.')
+        await admin.from('marketing_cambios').update({ estado: 'Aprobado', revisado_por: r.empleado_id ?? null, fecha_revision: new Date().toISOString(), comentario: b.comentario ? String(b.comentario).slice(0, 500) : null }).eq('id', c.id)
+        return responder({ ...out, aprobado: true })
       }
       throw new Falla('Acción no reconocida.')
     }
 
     /* ---------------- Gemini: redacción ---------------- */
+    /* Copy para redes (mkGenerarCopyIA): tipo de publicación, datos reales del producto, redes y formato.
+       Siempre invita a la web y nunca pasa de 2000 caracteres (mkAjustarCopy_). */
     if (accion === 'ia_texto') {
       if (!(await puede('crear'))) throw new Falla('No tienes permiso para usar la IA.', 403)
-      const plataforma = String(b.plataforma || 'Instagram y Facebook'), tono = String(b.tono || 'cercano y profesional')
-      const t = await gemini([{ text: [
-        'Eres community manager de VIMEDIC, importadora de equipos médicos en Ecuador.',
-        `Escribe UNA publicación para ${plataforma}, en español de Ecuador, tono ${tono}, sin exageraciones ni promesas médicas.`,
-        b.producto ? 'Producto: ' + String(b.producto).slice(0, 200) : '',
-        b.descripcion ? 'Datos reales del producto:\n' + String(b.descripcion).slice(0, 1500) : '',
-        b.indicaciones ? 'Indicaciones del equipo: ' + String(b.indicaciones).slice(0, 400) : '',
-        b.actual ? 'Texto actual para mejorar:\n' + String(b.actual).slice(0, 1200) : '',
-        'Formato: gancho en la primera línea, 2 a 4 líneas de valor, una llamada a la acción (escribir por WhatsApp) y de 3 a 6 hashtags al final.',
-        'No inventes especificaciones ni precios. Devuelve solo el texto de la publicación.',
-      ].filter(Boolean).join('\n') }], { temperature: 0.8, maxOutputTokens: 900 })
+      const TIPOS: Record<string, string> = {
+        promocional: 'Publicación promocional que destaque beneficios concretos y termine con una llamada a la acción para cotizar por WhatsApp.',
+        educativo: 'Publicación educativa: explica un dato útil o un buen uso del equipo para profesionales de la salud, con tono experto y cercano.',
+        lanzamiento: 'Anuncio de novedad o llegada de stock, que genere expectativa y pida escribir para reservar.',
+        oferta: 'Oferta con urgencia moderada (tiempo o unidades limitadas) sin inventar precios ni porcentajes que no se te den.',
+        caso: 'Caso de uso: cuenta cómo el equipo resuelve un problema real de una clínica, consultorio o laboratorio.',
+        mejorar: 'Mejora el texto actual: más claro, persuasivo y bien estructurado, conservando la información.',
+        acortar: 'Resume el texto actual en una versión corta y directa (máximo 3 líneas + CTA).',
+        hashtags: 'Devuelve el texto actual sin cambios y agrega al final entre 5 y 8 hashtags relevantes para Ecuador y el sector salud.',
+      }
+      const actual = String(b.texto ?? b.actual ?? '').slice(0, 3000)
+      const tipo = TIPOS[String(b.tipo)] ? String(b.tipo) : actual.trim() ? 'mejorar' : 'promocional'
+      if (['mejorar', 'acortar', 'hashtags'].includes(tipo) && !actual.trim()) throw new Falla('Escribe primero un texto para que la IA lo trabaje.')
+      const lim = (v: unknown, n: number) => String(v ?? '').replace(/[<>]/g, '').slice(0, n)
+      let producto = ''
+      const cx = (b.contexto && typeof b.contexto === 'object' ? b.contexto : null) as Record<string, unknown> | null
+      if (cx?.nombre) {
+        producto = 'Producto: ' + lim(cx.nombre, 160) + (cx.categoria ? '\nCategoría: ' + lim(cx.categoria, 80) : '') + (cx.marca ? '\nMarca: ' + lim(cx.marca, 60) : '') +
+          (cx.modelo ? '\nModelo: ' + lim(cx.modelo, 60) : '') + (cx.destacados ? '\nDatos destacados: ' + lim(cx.destacados, 300) : '') + (cx.garantia ? '\nGarantía: ' + lim(cx.garantia, 60) : '') +
+          '\nDescripción / especificaciones: ' + lim(cx.descripcion, 1500)
+      } else if (b.productoId) {
+        const { data: p } = await admin.from('productos').select('nombre,marca,codigo_unico,descripcion,caracteristicas,especificaciones,garantia,categoria:categorias(nombre)').eq('id', b.productoId).maybeSingle()
+        // deno-lint-ignore no-explicit-any
+        if (p) producto = 'Producto: ' + p.nombre + ((p as any).categoria?.nombre ? '\nCategoría: ' + (p as any).categoria.nombre : '') + (p.marca ? '\nMarca: ' + p.marca : '') + (p.codigo_unico ? '\nModelo: ' + p.codigo_unico : '') +
+          (p.garantia ? '\nGarantía: ' + p.garantia : '') + '\nDescripción / especificaciones: ' + lim([p.descripcion, p.caracteristicas, p.especificaciones].filter(Boolean).join('\n'), 1500)
+      } else if (b.producto) producto = 'Producto: ' + lim(b.producto, 200) + (b.descripcion ? '\nDescripción: ' + lim(b.descripcion, 1500) : '')
+      const plataformas = (Array.isArray(b.plataformas) ? b.plataformas.map(String).join(', ') : String(b.plataforma || '')) || 'Facebook e Instagram'
+      const formato = ({ feed: 'publicación de feed', reel: 'reel (texto de descripción)', story: 'historia (texto muy breve)' } as Record<string, string>)[String(b.formato)] || 'publicación de feed'
+      const { data: cfgG } = await admin.from('integraciones').select('config').eq('proveedor', 'gemini').is('deleted_at', null).maybeSingle()
+      const web = /^https:\/\/[\w.-]+/.test(String((cfgG?.config as Record<string, unknown>)?.webUrl || '')) ? String((cfgG?.config as Record<string, unknown>).webUrl) : 'https://vimedic.com.ec'
+      const idea = String(b.idea ?? b.indicaciones ?? '').slice(0, 600)
+      let t = await gemini([{ text: [
+        'Eres el community manager de VIMEDIC, importadora y distribuidora de equipos médicos en Quito, Ecuador.',
+        'Escribe en español de Ecuador, tuteo profesional, sin exageraciones ni promesas médicas.',
+        'Tarea: ' + TIPOS[tipo],
+        'Redes: ' + plataformas + '. Formato: ' + formato + '.',
+        'Usa emojis con moderación, párrafos cortos y, salvo que la tarea diga otra cosa, cierra con una llamada a la acción y 3 a 6 hashtags.',
+        'SIEMPRE incluye una invitación clara a visitar nuestra página web ' + web + ' (escribe el enlace completo tal cual), aunque también invites a escribir por WhatsApp.',
+        'Extensión máxima: 2000 caracteres en total, incluidos emojis, enlace y hashtags. Ideal entre 400 y 1200.',
+        'No inventes precios, descuentos, registros sanitarios ni datos técnicos que no aparezcan aquí.',
+        producto ? '\n' + producto : '',
+        idea ? '\nIndicaciones del equipo: ' + idea : '',
+        actual ? '\nTexto actual:\n' + actual : '',
+        '\nDevuelve solo el texto final de la publicación, sin comillas ni explicaciones.',
+      ].filter(Boolean).join('\n') }], { temperature: 0.75, maxOutputTokens: 2048 })
+      t = t.replace(/^["“]|["”]$/g, '').trim()
+      // mkAjustarCopy_: invitación a la web (antes de los hashtags) y máximo 2000 caracteres.
+      const MAX = 2000, dominio = web.replace(/^https?:\/\//, '').replace(/\/$/, '').toLowerCase(), cta = '\n\n🌐 Conoce más en ' + web
+      const finTags = (s: string) => s.match(/\n+((?:#[^\s#]+\s*)+)$/)
+      if (!t.toLowerCase().includes(dominio)) { const m = finTags(t); t = m ? t.slice(0, m.index).trim() + cta + '\n\n' + m[1].trim() : t + cta }
+      if ([...t].length > MAX) {
+        const m = finTags(t), tags = m ? m[1].trim() : ''
+        let cuerpo = m ? t.slice(0, m.index) : t
+        let cola = (cuerpo.toLowerCase().includes(dominio) ? '' : cta) + (tags ? '\n\n' + tags : '')
+        const idx = cuerpo.toLowerCase().lastIndexOf(dominio)
+        if (idx >= 0) { const ini = cuerpo.lastIndexOf('\n', idx); cola = '\n\n' + cuerpo.slice(ini < 0 ? 0 : ini).trim() + (tags ? '\n\n' + tags : ''); cuerpo = cuerpo.slice(0, ini < 0 ? 0 : ini) }
+        const espacio = MAX - [...cola].length - 1, arr = [...cuerpo.trim()]
+        if (arr.length > espacio) { const corto = arr.slice(0, Math.max(0, espacio)).join(''); const corte = Math.max(corto.lastIndexOf('\n'), corto.lastIndexOf('. ')); cuerpo = (corte > espacio * 0.6 ? corto.slice(0, corte + 1) : corto).trim() }
+        t = (cuerpo.trim() + cola).trim()
+        if ([...t].length > MAX) t = [...t].slice(0, MAX).join('')
+      }
       return responder({ texto: t })
     }
     if (accion === 'ia_producto') {

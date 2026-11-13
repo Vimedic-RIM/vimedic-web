@@ -860,3 +860,20 @@ body.vm-con-rail .vm-mkt #sideNav{left:calc(var(--vr-w) + 10px)}
 .vm-mkt .mkc-chips{display:flex;gap:6px;flex-wrap:wrap}
 .vm-mkt .mkc-chips button{font-size:11px;font-weight:700;padding:6px 10px;border-radius:999px;border:1px solid #e2e8f0;background:#fff;color:#475569}
 .vm-mkt .mkc-chips button.on{background:#0b2545;border-color:#0b2545;color:#fff}
+
+/* Planificador: compositor, vista previa, buscador de productos y cola de cargas */
+.vm-mkt .cmp-grid{display:grid;gap:16px}
+@media (min-width:900px){.vm-mkt .cmp-grid{grid-template-columns:minmax(0,1fr) 270px}}
+.vm-mkt .cmp-prev{border:1px solid #e2e8f0;border-radius:18px;overflow:hidden;background:#fff;align-self:start}
+@media (min-width:900px){.vm-mkt .cmp-prev{position:sticky;top:0}}
+.vm-mkt .cmp-media{aspect-ratio:4/5;max-height:340px;width:100%;background:#f1f5f9;display:grid;place-items:center;color:#94a3b8;overflow:hidden}
+.vm-mkt .cmp-media img,.vm-mkt .cmp-media video{width:100%;height:100%;object-fit:cover;display:block}
+.vm-mkt .mk-ac{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:8;background:#fff;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 14px 34px -16px #0b254566;max-height:240px;overflow:auto;padding:4px}
+.vm-mkt .mk-ac button{display:block;width:100%;text-align:left;font-size:11.5px;color:#334155;padding:7px 9px;border-radius:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vm-mkt .mk-ac button:hover{background:#eef6fd}
+.vm-mkt .mk-cola{position:fixed;right:16px;bottom:16px;z-index:90;width:min(320px,calc(100vw - 32px));display:flex;flex-direction:column;gap:8px}
+.vm-mkt .mk-cola-i{background:#fff;border:1px solid #e2e8f0;border-left:3px solid var(--primary);border-radius:12px;box-shadow:0 14px 34px -14px #0b254566;padding:9px 11px}
+.vm-mkt .mk-cola-i.ok{border-left-color:#04896f}
+.vm-mkt .mk-cola-i.err{border-left-color:#dc2626}
+.vm-mkt .mk-cola-b{height:4px;border-radius:99px;background:#eef2f7;margin-top:6px;overflow:hidden}
+.vm-mkt .mk-cola-b i{display:block;height:100%;background:var(--primary);transition:width .3s}

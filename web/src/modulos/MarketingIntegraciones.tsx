@@ -171,142 +171,7 @@ function Tarjeta({ proveedor, titulo, sub, est, aviso, cambio, ayuda, conModelo 
   )
 }
 
-/* ============================ Planificador (Zernio) ============================ */
-type Post = { id: string; contenido: string; estado: string; fecha: string; plataformas: string[]; imagen: string }
-type Cuenta = { id: string; plataforma: string; nombre: string }
-export type PiezaMin = { id: string; titulo: string; tipo: string; estado: string; url: string; producto: string }
-const ESTADO_POST = (s: string) => { const t = s.toLowerCase(); return /publish|publicad/.test(t) ? ['Publicada', '#04896f', '#ecfaf5'] : /schedul|program/.test(t) ? ['Programada', '#055c9d', '#eff6ff'] : /fail|error|fall/.test(t) ? ['Falló', '#c0392b', '#fdecea'] : /draft|borrador/.test(t) ? ['Borrador', '#64748b', '#f1f5f9'] : [s || '—', '#64748b', '#f1f5f9'] }
-
-export function Planificador({ perfil, piezas, piezaInicial, limpiarPieza, irConfig, aviso, alSincronizar, abrirAlEntrar, consumirAbrir }: {
-  perfil: Perfil; piezas: PiezaMin[]; piezaInicial: PiezaMin | null; limpiarPieza: () => void; irConfig: () => void; aviso: (t: string) => void; alSincronizar: () => void
-  abrirAlEntrar?: boolean; consumirAbrir?: () => void
-}) {
-  const [posts, setPosts] = useState<Post[] | null>(null)
-  const [cuentas, setCuentas] = useState<Cuenta[]>([])
-  const [error, setError] = useState('')
-  const [nueva, setNueva] = useState(false)
-  const [cargando, setCargando] = useState(false)
-  const crear = puede(perfil, 'marketing', 'crear')
-
-  const cargar = useCallback(async () => {
-    setCargando(true)
-    try {
-      const [c, p] = await Promise.all([llamar<{ cuentas: Cuenta[] }>('zernio_cuentas'), llamar<{ posts: Post[] }>('zernio_posts')])
-      setCuentas(c.cuentas); setPosts(p.posts.sort((a, b) => Date.parse(b.fecha || '0') - Date.parse(a.fecha || '0'))); setError('')
-      // Sincroniza el estado de las piezas audiovisuales con lo que realmente pasó en Zernio.
-      const { data } = await supabase.from('audiovisual').select('id,estado,publicacion_id').is('deleted_at', null).not('publicacion_id', 'is', null)
-      let cambios = 0
-      for (const a of (data ?? []) as { id: string; estado: string; publicacion_id: string }[]) {
-        const post = p.posts.find((x) => x.id === a.publicacion_id); if (!post) continue
-        const [t] = ESTADO_POST(post.estado)
-        const nuevo = t === 'Publicada' ? 'Publicado' : t === 'Programada' ? 'Programado' : t === 'Falló' ? 'Listo' : a.estado
-        if (nuevo !== a.estado) { await supabase.from('audiovisual').update({ estado: nuevo }).eq('id', a.id); cambios++ }
-      }
-      if (cambios) alSincronizar()
-    } catch (e) { setError((e as Error).message) }
-    setCargando(false)
-  }, [alSincronizar])
-  useEffect(() => { cargar() }, [cargar])
-  useEffect(() => { if (piezaInicial) setNueva(true) }, [piezaInicial])
-  useEffect(() => { if (abrirAlEntrar) { setNueva(true); consumirAbrir?.() } }, [abrirAlEntrar]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function borrar(p: Post) {
-    if (!confirm('¿Eliminar esta publicación de Zernio?')) return
-    try { await llamar('zernio_eliminar', { postId: p.id }); aviso('Publicación eliminada.'); cargar(); alSincronizar() } catch (e) { aviso((e as Error).message) }
-  }
-  const grupos = useMemo(() => { const g: Record<string, Post[]> = {}; (posts ?? []).forEach((p) => { const k = p.fecha ? p.fecha.slice(0, 10) : 'Sin fecha'; (g[k] = g[k] || []).push(p) }); return Object.entries(g) }, [posts])
-
-  return (
-    <section>
-      <div className="flex items-center gap-2 flex-wrap mb-4">
-        <p className="text-xs text-slate-500 mr-auto">{posts ? `${posts.length} publicaciones · ${cuentas.length} cuenta${cuentas.length === 1 ? '' : 's'} conectada${cuentas.length === 1 ? '' : 's'}` : ''}</p>
-        <button type="button" className="btn" onClick={cargar} disabled={cargando}><RefreshCw className={cargando ? 'animate-spin' : ''} />Sincronizar</button>
-        {crear && <button type="button" className="btn btn-primary" onClick={() => setNueva(true)} disabled={!!error}><CalendarClock />Nueva publicación</button>}
-      </div>
-      {error && (
-        <div className="card p-6 text-center"><p className="text-sm font-bold text-slate-700">No se pudo conectar con Zernio</p><p className="text-xs text-slate-500 mt-1">{error}</p>
-          {puede(perfil, 'marketing', 'administrar') && <button type="button" className="btn btn-primary mt-3" onClick={irConfig}><Plug />Ir a Configuración</button>}</div>
-      )}
-      {!error && !posts && <p className="text-xs text-slate-400">Cargando publicaciones…</p>}
-      {posts && !posts.length && !error && <div className="card p-10 text-center"><p className="text-3xl">📅</p><p className="text-sm font-bold text-slate-700 mt-2">Todavía no hay publicaciones</p><p className="text-xs text-slate-400 mt-1">Crea la primera: puedes redactarla con IA y programarla.</p></div>}
-      {grupos.map(([dia, lista]) => (
-        <div key={dia} className="mb-5">
-          <h3 className="text-[11px] font-mono-spec uppercase text-slate-500 mb-2 font-bold">{dia === 'Sin fecha' ? dia : new Date(dia + 'T12:00:00').toLocaleDateString('es-EC', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</h3>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-            {lista.map((p) => { const [t, c, bg] = ESTADO_POST(p.estado); return (
-              <article key={p.id} className="card p-3 flex gap-3">
-                {p.imagen ? <img src={p.imagen} alt="" className="w-20 h-20 rounded-xl object-cover shrink-0 bg-slate-100" onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} /> : <span className="w-20 h-20 rounded-xl bg-slate-100 shrink-0 grid place-items-center text-slate-300 text-2xl">✎</span>}
-                <div className="min-w-0 flex-1"><div className="flex items-center gap-2 flex-wrap"><span className="pill" style={{ background: bg, color: c }}>{t}</span>
-                  {p.plataformas.map((x) => <span key={x} className="text-[10px] text-slate-500 font-semibold capitalize">{x}</span>)}
-                  {p.fecha && <span className="text-[10px] text-slate-400 ml-auto">{new Date(p.fecha).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' })}</span>}</div>
-                  <p className="text-xs text-slate-700 mt-1.5 line-clamp-3 whitespace-pre-line">{p.contenido}</p></div>
-                {crear && t !== 'Publicada' && <button type="button" className="text-slate-300 hover:text-red-600 self-start" onClick={() => borrar(p)} aria-label="Eliminar"><Trash2 className="w-4 h-4" /></button>}
-              </article>) })}
-          </div>
-        </div>
-      ))}
-      {nueva && <NuevaPublicacion cuentas={cuentas} piezas={piezas} inicial={piezaInicial} cerrar={() => { setNueva(false); limpiarPieza() }} aviso={aviso}
-        hecho={() => { setNueva(false); limpiarPieza(); cargar(); alSincronizar() }} />}
-    </section>
-  )
-}
-
-function NuevaPublicacion({ cuentas, piezas, inicial, cerrar, hecho, aviso }: { cuentas: Cuenta[]; piezas: PiezaMin[]; inicial: PiezaMin | null; cerrar: () => void; hecho: () => void; aviso: (t: string) => void }) {
-  const [texto, setTexto] = useState(inicial ? inicial.titulo : '')
-  const [sel, setSel] = useState<string[]>([])
-  const [pieza, setPieza] = useState(inicial?.id ?? '')
-  const [archivo, setArchivo] = useState<File | null>(null)
-  const [fecha, setFecha] = useState('')
-  const [ind, setInd] = useState('')
-  const [ia, setIa] = useState(false)
-  const [enviando, setEnviando] = useState(false)
-  const [error, setError] = useState('')
-  const elegida = piezas.find((p) => p.id === pieza)
-  const conImagen = piezas.filter((p) => p.url && !/video|reel/i.test(p.tipo) && ['Listo', 'Programado', 'Publicado', 'En edición'].includes(p.estado))
-
-  async function redactar() {
-    setIa(true); setError('')
-    try {
-      const r = await llamar<{ texto: string }>('ia_texto', { producto: elegida?.producto || elegida?.titulo || '', indicaciones: ind, actual: texto, plataforma: cuentas.filter((c) => sel.includes(c.id)).map((c) => c.plataforma).join(' y ') || 'Instagram y Facebook' })
-      setTexto(r.texto)
-    } catch (e) { setError((e as Error).message) }
-    setIa(false)
-  }
-  async function publicar() {
-    if (!texto.trim()) { setError('Escribe el texto de la publicación.'); return }
-    if (!sel.length) { setError('Elige al menos una cuenta.'); return }
-    if (archivo && archivo.size > 6 * 1024 * 1024) { setError('La imagen supera los 6 MB.'); return }
-    setEnviando(true); setError('')
-    try {
-      let b64 = ''
-      if (archivo) b64 = await new Promise<string>((ok, no) => { const f = new FileReader(); f.onload = () => ok(String(f.result).split(',')[1] || ''); f.onerror = () => no(new Error('No se pudo leer la imagen.')); f.readAsDataURL(archivo) })
-      const plataformas = cuentas.filter((c) => sel.includes(c.id)).map((c) => ({ platform: c.plataforma, accountId: c.id }))
-      await llamar('zernio_crear', { contenido: texto.trim(), plataformas, fechaISO: fecha ? new Date(fecha).toISOString() : '', imagenBase64: b64, imagenNombre: archivo?.name, imagenTipo: archivo?.type, imagenUrl: !archivo && elegida?.url ? elegida.url : '', audiovisualId: pieza || undefined })
-      aviso(fecha ? 'Publicación programada.' : 'Publicación enviada.'); hecho()
-    } catch (e) { setError((e as Error).message) }
-    setEnviando(false)
-  }
-  return (
-    <Ventana titulo="Nueva publicación" cerrar={cerrar} ancho="sm:max-w-xl" pie={<><p className="text-[11px] flex-1" style={{ color: '#c0392b' }}>{error}</p><button className="btn btn-primary" onClick={publicar} disabled={enviando}><Send />{enviando ? 'Enviando…' : fecha ? 'Programar' : 'Publicar ahora'}</button></>}>
-      <div>
-        <p className="text-[11px] font-bold text-slate-500 mb-1">Dónde publicar</p>
-        <div className="flex flex-wrap gap-1.5">{cuentas.length ? cuentas.map((c) => { const on = sel.includes(c.id); return (
-          <button key={c.id} type="button" onClick={() => setSel((s) => (on ? s.filter((x) => x !== c.id) : [...s, c.id]))} className="pill" style={on ? { background: '#055c9d', color: '#fff' } : { background: '#f1f5f9', color: '#475569' }}>{on ? '✓ ' : ''}{c.plataforma} · {c.nombre}</button>) }) : <span className="text-[11px] text-slate-400">No hay cuentas conectadas en Zernio.</span>}</div>
-      </div>
-      <label className="block text-[11px] font-bold text-slate-500">Pieza de Audiovisual (opcional)
-        <select value={pieza} onChange={(e) => { setPieza(e.target.value); setArchivo(null) }} className="inp w-full mt-1"><option value="">— Ninguna —</option>{conImagen.map((p) => <option key={p.id} value={p.id}>{p.titulo} · {p.estado}</option>)}</select></label>
-      {elegida?.url && !archivo && <img src={elegida.url} alt="" className="h-28 rounded-xl object-cover border border-slate-200" />}
-      <label className="block text-[11px] font-bold text-slate-500">…o sube una imagen<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => { setArchivo(e.target.files?.[0] ?? null); if (e.target.files?.[0]) setPieza('') }} className="block mt-1 text-xs" /></label>
-      <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-3 space-y-2">
-        <p className="text-[11px] font-bold text-violet-700 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" />Redactar con IA (Gemini)</p>
-        <input value={ind} onChange={(e) => setInd(e.target.value)} className="inp w-full" placeholder="Indicaciones: promoción, tono, qué resaltar… (opcional)" />
-        <button type="button" className="btn" onClick={redactar} disabled={ia}><Sparkles />{ia ? 'Redactando…' : texto.trim() ? 'Mejorar el texto' : 'Redactar'}</button>
-      </div>
-      <label className="block text-[11px] font-bold text-slate-500">Texto de la publicación<textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={7} className="inp w-full mt-1" placeholder="Escribe o redacta con IA…" /></label>
-      <label className="block text-[11px] font-bold text-slate-500">Programar para (vacío = publicar ahora)<input type="datetime-local" value={fecha} onChange={(e) => setFecha(e.target.value)} className="inp w-full mt-1" /></label>
-    </Ventana>
-  )
-}
+/* El planificador de publicaciones está en MarketingPlanificador.tsx. */
 
 /* ============================ Biblioteca (descripciones con IA) ============================ */
 type Prod = {
@@ -1054,11 +919,36 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
 type Cambio = { id: string; codigo: string | null; fecha: string; producto_id: string | null; producto_texto: string | null; campo: string; valor_anterior: string | null; valor_nuevo: string | null; estado: string; comentario: string | null; autor: { nombre: string } | null }
 const CAMPOS_OK = CAMPOS_PRODUCTO
 const textoCambio = (campo: string, v: string | null) => (campo === 'publico' ? (v === 'SI' ? 'Visible al público' : 'Oculto') : v || '—')
+/* Publicaciones en redes que esperan a Coordinación (mkfDiferir_ del original). */
+const ACCIONES: Record<string, string> = { zernio_crear: 'Nueva publicación en redes', mkPublicar: 'Nueva publicación en redes', zernio_editar: 'Cambio en una publicación', mkEditarPublicacion: 'Cambio en una publicación', zernio_reprogramar: 'Cambio de fecha de una publicación', mkReprogramar: 'Cambio de fecha de una publicación' }
+const esAccion = (c: { campo: string }) => c.campo.startsWith('accion:')
+const nombreCampo = (campo: string) => (campo.startsWith('accion:') ? ACCIONES[campo.slice(7)] ?? 'Publicación en redes' : campo)
+function ResumenAccion({ c }: { c: Cambio }) {
+  let d: Record<string, unknown> = {}
+  try { const j = JSON.parse(c.valor_nuevo || '{}'); d = Array.isArray(j) ? (typeof j[0] === 'object' ? j[0] : { id: j[0], fechaISO: j[1] }) : j } catch { /* texto */ }
+  const fecha = String(d.fechaISO || d.fecha || '')
+  const media = d.media as { url?: string; type?: string } | null | undefined
+  const redes = Array.isArray(d.redesTexto) ? (d.redesTexto as string[]) : []
+  const fmt = ({ feed: 'Feed', story: 'Historia', reel: 'Reel' } as Record<string, string>)[String(d.formato || '')]
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3 text-xs">
+      <div className="rounded-xl bg-slate-50 p-3 space-y-1.5">
+        {redes.length > 0 && <p><b className="text-slate-500">Redes:</b> {redes.join(', ')}</p>}
+        {fmt && <p><b className="text-slate-500">Formato:</b> {fmt}</p>}
+        <p><b className="text-slate-500">Fecha:</b> {fecha ? new Date(fecha).toLocaleString('es-EC', { timeZone: 'America/Guayaquil', dateStyle: 'full', timeStyle: 'short' }) : 'Publicar al aprobar'}</p>
+        {media?.url && (media.type === 'video' ? <video src={media.url} className="rounded-lg max-h-40" controls preload="metadata" /> : <img src={media.url} alt="" className="rounded-lg max-h-40 object-contain" />)}
+      </div>
+      <div className="rounded-xl bg-emerald-50 p-3"><p className="text-[10px] font-bold uppercase text-emerald-700 mb-1">Texto</p><p className="whitespace-pre-line text-slate-800">{String(d.contenido ?? c.valor_anterior ?? '') || '—'}</p></div>
+    </div>
+  )
+}
 export function Revision({ perfil, aviso }: { perfil: Perfil; aviso: (t: string) => void }) {
   const [lista, setLista] = useState<Cambio[] | null>(null)
   const [error, setError] = useState('')
   const [com, setCom] = useState<Record<string, string>>({})
-  const aprobar = puede(perfil, 'marketing', 'aprobar')
+  const [coord, setCoord] = useState(false)
+  useEffect(() => { supabase.rpc('marketing_mi_rol').then(({ data }) => setCoord(!!(data as { coord?: boolean } | null)?.coord)) }, [])
+  const aprobar = puede(perfil, 'marketing', 'aprobar') || coord
   const cargar = useCallback(() => {
     supabase.from('marketing_cambios').select('id,codigo,fecha,producto_id,producto_texto,campo,valor_anterior,valor_nuevo,estado,comentario,autor:empleados!autor_id(nombre)').is('deleted_at', null).order('fecha', { ascending: false }).limit(80)
       .then(({ data, error }) => { if (error) setError(error.message); else setLista((data as unknown as Cambio[]) ?? []) })
@@ -1070,6 +960,12 @@ export function Revision({ perfil, aviso }: { perfil: Perfil; aviso: (t: string)
     return () => { recargar.cancelar(); supabase.removeChannel(c) }
   }, [cargar])
   async function decidir(c: Cambio, ok: boolean) {
+    if (ok && esAccion(c)) {
+      // La publicación se ejecuta en Zernio tal como se pidió y queda Aprobada.
+      try { await llamar('zernio_aplicar', { cambioId: c.id, comentario: com[c.id]?.trim() || '' }); aviso('Publicación aprobada y enviada a Zernio.'); cargar() }
+      catch (e) { aviso('No se pudo publicar: ' + (e as Error).message) }
+      return
+    }
     if (ok) {
       if (!c.producto_id || !CAMPOS_OK.includes(c.campo)) { aviso('Este tipo de cambio todavía se aplica a mano en el Inventario.'); return }
       const error = await aplicarCampoProducto(c.producto_id, c.campo, c.valor_nuevo ?? '')
@@ -1087,17 +983,17 @@ export function Revision({ perfil, aviso }: { perfil: Perfil; aviso: (t: string)
         {!pend.length && <div className="card p-8 text-center text-xs text-slate-400">No hay cambios por revisar. Los que se envíen desde la Biblioteca aparecerán aquí.</div>}
         <div className="space-y-3">{pend.map((c) => (
           <article key={c.id} className="card p-4">
-            <div className="flex items-center gap-2 flex-wrap"><b className="text-sm text-slate-800">{c.producto_texto}</b><span className="pill" style={{ background: '#fff8eb', color: '#a16207' }}>{c.campo}</span><span className="text-[10px] text-slate-400 ml-auto">{c.autor?.nombre ?? '—'} · {new Date(c.fecha).toLocaleDateString('es-EC')}</span></div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3 text-xs">
+            <div className="flex items-center gap-2 flex-wrap"><b className="text-sm text-slate-800">{c.producto_texto}</b><span className="pill" style={{ background: '#fff8eb', color: '#a16207' }}>{nombreCampo(c.campo)}</span><span className="text-[10px] text-slate-400 ml-auto">{c.autor?.nombre ?? '—'} · {new Date(c.fecha).toLocaleDateString('es-EC')}</span></div>
+            {esAccion(c) ? <ResumenAccion c={c} /> : <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3 text-xs">
               <div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] font-bold uppercase text-slate-400 mb-1">Antes</p><p className="whitespace-pre-line text-slate-600">{textoCambio(c.campo, c.valor_anterior)}</p></div>
               <div className="rounded-xl bg-emerald-50 p-3"><p className="text-[10px] font-bold uppercase text-emerald-700 mb-1">Propuesto</p><p className="whitespace-pre-line text-slate-800">{textoCambio(c.campo, c.valor_nuevo)}</p></div>
-            </div>
+            </div>}
             {aprobar && <div className="flex gap-2 mt-3 flex-wrap"><input className="inp flex-1 min-w-[200px]" placeholder="Comentario (opcional)" value={com[c.id] ?? ''} onChange={(e) => setCom((o) => ({ ...o, [c.id]: e.target.value }))} />
-              <button className="btn" style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => decidir(c, false)}><XCircle />Rechazar</button><button className="btn btn-primary" onClick={() => decidir(c, true)}><Check />Aprobar y aplicar</button></div>}
+              <button className="btn" style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => decidir(c, false)}><XCircle />Rechazar</button><button className="btn btn-primary" onClick={() => decidir(c, true)}><Check />{esAccion(c) ? 'Aprobar y publicar' : 'Aprobar y aplicar'}</button></div>}
           </article>))}</div></div>
       {hist.length > 0 && <div><h3 className="font-display font-bold text-sm text-slate-800 flex items-center gap-2 mb-2"><BookOpen className="w-4 h-4 text-slate-400" />Historial</h3>
         <div className="card overflow-hidden"><table className="tbl"><thead><tr><th>Fecha</th><th>Producto</th><th>Campo</th><th>Autor</th><th>Estado</th></tr></thead><tbody>{hist.map((c) => (
-          <tr key={c.id}><td className="whitespace-nowrap">{new Date(c.fecha).toLocaleDateString('es-EC')}</td><td className="max-w-[300px] truncate">{c.producto_texto}</td><td>{c.campo}</td><td>{c.autor?.nombre ?? '—'}</td>
+          <tr key={c.id}><td className="whitespace-nowrap">{new Date(c.fecha).toLocaleDateString('es-EC')}</td><td className="max-w-[300px] truncate">{c.producto_texto ?? (esAccion(c) ? (c.valor_anterior ?? '').slice(0, 60) : '')}</td><td>{nombreCampo(c.campo)}</td><td>{c.autor?.nombre ?? '—'}</td>
             <td><span className="pill" style={c.estado === 'Aprobado' ? { background: '#ecfaf5', color: '#04896f' } : { background: '#fdecea', color: '#c0392b' }}>{c.estado}</span></td></tr>))}</tbody></table></div></div>}
     </section>
   )

@@ -4,7 +4,8 @@ import {
   GalleryHorizontal as Gallery, Image as ImageIcon, Images, LayoutDashboard, Lightbulb, ListChecks, Megaphone, PenLine, PieChart, Receipt, RefreshCw, Search, Send, ShoppingBag, Smartphone, Palette,
   Target, TrendingUp, Trash2, UploadCloud, UserCheck, Users, Video, X, Settings,
 } from 'lucide-react'
-import { Configuracion, Planificador, Biblioteca, Revision } from './MarketingIntegraciones'
+import { Configuracion, Biblioteca, Revision } from './MarketingIntegraciones'
+import { Planificador } from './MarketingPlanificador'
 import { Anuncios, Material, Promociones } from './MarketingExtra'
 import { SubirMaterial, PapeleraAv } from './MarketingArchivos'
 import { Chart, registerables, type ChartConfiguration } from 'chart.js'
@@ -63,7 +64,7 @@ const AV_ICON: Record<string, typeof ImageIcon> = { Foto: ImageIcon, Video: Vide
 type Venta = { f: string; id: string; cliente: string; asesor: string; medio: string; numero: string; estado: string; base: number; total: number; items: [string, number, number][]; canal: string }
 type Prof = { f: string; monto: number }
 type Lead = { f: string; medio: string; anuncio: string }
-type Av = { id: string; codigo: string; fecha: string; titulo: string; tipo: string; estado: string; campana: string; notas: string; responsable: string; responsableId: string | null; producto: string; tamano: number | null; url: string; mime: string }
+type Av = { id: string; codigo: string; fecha: string; titulo: string; tipo: string; estado: string; campana: string; notas: string; responsable: string; responsableId: string | null; producto: string; productoId: string | null; tamano: number | null; url: string; mime: string }
 type Datos = { ventas: Venta[]; proformas: Prof[]; leads: Lead[] }
 
 /* Supabase devuelve como máximo 1.000 filas por consulta: se pide por tandas hasta traer todo. */
@@ -134,7 +135,7 @@ export default function Marketing({ perfil, aviso, accion, limpiarAccion }: { pe
       paginar((a, z) => supabase.from('facturas').select('codigo,estado,created_at,fecha_ganado,numero_contifico,medio_captacion_venta,subtotal,total,items,cliente:clientes(nombre),cotizacion:cotizaciones(nombre),asesor:empleados!asesor_id(nombre)', { count: 'exact' }).eq('empresa', 'VIMEDIC').is('deleted_at', null).or('fecha_ganado.gte.' + desde12.slice(0, 10) + ',and(fecha_ganado.is.null,created_at.gte.' + desde12 + ')').order('id').range(a, z)),
       paginar((a, z) => supabase.from('cotizaciones').select('fecha,total', { count: 'exact' }).eq('empresa', 'VIMEDIC').is('deleted_at', null).gte('fecha', desde12).order('id').range(a, z)),
       paginar((a, z) => supabase.from('leads').select('fecha,medio_captacion,anuncio', { count: 'exact' }).eq('empresa', 'VIMEDIC').is('deleted_at', null).gte('fecha', desde12).order('id').range(a, z)),
-      supabase.from('audiovisual').select('id,codigo,fecha,titulo,tipo,estado,campana,notas,responsable_id,tamano_mb,archivo_url,mime,responsable:empleados!responsable_id(nombre),producto:productos(codigo,nombre)').is('deleted_at', null).order('fecha', { ascending: false }).limit(1000),
+      supabase.from('audiovisual').select('id,codigo,fecha,titulo,tipo,estado,campana,notas,responsable_id,tamano_mb,archivo_url,mime,producto_id,responsable:empleados!responsable_id(nombre),producto:productos(codigo,nombre)').is('deleted_at', null).order('fecha', { ascending: false }).limit(1000),
       supabase.from('catalogos_generados').select('fecha,cliente_texto,formato,precios,segmentos,n_productos,paginas,asesor:empleados!asesor_id(nombre)').is('deleted_at', null).gte('fecha', desde12).order('fecha', { ascending: false }).limit(1000),
     ])
     const err = f.error || c.error || l.error || a.error
@@ -155,7 +156,7 @@ export default function Marketing({ perfil, aviso, accion, limpiarAccion }: { pe
     })
     setAv(((a.data ?? []) as R[]).map((x) => ({
       id: x.id, codigo: x.codigo ?? '', fecha: x.fecha, titulo: x.titulo, tipo: x.tipo ?? '', estado: x.estado, campana: x.campana ?? '', notas: x.notas ?? '', responsable: x.responsable?.nombre ?? '', responsableId: x.responsable_id,
-      producto: x.producto ? `${x.producto.codigo ?? ''} · ${x.producto.nombre}` : '', tamano: x.tamano_mb, url: x.archivo_url ?? '', mime: x.mime ?? '',
+      producto: x.producto ? `${x.producto.codigo ?? ''} · ${x.producto.nombre}` : '', productoId: x.producto_id ?? null, tamano: x.tamano_mb, url: x.archivo_url ?? '', mime: x.mime ?? '',
     })))
     setCatalogos(((cg.data ?? []) as R[]).map((x) => ({ f: x.fecha, asesor: x.asesor?.nombre ?? '—', cliente: x.cliente_texto ?? '', formato: x.formato ?? '', precios: x.precios ?? '', segmentos: x.segmentos ?? '', n: Number(x.n_productos) || 0, paginas: Number(x.paginas) || 0 })))
     setActualizado('Actualizado ' + new Date().toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' }))
@@ -393,7 +394,7 @@ export default function Marketing({ perfil, aviso, accion, limpiarAccion }: { pe
 
         {tab === 'audiovisual' && <Audiovisual piezas={av} cargando={cargando} puedeCrear={puedeCrear} puedeEliminar={puede(perfil, 'marketing', 'eliminar')} recargar={cargarDatos} abrirIdea={() => setNuevaIdea(true)} abrir={setPiezaAbierta} aviso={aviso} subir={() => setSubir(true)} papelera={() => setPapelera(true)} />}
 
-        {tab === 'planificador' && <Planificador perfil={perfil} piezas={(av ?? []).map((a) => ({ id: a.id, titulo: a.titulo, tipo: a.tipo, estado: a.estado, url: a.url, producto: a.producto }))} piezaInicial={piezaProgramar ? { id: piezaProgramar.id, titulo: piezaProgramar.titulo, tipo: piezaProgramar.tipo, estado: piezaProgramar.estado, url: piezaProgramar.url, producto: piezaProgramar.producto } : null} limpiarPieza={() => setPiezaProgramar(null)} irConfig={() => setTab('configuracion')} aviso={aviso} alSincronizar={cargarDatos} abrirAlEntrar={abrirPublicacion} consumirAbrir={() => setAbrirPublicacion(false)} />}
+        {tab === 'planificador' && <Planificador perfil={perfil} piezas={(av ?? []).map((a) => ({ id: a.id, titulo: a.titulo, tipo: a.tipo, estado: a.estado, url: a.url, producto: a.producto, mime: a.mime, notas: a.notas, productoId: a.productoId ?? undefined }))} piezaInicial={piezaProgramar ? { id: piezaProgramar.id, titulo: piezaProgramar.titulo, tipo: piezaProgramar.tipo, estado: piezaProgramar.estado, url: piezaProgramar.url, producto: piezaProgramar.producto, mime: piezaProgramar.mime, notas: piezaProgramar.notas, productoId: piezaProgramar.productoId ?? undefined } : null} limpiarPieza={() => setPiezaProgramar(null)} irConfig={() => setTab('configuracion')} aviso={aviso} alSincronizar={cargarDatos} abrirAlEntrar={abrirPublicacion} consumirAbrir={() => setAbrirPublicacion(false)} />}
         {tab === 'biblioteca' && <Biblioteca perfil={perfil} aviso={aviso} />}
         {tab === 'revision' && <Revision perfil={perfil} aviso={aviso} />}
         {tab === 'configuracion' && puedeAdmin && <Configuracion aviso={aviso} alCambiar={() => undefined} />}
