@@ -161,10 +161,20 @@ export function Promociones({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
   }, [])
   useEffect(() => { cargar() }, [cargar])
   async function mover(c: Camp, estado: string, comentario?: string) {
+    if (estado === 'Aprobada') {
+      // Al aprobar, cada producto con descuento pasa a Ofertas y Liquidación como oferta real
+      // (validado contra el piso de margen); esto lo hace una función con privilegios propios
+      // porque no siempre quien aprueba tiene permiso de ver costos.
+      const { data, error } = await supabase.rpc('aprobar_campana_promocion', { p_campana_id: c.id, p_comentario: comentario ?? null })
+      if (error) { aviso('No se pudo aprobar: ' + error.message); return }
+      const r = data as { creadas?: number; actualizadas?: number } | null
+      aviso(`Campaña aprobada: ${r?.creadas ?? 0} oferta(s) nueva(s)${r?.actualizadas ? ', ' + r.actualizadas + ' actualizada(s)' : ''} en Ofertas y Liquidación.`)
+      setAbierta(null); cargar(); return
+    }
     const h: Hist = { fecha: new Date().toISOString(), por: perfil.nombre, accion: estado, ...(comentario ? { comentario } : {}) }
     const cambios: Record<string, unknown> = { estado, historial: [...(c.historial ?? []), h], comentario: comentario ?? null }
     if (estado === 'En aprobación') cambios.enviado = new Date().toISOString()
-    if (estado === 'Aprobada' || estado === 'Rechazada') { cambios.aprobado_por = perfil.id; cambios.fecha_aprobacion = new Date().toISOString() }
+    if (estado === 'Rechazada') { cambios.aprobado_por = perfil.id; cambios.fecha_aprobacion = new Date().toISOString() }
     const { error } = await supabase.from('promo_campanas').update(cambios).eq('id', c.id)
     if (error) { aviso('No se pudo guardar: ' + error.message); return }
     aviso('Campaña: ' + estado.toLowerCase() + '.'); setAbierta(null); cargar()
@@ -223,8 +233,8 @@ function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mov
       const prodRows = (p ?? []) as unknown as { id: string; codigo: string; nombre: string; pvp: number | null; en_catalogo: boolean | null; imagen_url: string | null; categoria: { nombre: string } | null }[]
       let costos: Record<string, number> = {}
       if (verCostos && prodRows.length) {
-        const { data: co } = await supabase.from('productos_costos').select('producto_id,costo').in('producto_id', prodRows.map((x) => x.id)).is('deleted_at', null)
-        costos = Object.fromEntries(((co ?? []) as { producto_id: string; costo: number | null }[]).map((x) => [x.producto_id, Number(x.costo) || 0]))
+        const { data: co } = await supabase.from('productos_costos').select('producto_id,costo_importacion').in('producto_id', prodRows.map((x) => x.id)).is('deleted_at', null)
+        costos = Object.fromEntries(((co ?? []) as { producto_id: string; costo_importacion: number | null }[]).map((x) => [x.producto_id, Number(x.costo_importacion) || 0]))
       }
       const porCodigo = new Map(prodRows.map((x) => [x.codigo, x]))
       const filas: ProdPromo[] = items.map((it) => {
