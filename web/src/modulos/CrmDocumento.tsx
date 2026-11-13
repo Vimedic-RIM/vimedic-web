@@ -14,7 +14,7 @@ import { leerDatosEmpresa } from './CrmMeta'
 type Asesor = { id: string; nombre: string }
 /** Lo que el CRM necesita saber al guardar (p. ej. para pedir el seguimiento de una proforma nueva). */
 export type InfoGuardado = { id: string; nuevo: boolean; modo: 'Cotización' | 'Venta'; nombre: string; total: number }
-export type Origen = { tabla: 'leads' | 'cotizaciones'; id: string; codigo: string; nombre: string; telefono: string; email: string; identificacion: string; medio: string } | null
+export type Origen = { tabla: 'leads' | 'cotizaciones'; id: string; codigo: string; nombre: string; telefono: string; email: string; identificacion: string; medio: string; clienteId?: string | null } | null
 type Prod = { id: string; codigo: string | null; nombre: string; pvp: number | null; precio_dis: number | null; aplica_iva: boolean; stock: number | null; imagen_url: string | null; reservaciones: string | null; descripcion: string | null; ficha_tecnica_url: string | null; drive_carpeta_url: string | null; categoria: { nombre: string } | null }
 type Linea = { base?: number; obj?: number; id: string; codigo: string; nombre: string; imagen: string; precio: number; cantidad: number; descuento: number; iva: boolean; observacion: string; categoria?: string; descripcion?: string; ficha?: string; carpeta?: string }
 type Cli = { ciudad?: string | null; asesor_id?: string | null; datos_venta?: Record<string, string> | null; id: string; nombre: string; identificacion: string | null; email: string | null; telefono: string | null; direccion: string | null; tipo_cliente: string | null; descuento_fijo: string | null }
@@ -336,6 +336,36 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     setLead((l) => ({ ...l, nombre: l.nombre.trim() || 'Lead ' + (vacio ? '' : tel || l.email), telefono: vacio ? '' : tel }))
     setLeadListo(true); setLeadAbierto(false); setFichaOculta(window.innerWidth < 1024)
   }
+  /* Si la gestión no trae cliente pero ya existe en Clientes (misma cédula/RUC, correo o teléfono; o el mismo
+     nombre cuando es el único), se vincula solo: no hace falta buscarlo ni crearlo otra vez. */
+  const [autoVinculo, setAutoVinculo] = useState('')
+  const autoBuscado = useRef(false)
+  useEffect(() => {
+    if (autoBuscado.current || cliente) return
+    if (!origen && !ed) return
+    autoBuscado.current = true
+    const idCli = origen?.clienteId ?? (ed?.cliente_id as string | undefined)
+    if (idCli) { recargarCliente(idCli); return }
+    const ident = soloDig(lead.identificacion), mail = lead.email.trim().toLowerCase(), tel = soloDig(lead.telefono).slice(-9)
+    const nom = lead.nombre.trim().replace(/[,()%*\\"']/g, ' ').replace(/\s+/g, ' ')
+    const filtros = [ident.length >= 10 ? 'identificacion.eq.' + ident : '', /@/.test(mail) ? 'email.ilike.' + mail : '', tel.length === 9 ? 'telefono.ilike.%' + tel : '', nom.length >= 4 ? 'nombre.ilike.' + nom : ''].filter(Boolean)
+    if (!filtros.length) return
+    supabase.from('clientes').select('id,nombre,identificacion,email,telefono,direccion,ciudad,asesor_id,tipo_cliente,descuento_fijo,datos_venta').is('deleted_at', null).eq('empresa', empresa).or(filtros.join(',')).limit(10).then(({ data }) => {
+      const lista = (data as Cli[] | null) ?? []
+      if (!lista.length) return
+      const n = (s: string | null | undefined) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim()
+      const puntaje = (c: Cli) => (ident.length >= 10 && soloDig(c.identificacion ?? '') === ident ? 8 : 0) + (mail && (c.email ?? '').trim().toLowerCase() === mail ? 4 : 0) + (tel.length === 9 && soloDig(c.telefono ?? '').slice(-9) === tel ? 2 : 0) + (n(c.nombre) === n(nom) ? 1 : 0)
+      const orden = lista.map((c) => ({ c, p: puntaje(c) })).filter((x) => x.p > 0).sort((a, b) => b.p - a.p)
+      const mejor = orden[0]
+      if (!mejor) return
+      // Solo por nombre: únicamente si es el único con ese nombre y la cédula no contradice.
+      if (mejor.p === 1 && (orden.length > 1 || (ident && mejor.c.identificacion && soloDig(mejor.c.identificacion) !== ident))) return
+      if (ajeno(mejor.c)) { setAutoVinculo('Este cliente ya existe (' + mejor.c.nombre + ') pero está asignado a ' + (nombreAsesor(mejor.c.asesor_id) || 'otro asesor') + '.'); return }
+      elegirCliente(mejor.c)
+      setAutoVinculo('Cliente encontrado en Clientes y vinculado automáticamente (' + (mejor.p >= 8 ? 'misma cédula/RUC' : mejor.p >= 4 ? 'mismo correo' : mejor.p >= 2 ? 'mismo teléfono' : 'mismo nombre') + ').')
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   async function recargarCliente(id: string) {
     const { data } = await supabase.from('clientes').select('id,nombre,identificacion,email,telefono,direccion,ciudad,asesor_id,tipo_cliente,descuento_fijo,datos_venta').eq('id', id).single()
     if (data) elegirCliente(data as Cli)
@@ -406,13 +436,14 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
                   </div>
                 </div>
                 {bannerDesc(cliente)}
+                {autoVinculo && <p className="mt-2 text-[10.5px] font-semibold rounded-lg px-2 py-1" style={{ background: '#e7f6f2', color: '#04896f' }}>✓ {autoVinculo}</p>}
               </>
             ) : leadListo && lead.nombre.trim() && !leadAbierto ? (
               esVenta ? (
                 <>
                   <div className="rounded-lg border border-amber-300 bg-amber-50 p-2.5 mb-2.5">
                     <p className="text-xs font-bold text-amber-800">Esta cotización es de un lead ({lead.nombre}).</p>
-                    <p className="text-[11px] text-amber-700">Para generar la venta, crea el cliente (o búscalo arriba si ya existe).</p>
+                    <p className="text-[11px] text-amber-700">{autoVinculo || 'No está registrado en Clientes: créalo con estos datos para generar la venta.'}</p>
                   </div>
                   <button type="button" onClick={() => setFormCli({ cliente: null, prefill: { nombre: lead.nombre, telefono: lead.telefono, email: lead.email, ciudad: leadCiudad, identificacion: lead.identificacion } })} className="text-xs font-bold px-3 py-1.5 rounded-lg text-white flex items-center gap-1.5" style={{ background: '#04896f' }}><UserPlus className="w-3.5 h-3.5" /> Crear cliente con estos datos</button>
                 </>

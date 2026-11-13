@@ -332,8 +332,8 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
     aviso(items.length + ' producto(s) cargados en una cotización nueva. Elige el cliente para continuar.')
   }
 
-  function abrirVenta(g: Gestion) { setAbierta(null); setDocumento({ modo: 'Venta', origen: { tabla: g.tabla, id: g.id, codigo: g.codigo, nombre: g.nombre, telefono: g.telefono, email: g.email, identificacion: g.identificacion, medio: g.medio } }) }
-  function cotizarDesde(g: Gestion) { setAbierta(null); setDocumento({ modo: 'Cotización', origen: { tabla: g.tabla, id: g.id, codigo: g.codigo, nombre: g.nombre, telefono: g.telefono, email: g.email, identificacion: g.identificacion, medio: g.medio } }) }
+  function abrirVenta(g: Gestion) { setAbierta(null); setDocumento({ modo: 'Venta', origen: { tabla: g.tabla, id: g.id, codigo: g.codigo, nombre: g.nombre, telefono: g.telefono, email: g.email, identificacion: g.identificacion, medio: g.medio, clienteId: g.clienteId } }) }
+  function cotizarDesde(g: Gestion) { setAbierta(null); setDocumento({ modo: 'Cotización', origen: { tabla: g.tabla, id: g.id, codigo: g.codigo, nombre: g.nombre, telefono: g.telefono, email: g.email, identificacion: g.identificacion, medio: g.medio, clienteId: g.clienteId } }) }
 
   const columnaActiva = typeof window !== 'undefined' && window.innerWidth < 640
 
