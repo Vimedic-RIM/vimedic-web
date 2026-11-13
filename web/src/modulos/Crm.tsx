@@ -9,6 +9,7 @@ import {
 import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
 import { ClientesLista, Papelera, ConfirmarEliminar } from './CrmClientes'
+import RutasViaticos from './RutasViaticos'
 import CrmDocumento, { type Origen } from './CrmDocumento'
 import { ProformaVisor, enriquecerItems, type DatosDoc } from '../proforma'
 import '../estilos/crm-original.css'
@@ -103,6 +104,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
   const [proforma, setProforma] = useState<DatosDoc | null>(null)
   const [clientes, setClientes] = useState(false)
   const [papelera, setPapelera] = useState(false)
+  const [rutasViaticos, setRutasViaticos] = useState(false)
   const [documento, setDocumento] = useState<{ modo: 'Cotización' | 'Venta'; origen: Origen; editar?: Record<string, any> | null; items?: Record<string, any>[] } | null>(() => { // eslint-disable-line @typescript-eslint/no-explicit-any
     // Viene del cotizador de Inventario: abre «Nueva cotización» con los productos ya cargados.
     try { const j = sessionStorage.getItem('vm_cot_pendiente'); if (j && empresa === 'VIMEDIC') { sessionStorage.removeItem('vm_cot_pendiente'); return { modo: 'Cotización', origen: null, items: JSON.parse(j) } } } catch { /* sin almacenamiento */ }
@@ -327,6 +329,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
             {crear && <button type="button" onClick={() => setDocumento({ modo: 'Cotización', origen: null })} className="vm-hqa" title="Nueva cotización"><FilePlus2 /><span>Cotización</span></button>}
             {crear && <button type="button" onClick={() => setDocumento({ modo: 'Venta', origen: null })} className="vm-hqa" title="Nueva venta"><Receipt /><span>Venta</span></button>}
             <button type="button" onClick={() => setClientes(true)} className="vm-hqa" title="Clientes"><Users /><span>Clientes</span></button>
+            <button type="button" onClick={() => setRutasViaticos(true)} className="vm-hqa" title="Rutas y viáticos"><MapPin /><span>Rutas y viáticos</span></button>
             {eliminar && <button type="button" onClick={() => setPapelera(true)} className="vm-hqa" title="Papelera"><Trash2 /><span>Papelera</span></button>}
           </div>
 
@@ -354,6 +357,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
               {crear && <button onClick={() => { setMenuMovil(false); setDocumento({ modo: 'Cotización', origen: null }) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><FilePlus2 className="w-4 h-4" style={{ color: 'var(--teal)' }} /> Nueva Cotización</button>}
               {crear && <button onClick={() => { setMenuMovil(false); setDocumento({ modo: 'Venta', origen: null }) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><Receipt className="w-4 h-4" style={{ color: '#04896f' }} /> Nueva Venta</button>}
               <button onClick={() => { setMenuMovil(false); setClientes(true) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><Users className="w-4 h-4 text-slate-500"  /> Clientes</button>
+              <button onClick={() => { setMenuMovil(false); setRutasViaticos(true) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><MapPin className="w-4 h-4 text-slate-500"  /> Rutas y viáticos</button>
               {empresa !== 'FEMEDICS' && <button onClick={() => { setMenuMovil(false); aviso('Mensajes se está migrando: sigue disponible en la app actual.') }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><MessageCircle className="w-4 h-4 text-slate-500"  /> Mensajes</button>}
               {eliminar && <button onClick={() => { setMenuMovil(false); setPapelera(true) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><Trash2 className="w-4 h-4 text-slate-500"  /> Papelera</button>}
               <div className="border-t border-slate-100 my-1.5" />
@@ -508,6 +512,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
       )}
       {clientes && <ClientesLista empresa={empresa} perfil={perfil} asesores={asesores} cerrar={() => setClientes(false)} aviso={aviso} abrirNuevo={clienteNuevo} consumirAbrirNuevo={() => setClienteNuevo(false)} />}
       {papelera && <Papelera empresa={empresa} cerrar={() => setPapelera(false)} alRestaurar={cargar} aviso={aviso} />}
+      {rutasViaticos && <RutasViaticos perfil={perfil} cerrar={() => setRutasViaticos(false)} aviso={aviso} />}
       {documento && <CrmDocumento empresa={empresa} editar={documento.editar} itemsIniciales={documento.items} modo={documento.modo} perfil={perfil} asesores={asesores} origen={documento.origen} cerrar={() => setDocumento(null)} guardado={(m, doc) => { setDocumento(null); aviso(m); cargar(); setProforma(doc) }} />}
       {proforma && <ProformaVisor datos={proforma} cerrar={() => setProforma(null)} />}
       {nueva && <NuevaGestion empresa={empresa} perfil={perfil} asesores={asesores} cerrar={() => setNueva(false)} guardado={() => { setNueva(false); aviso('Gestión creada.'); cargar() }} />}
