@@ -54,8 +54,63 @@ export function Configuracion({ aviso, alCambiar }: { aviso: (t: string) => void
         <Tarjeta proveedor="gemini" titulo="Gemini · inteligencia artificial" sub="Redacta publicaciones y descripciones de producto." est={ver('gemini')} aviso={aviso} cambio={() => { cargar(); alCambiar() }}
           ayuda="Crea una clave en Google AI Studio (aistudio.google.com/apikey) y pégala aquí." conModelo />
         <TarjetaDrive est={ver('drive')} aviso={aviso} cambio={() => { cargar(); alCambiar() }} />
+        <TarjetaPixel proveedor="meta_pixel" titulo="Meta Conversions API" color="#1877f2" est={ver('meta_pixel')} aviso={aviso} cambio={() => { cargar(); alCambiar() }} />
+        <TarjetaPixel proveedor="tiktok_pixel" titulo="TikTok Events API" color="#000000" est={ver('tiktok_pixel')} aviso={aviso} cambio={() => { cargar(); alCambiar() }} />
       </div>
     </section>
+  )
+}
+
+/* Rastreo de conversiones del lado del servidor: además del píxel normal en el navegador, el
+   servidor reporta el mismo evento por la API oficial de Meta/TikTok (mismo eventId, para que no
+   se cuente doble). Evita perder eventos por bloqueadores de anuncios o restricciones de iOS/Safari. */
+function TarjetaPixel({ proveedor, titulo, color, est, aviso, cambio }: {
+  proveedor: 'meta_pixel' | 'tiktok_pixel'; titulo: string; color: string; est: Estado; aviso: (t: string) => void; cambio: () => void
+}) {
+  const cfg = est.config as { pixelId?: string }
+  const [pixelId, setPixelId] = useState(cfg.pixelId ?? '')
+  const [token, setToken] = useState('')
+  const [ocupado, setOcupado] = useState('')
+  const prueba = est.estado_prueba ?? '', ok = prueba.startsWith('ok')
+  async function guardar() {
+    if (!pixelId.trim()) { aviso('Pon el ID del píxel.'); return }
+    if (!token.trim() && !est.configurado) { aviso('Pega el token de acceso.'); return }
+    setOcupado('guardar')
+    const { error } = await supabase.rpc('integracion_guardar', { p_proveedor: proveedor, p_secreto: token.trim() || null, p_config: { pixelId: pixelId.trim() } })
+    setOcupado('')
+    if (error) { aviso('No se pudo guardar: ' + error.message); return }
+    const nueva = !!token.trim(); setToken(''); aviso(nueva ? 'Token guardado. Probando…' : 'ID del píxel actualizado.'); cambio()
+    if (nueva) probar()
+  }
+  async function probar() {
+    setOcupado('probar')
+    try { const r = await llamar<{ mensaje: string }>('probar', { proveedor }); aviso(r.mensaje) } catch (e) { aviso((e as Error).message) }
+    setOcupado(''); cambio()
+  }
+  async function quitar() {
+    if (!confirm('¿Desconectar ' + titulo + '?')) return
+    const { error } = await supabase.rpc('integracion_quitar', { p_proveedor: proveedor })
+    if (error) aviso('No se pudo quitar: ' + error.message); else { setPixelId(''); aviso('Conexión eliminada.'); cambio() }
+  }
+  return (
+    <article className="card p-5">
+      <div className="flex items-start gap-3">
+        <span className="w-10 h-10 rounded-xl grid place-items-center shrink-0" style={{ background: color + '1A', color }}><Tag className="w-5 h-5" /></span>
+        <div className="min-w-0 flex-1"><h3 className="font-display font-bold text-sm text-slate-800">{titulo}</h3><p className="text-[11px] text-slate-500">Reporta conversiones (leads, ventas) desde el servidor, para no perder eventos por bloqueadores de anuncios o iOS.</p></div>
+        <span className="pill shrink-0" style={est.configurado ? (prueba && !ok ? { background: '#fdecea', color: '#c0392b' } : { background: '#ecfaf5', color: '#04896f' }) : { background: '#f1f5f9', color: '#64748b' }}>
+          {est.configurado ? (prueba ? (ok ? 'Conectado' : 'Con error') : 'Sin probar') : 'No conectado'}</span>
+      </div>
+      <label className="block text-[11px] font-bold text-slate-500 mt-3">ID del píxel
+        <input type="text" value={pixelId} onChange={(e) => setPixelId(e.target.value)} className="inp w-full mt-1" placeholder="Ej. 123456789012345" /></label>
+      <label className="block text-[11px] font-bold text-slate-500 mt-3">Token de acceso{est.configurado && <span className="font-mono-spec font-normal text-slate-400"> · actual {est.vista}</span>}
+        <input type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} className="inp w-full mt-1" placeholder={est.configurado ? 'Pega uno nuevo para reemplazarlo' : 'Pega aquí el token'} /></label>
+      {prueba && <p className="text-[11px] mt-3 rounded-lg px-3 py-2" style={ok ? { background: '#ecfaf5', color: '#04896f' } : { background: '#fdecea', color: '#a3341f' }}>{prueba.replace(/^(ok|error): /, '')}{est.probado_en ? ' · ' + new Date(est.probado_en).toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' }) : ''}</p>}
+      <div className="flex gap-2 flex-wrap mt-4">
+        <button type="button" className="btn btn-primary" onClick={guardar} disabled={!!ocupado}><Check />{ocupado === 'guardar' ? 'Guardando…' : 'Guardar'}</button>
+        <button type="button" className="btn" onClick={probar} disabled={!!ocupado || !est.configurado}><Plug />{ocupado === 'probar' ? 'Probando…' : 'Probar conexión'}</button>
+        {est.configurado && <button type="button" className="btn ml-auto" style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={quitar}><Trash2 />Desconectar</button>}
+      </div>
+    </article>
   )
 }
 

@@ -19,3 +19,8 @@ additional_redirect_urls = ["https://vimedic-qa.pages.dev", "https://qa.vimedic.
 enabled = true
 client_id = "984059782625-khhkbk6cbig0tfo89vv21i2i3k52c7i5.apps.googleusercontent.com"
 secret = "env(GOOGLE_CLIENT_SECRET)"
+
+# Pinterest necesita leer el feed de productos sin iniciar sesión (no puede autenticarse).
+# Solo expone lo mismo que ya es público en el catálogo: producto visible, nombre, precio e imagen.
+[functions.pinterest-feed]
+verify_jwt = false

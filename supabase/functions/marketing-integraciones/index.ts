@@ -13,6 +13,14 @@ const MODELO0 = 'gemini-2.5-flash'
 
 const responder = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { ...CORS, 'Content-Type': 'application/json' } })
 class Falla extends Error { constructor(m: string, public status = 400) { super(m) } }
+const NOMBRE_PROVEEDOR: Record<string, string> = { zernio: 'Zernio', gemini: 'Gemini', drive: 'Drive', meta_pixel: 'Meta Pixel', tiktok_pixel: 'TikTok Pixel' }
+
+// Hash SHA-256 en minúsculas para datos de usuario (email/teléfono) — exigido por Meta y TikTok, nunca en texto plano.
+async function sha256Hex(texto: string): Promise<string> {
+  const limpio = texto.trim().toLowerCase()
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(limpio))
+  return Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, '0')).join('')
+}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS })
@@ -32,8 +40,34 @@ Deno.serve(async (req) => {
         admin.from('integraciones').select('config').eq('proveedor', proveedor).is('deleted_at', null).maybeSingle(),
         admin.rpc('integracion_secreto', { p_proveedor: proveedor }),
       ])
-      if (!secreto) throw new Falla(`${proveedor === 'zernio' ? 'Zernio' : 'Gemini'} no está conectado. Ve a Marketing › Configuración.`)
+      if (!secreto) throw new Falla(`${NOMBRE_PROVEEDOR[proveedor] ?? proveedor} no está conectado. Ve a Marketing › Configuración.`)
       return { secreto: secreto as string, config: (config?.config ?? {}) as Record<string, unknown> }
+    }
+    const metaEvento = async (eventName: string, eventId: string, userData: { email?: string; telefono?: string }, customData: Record<string, unknown>) => {
+      const { secreto, config } = await credencial('meta_pixel')
+      const pixelId = String(config.pixelId || '')
+      if (!pixelId) throw new Falla('Falta el ID del píxel de Meta.')
+      const user_data: Record<string, string[]> = {}
+      if (userData.email) user_data.em = [await sha256Hex(userData.email)]
+      if (userData.telefono) user_data.ph = [await sha256Hex(userData.telefono)]
+      const payload = { data: [{ event_name: eventName, event_time: Math.floor(Date.now() / 1000), event_id: eventId, action_source: 'website', user_data, custom_data: customData }] }
+      const r = await fetch(`https://graph.facebook.com/v20.0/${pixelId}/events?access_token=${encodeURIComponent(secreto)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Falla('Meta respondió: ' + (j?.error?.message || r.status))
+      return j
+    }
+    const tiktokEvento = async (eventName: string, eventId: string, userData: { email?: string; telefono?: string }, customData: Record<string, unknown>) => {
+      const { secreto, config } = await credencial('tiktok_pixel')
+      const pixelId = String(config.pixelId || '')
+      if (!pixelId) throw new Falla('Falta el ID del píxel de TikTok.')
+      const user: Record<string, string[]> = {}
+      if (userData.email) user.email = [await sha256Hex(userData.email)]
+      if (userData.telefono) user.phone = [await sha256Hex(userData.telefono)]
+      const payload = { event_source: 'web', event_source_id: pixelId, data: [{ event: eventName, event_time: Math.floor(Date.now() / 1000), event_id: eventId, user, properties: customData }] }
+      const r = await fetch('https://business-api.tiktok.com/open_api/v1.3/event/track/', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Access-Token': secreto }, body: JSON.stringify(payload) })
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok || (j && j.code !== 0)) throw new Falla('TikTok respondió: ' + (j?.message || r.status))
+      return j
     }
     const zernio = async (ruta: string, init: RequestInit = {}) => {
       const c = await credencial('zernio')
@@ -68,6 +102,18 @@ Deno.serve(async (req) => {
         extra = lista
       } else if (prov === 'gemini') {
         try { const t = await gemini([{ text: 'Responde solo con la palabra: listo' }], { temperature: 0, maxOutputTokens: 20 }); ok = true; mensaje = 'Conexión correcta · la IA respondió: ' + t.slice(0, 40) } catch (e) { mensaje = (e as Error).message }
+      } else if (prov === 'meta_pixel') {
+        try {
+          const { secreto, config } = await credencial('meta_pixel')
+          const pixelId = String(config.pixelId || '')
+          if (!pixelId) throw new Falla('Falta el ID del píxel de Meta.')
+          const r = await fetch(`https://graph.facebook.com/v20.0/${pixelId}?fields=name&access_token=${encodeURIComponent(secreto)}`)
+          const j = await r.json().catch(() => ({}))
+          ok = r.ok && !j.error
+          mensaje = ok ? `Conexión correcta · píxel "${j.name || pixelId}".` : 'Meta rechazó la clave: ' + (j?.error?.message || r.status)
+        } catch (e) { mensaje = (e as Error).message }
+      } else if (prov === 'tiktok_pixel') {
+        try { await tiktokEvento('TestEvent', 'prueba-' + crypto.randomUUID(), {}, {}); ok = true; mensaje = 'Conexión correcta · TikTok aceptó un evento de prueba.' } catch (e) { mensaje = (e as Error).message }
       } else throw new Falla('Proveedor no válido.')
       await admin.from('integraciones').update({ estado_prueba: (ok ? 'ok: ' : 'error: ') + mensaje, probado_en: new Date().toISOString() }).eq('proveedor', prov)
       return responder({ ok, mensaje, extra })
@@ -200,6 +246,24 @@ Deno.serve(async (req) => {
       const textos = (Array.isArray(o.textos) ? o.textos : []).map(limpiar).filter(Boolean)
       while (textos.length < n) textos.push((p.marca ? p.marca + ' ' : '') + p.nombre)
       return responder({ textos: textos.slice(0, n) })
+    }
+    /* ---------------- Rastreo de conversiones del lado del servidor (Meta + TikTok) ----------------
+       Se llama con el mismo eventId que ya disparó el píxel en el navegador, para que las plataformas
+       no cuenten el evento dos veces. Si un proveedor no está conectado, simplemente no se le manda
+       (no es un error): solo se avisa si el que SÍ está conectado rechaza el evento. */
+    if (accion === 'conversion_evento') {
+      const eventName = String(b.eventName || '').trim(), eventId = String(b.eventId || '').trim()
+      if (!eventName || !eventId) throw new Falla('Falta el nombre o el ID del evento.')
+      const userData = (b.userData ?? {}) as { email?: string; telefono?: string }
+      const customData = (b.customData ?? {}) as Record<string, unknown>
+      const resultado = { enviado_meta: false, enviado_tiktok: false, errores: [] as string[] }
+      await Promise.all([
+        metaEvento(eventName, eventId, userData, customData).then(() => { resultado.enviado_meta = true })
+          .catch((e) => { if (!/no está conectado/.test((e as Error).message)) resultado.errores.push('Meta: ' + (e as Error).message) }),
+        tiktokEvento(eventName, eventId, userData, customData).then(() => { resultado.enviado_tiktok = true })
+          .catch((e) => { if (!/no está conectado/.test((e as Error).message)) resultado.errores.push('TikTok: ' + (e as Error).message) }),
+      ])
+      return responder(resultado)
     }
     throw new Falla('Acción no reconocida.')
   } catch (e) {
