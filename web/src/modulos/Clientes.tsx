@@ -131,7 +131,7 @@ export default function Clientes({ perfil, aviso }: { perfil: Perfil; aviso: (t:
 type Datos = Record<string, string>
 type Factura = { id: string; numero: string; fecha: string; total: number; nc: number; asesor: string; factura: string; acta: string; guia: string; productos: { nombre: string; id: string; cantidad: number }[] }
 type Cot = { id: string; tipo: string; estado: string; fecha: string; asesor: string; subtotal: number; empresa: string; pdf: string; items: { nombre: string; cantidad: number }[] }
-type Inter = { tipo: string; nota: string; fecha: string; por: string }
+type Inter = { id?: string; tipo: string; nota: string; fecha: string; por: string; ref?: string }
 type Detalle = { datos: Datos; facturas: Factura[]; cotizaciones: Cot[]; productos: { id: string; nombre: string; cantidad: number; veces: number; ultima: string }[]; historial: Inter[]; notas: Inter[]; datosVenta: Record<string, unknown> | null }
 const TABS: [string, string][] = [['resumen', 'Resumen'], ['datos', 'Datos'], ['facturas', 'Facturas'], ['cotizaciones', 'Cotizaciones'], ['productos', 'Productos'], ['historial', 'Historial'], ['notas', 'Notas']]
 const idNum = (v: string) => v.replace(/\D/g, '')
@@ -153,12 +153,14 @@ function Ficha({ id, perfil, asesores, cerrar, aviso, cambio }: { id: string; pe
     let vivo = true
     ;(async () => {
       type R = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
-      const [c, f, q, i] = await Promise.all([
+      const [c, f, q] = await Promise.all([
         supabase.from('clientes').select('*').eq('id', id).single(),
         supabase.from('facturas').select('id,codigo,numero_contifico,fecha_facturacion,created_at,total,total_notas_credito,pdf_url,acta_garantia_url,guia_envio_url,items,asesor:empleados!asesor_id(nombre)').eq('cliente_id', id).is('deleted_at', null).order('created_at', { ascending: false }).limit(200),
         supabase.from('cotizaciones').select('id,codigo,tipo_registro,estado_crm,fecha,total,empresa,pdf_url,items,asesor:empleados!asesor_id(nombre)').eq('cliente_id', id).is('deleted_at', null).order('fecha', { ascending: false }).limit(200),
-        supabase.from('interacciones').select('tipo,nota,fecha,usuario_texto').eq('cliente_id', id).is('deleted_at', null).order('fecha', { ascending: false }).limit(300),
       ])
+      const idsCot = ((q.data ?? []) as R[]).map((r) => r.id as string).slice(0, 150)
+      const i = await supabase.from('interacciones').select('id,tipo,nota,fecha,usuario_texto,cotizacion:cotizaciones(codigo)')
+        .or('cliente_id.eq.' + id + (idsCot.length ? ',cotizacion_id.in.(' + idsCot.join(',') + ')' : '')).is('deleted_at', null).order('fecha', { ascending: false }).limit(300)
       if (!vivo) return
       if (c.error || !c.data) { setError(c.error?.message ?? 'No se encontró el cliente'); return }
       const x = c.data as R
@@ -168,7 +170,7 @@ function Ficha({ id, perfil, asesores, cerrar, aviso, cambio }: { id: string; pe
       const cotizaciones: Cot[] = ((q.data ?? []) as R[]).map((r) => ({ id: r.codigo, tipo: r.tipo_registro === 'Venta' ? 'Venta' : 'Cotización', estado: r.estado_crm ?? '', fecha: r.fecha, asesor: r.asesor?.nombre ?? '', subtotal: (Number(r.total) || 0) / 1.15, empresa: r.empresa, pdf: r.pdf_url ?? '', items: ((r.items ?? []) as R[]).map((p) => ({ nombre: p.nombre, cantidad: Number(p.cantidad) || 0 })) }))
       const pm = new Map<string, { id: string; nombre: string; cantidad: number; veces: number; ultima: string }>()
       facturas.forEach((fa) => fa.productos.forEach((p) => { const k = p.id || p.nombre; const e = pm.get(k) ?? { id: p.id, nombre: p.nombre, cantidad: 0, veces: 0, ultima: '' }; e.cantidad += p.cantidad; e.veces++; if (fa.fecha > e.ultima) e.ultima = fa.fecha; pm.set(k, e) }))
-      const todas = ((i.data ?? []) as R[]).map((r) => ({ tipo: r.tipo ?? '', nota: r.nota ?? '', fecha: r.fecha, por: r.usuario_texto ?? '' }))
+      const todas: Inter[] = ((i.data ?? []) as R[]).map((r) => ({ id: r.id, tipo: r.tipo ?? '', nota: r.nota ?? '', fecha: r.fecha, por: r.usuario_texto ?? '', ref: r.cotizacion?.codigo ?? '' }))
       const notas = todas.filter((t) => t.tipo === 'Nota Cliente')
       setD({ datos, facturas, cotizaciones, productos: [...pm.values()].sort((a, b) => b.cantidad - a.cantidad), historial: todas.filter((t) => t.tipo !== 'Nota Cliente'), notas, datosVenta: x.datos_venta && Object.keys(x.datos_venta).length ? x.datos_venta : null })
       setNota(notas[0]?.nota ?? '')
@@ -195,12 +197,15 @@ function Ficha({ id, perfil, asesores, cerrar, aviso, cambio }: { id: string; pe
     setNota(t); setNotaEstado('Escribiendo…'); window.clearTimeout(timers.current.nota)
     timers.current.nota = window.setTimeout(async () => {
       const ult = d?.notas[0]
-      const r = ult
-        ? await supabase.from('interacciones').update({ nota: t }).eq('cliente_id', id).eq('tipo', 'Nota Cliente').eq('fecha', ult.fecha)
-        : await supabase.from('interacciones').insert({ id: crypto.randomUUID(), codigo: 'INT-' + crypto.randomUUID().slice(0, 8), ref_tipo: 'Cliente', cliente_id: id, tipo: 'Nota Cliente', nota: t, empleado_id: perfil.id, usuario_texto: perfil.nombre })
+      const mia = !!ult?.id && ult.por === perfil.nombre && Date.now() - Date.parse(ult.fecha) < 15 * 60000
+      if (!mia && !t.trim()) { setNotaEstado(''); return }
+      const nuevaId = crypto.randomUUID(), ahora = new Date().toISOString()
+      const r = mia
+        ? await supabase.from('interacciones').update({ nota: t, fecha: ahora }).eq('id', ult!.id!)
+        : await supabase.from('interacciones').insert({ id: nuevaId, codigo: 'INT-' + crypto.randomUUID().slice(0, 8), ref_tipo: 'Cliente', cliente_id: id, tipo: 'Nota Cliente', nota: t, fecha: ahora, empleado_id: perfil.id, usuario_texto: perfil.nombre })
       if (r.error) { setNotaEstado('No se guardó'); aviso(r.error.message); return }
       setNotaEstado('Guardado ✓')
-      if (!ult) setD((x) => (x ? { ...x, notas: [{ tipo: 'Nota Cliente', nota: t, fecha: new Date().toISOString(), por: perfil.nombre }] } : x))
+      setD((x) => (x ? { ...x, notas: mia ? [{ ...x.notas[0], nota: t, fecha: ahora }, ...x.notas.slice(1)] : [{ id: nuevaId, tipo: 'Nota Cliente', nota: t, fecha: ahora, por: perfil.nombre }, ...x.notas] } : x))
     }, 900)
   }
   async function borrar(motivo: string) {
@@ -278,10 +283,11 @@ function Ficha({ id, perfil, asesores, cerrar, aviso, cambio }: { id: string; pe
               {tab === 'productos' && (d.productos.length
                 ? <div className="sec overflow-x-auto"><table className="t"><thead><tr><th>Producto</th><th className="num">Unidades</th><th className="num">Veces</th><th className="num">Última compra</th></tr></thead><tbody>{d.productos.map((p) => <tr key={p.id + p.nombre} style={{ cursor: 'default' }}><td><b className="text-[13px]">{p.nombre}</b><div className="s mono">{p.id}</div></td><td className="num"><b>{ent(p.cantidad)}</b></td><td className="num">{ent(p.veces)}</td><td className="num s">{dfecha(p.ultima)}</td></tr>)}</tbody></table></div>
                 : <div className="sec text-center py-8 text-slate-500 text-sm">Sin productos comprados todavía.</div>)}
-              {tab === 'historial' && (d.historial.length ? lst(d.historial.map((i, k) => <div key={k}><div className="flex gap-2"><b className="text-[13px] flex-1">{i.tipo || 'Interacción'}</b><span className="s">{dfecha(i.fecha)}</span></div>{i.nota && <p className="text-[13px] text-slate-600 mt-0.5">{i.nota}</p>}{i.por && <p className="s">{i.por}</p>}</div>)) : <div className="sec text-center py-8 text-slate-500 text-sm">Sin actividad registrada.</div>)}
+              {tab === 'historial' && (d.historial.length ? lst(d.historial.map((i, k) => <div key={k}><div className="flex gap-2"><b className="text-[13px] flex-1">{i.tipo || 'Interacción'}</b><span className="s">{dfecha(i.fecha)}</span></div>{i.nota && <p className="text-[13px] text-slate-600 mt-0.5">{i.nota}</p>}{(i.por || i.ref) && <p className="s">{[i.por, i.ref].filter(Boolean).join(' · ')}</p>}</div>)) : <div className="sec text-center py-8 text-slate-500 text-sm">Sin actividad registrada.</div>)}
               {tab === 'notas' && (
                 <div className="sec"><div className="flex items-center gap-2 mb-2"><p className="font-display font-bold text-[var(--navy)] flex-1">Notas internas</p><span className="estado">{notaEstado || (d.notas[0] ? 'Última: ' + d.notas[0].por + ' · ' + dfecha(d.notas[0].fecha) : 'Se guarda sola')}</span></div>
-                  <textarea className="inp" rows={5} maxLength={2000} value={nota} disabled={!editar} onChange={(e) => guardarNota(e.target.value)} placeholder="Preferencias, condiciones de pago, contactos clave…" /></div>
+                  <textarea className="inp" rows={5} maxLength={2000} value={nota} disabled={!editar} onChange={(e) => guardarNota(e.target.value)} placeholder="Preferencias, condiciones de pago, contactos clave…" />
+                  {d.notas.length > 1 && <div className="lst mt-3">{d.notas.slice(1).map((n, k) => <div key={n.id ?? k}><p className="text-[13px] whitespace-pre-line">{n.nota}</p><p className="s">{n.por} · {dfecha(n.fecha)}</p></div>)}</div>}</div>
               )}
             </div>
           </>

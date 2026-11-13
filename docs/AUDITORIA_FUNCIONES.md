@@ -13,8 +13,8 @@ Estados: ✅ existe en la app nueva · 🆕 recuperado en esta auditoría · ⚠
 3. ✅ Marketing
 4. ✅ Carga del Excel actualizado (`datos_origen/Web App Vimedic (2).xlsx`) en vimedic-pruebas
 5. ✅ Inventario y Movimientos
-6. ⏭️ **Clientes** (siguiente)
-7. Agenda
+6. ✅ Clientes
+7. ⏭️ **Agenda** (siguiente)
 8. Bodega y Logística
 9. Servicio Técnico
 10. Importaciones, Artículos, Adquisiciones y Recepción
@@ -277,3 +277,20 @@ Pantallas: `Inventario.html` (20 funciones de servidor) y `Movimientos.html` (5)
 Verificación del stock (13-nov-2026): de 1 448 productos con movimientos, el stock coincide con la suma de sus
 movimientos salvo en 2 (EQM327: stock 0, movimientos −2; MOBI053: stock 8, movimientos 9). Están así en la app
 original; "Recalcular stock" los dejaría en el valor de los movimientos.
+
+---
+
+## 6. Clientes — Issue #26
+
+Pantalla: `ClientesVista.html` (5 funciones de servidor: `ClientesModulo.gs`). Las de `Clientes.gs` las usa el CRM (sección 1).
+
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `vmCliLista` | Lista con indicadores, búsqueda, asesor, orden y filtros (con compras, solo cotizaron, sin actividad, sin gestiones) | ✅ | `Clientes.tsx` (`v_clientes_lista`, `v_clientes_kpis`) |
+| `vmCliDetalle` | Ficha: resumen, datos, facturas (factura, acta, guía), cotizaciones, productos comprados | ✅ | `Ficha` |
+| `vmCliDetalle` › historial | Interacciones de las cotizaciones y gestiones del cliente | ⚠️ → 🆕 | Salía siempre vacío: buscaba por cliente y las interacciones están ligadas a la cotización. Ahora trae ambas |
+| `vmCliGuardarNota` | Notas internas que se guardan solas | ⚠️ → 🆕 | Sobrescribía la última nota aunque fuera de otra persona. Ahora, como el original, solo actualiza tu nota de los últimos 15 minutos; si no, agrega una nueva, y se ven las anteriores |
+| `vmCliGuardar` | Crear y editar cliente (cédula 10 o RUC 13 dígitos, sin repetir, correo válido) | ✅ | `NuevoCliente` y pestaña Datos |
+| `vmCliEliminar` | Eliminar con motivo (papelera) | ✅ | `ConfirmarEliminar` |
+| `getClientsList`, `buscarClientePorIdentificacion`, `createClient`, `updateClientRecord`, `vmDatosVentaClientes`, `vmGuardarDatosVentaCliente`, `vmClienteEliminar` | Clientes desde el CRM | ✅ | `CrmClientes.tsx` (sección 1) |
+| columnas extra de la hoja | Otras columnas sin formulario | ➖ | La tabla nueva no tiene columnas sueltas |
