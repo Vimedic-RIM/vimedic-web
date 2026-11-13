@@ -11,8 +11,8 @@ Estados: ✅ existe en la app nueva · 🆕 recuperado en esta auditoría · ⚠
 1. ✅ CRM Vimedic y FEMEDICS
 2. ✅ Facturación
 3. ✅ Marketing
-4. ⏭️ **Carga del Excel actualizado** (`datos_origen/Web App Vimedic (2).xlsx`) en vimedic-pruebas (siguiente; CRM y Facturación ya se actualizaron)
-5. Inventario y Movimientos
+4. ✅ Carga del Excel actualizado (`datos_origen/Web App Vimedic (2).xlsx`) en vimedic-pruebas
+5. ⏭️ **Inventario y Movimientos** (siguiente)
 6. Clientes
 7. Agenda
 8. Bodega y Logística
@@ -202,3 +202,46 @@ Commits: ee8b3ef, 67e8b51, 9d8bcf1, 7c2e431 y el de Anuncios.
 Para probar en qa: Coordinación es quien tiene el rol "Coordinación" en Empleados o el permiso Marketing › aprobar.
 En pruebas, la única persona con rol de Marketing también es superadministrador, así que todo le sale directo;
 para ver el flujo de aprobación hay que darle a alguien el rol Marketing sin ser superadministrador.
+
+---
+
+## 4. Datos del Excel nuevo: resto de módulos (13-nov-2026) — Issue #24
+
+Fuente: `datos_origen/Web App Vimedic (2).xlsx`. Método: insertar lo nuevo y actualizar por código solo las filas
+que cambiaron en la app original (las demás no se tocan ni cambian su fecha de actualización). **No se borró nada
+creado en qa.** Antes de aplicar se hizo un ensayo en seco de cada tabla dentro de una transacción que se deshace.
+
+| Tabla | Filas en el Excel | Nuevas | Actualizadas | Nota |
+|---|---|---|---|---|
+| `productos` | 2 870 | 0 | 42 | 31 con otro stock, 7 descripciones, 7 fichas, 6 características y especificaciones, 5 carpetas, 2 reservaciones, 2 accesorios, 1 nombre, 1 visible en el catálogo |
+| `despachos` | 113 | 14 | 0 | Los enlaces de seguimiento creados en qa se conservan |
+| `imp_expedientes` | 3 | 0 | 1 | |
+| `imp_ordenes_st` | 2 | 1 | 0 | |
+| `imp_recepciones` | 24 | 4 | 0 | |
+| `marketing_cambios` | 270 | 124 | 15 | Las 15 son revisiones de Coordinación en la app original |
+| `catalogo_actividad` | 355 | 43 | 0 | |
+| `bitacora` | 599 | 368 | 0 | |
+| `producto_galeria` | 209 | 24 | 0 | |
+| `fichas_tecnicas` | 35 | 15 | 0 | |
+
+Sin cambios (ya estaban al día): proyectos, actividades, monedas de la agenda, rutas, viáticos, ítems y códigos de
+importación, mensajes y asignaciones, audiovisual, publicaciones, promociones, material de proveedores, documentos
+técnicos, anuncios activos, catálogos generados, tipos de permiso, proveedores y aliados.
+
+Cambios de stock (antes → después): EQM003 -1→0, EQM025 -1→-2, EQM080 0→-1, EQM1025 2→1, EQM1188 1→0, EQM128 52→50,
+EQM246 19→18, EQM327 -1→0, EQM512 2→1, EQM639 0→-1, EQMH004 0→1, EQMH016 5→1, FLETE EXT -103→-105, FLETE IN -76→-75,
+INM892 205→209, INM893 -22→-18, MOB032 5→3, MOBI020 89→3, MOBI051 -6→-5, MOBI053 9→8, MOBI074 1→0, MOBI078 -2→-3,
+MOBI091 87→86, MOBI092 46→45, MOBI340 1→3, MOBI703 0→-2, MOBIH005 4→9, MOBIH037 7→6, REH093 1→0, REH553 -1→-2, VAR048 23→19.
+
+Se conservó lo de qa a propósito:
+- EQM491: el Excel trae "NO ENCONTRADO…" en lugar de un enlace de imagen.
+- MOBI050: tiene datos destacados en qa y vacíos en el Excel. Los destacados del Excel se guardan con el formato de la app nueva (`dato|dato`).
+- Promociones: solo se agregan las que faltan; las 4 campañas dadas de baja en qa siguen así (tienen aprobaciones por producto de la app nueva).
+- Proveedores: qa tiene 106 y el Excel 11; los creados en la app nueva (Adquisiciones) se conservan.
+
+Empleados (no se tocó nada; decisión en el Issue #24): no hay empleados nuevos. `asistente.gerencia@` y
+`ejecutiva.ventas@` están inactivos en qa y activos en el original; el cargo de `direccion.marketing@` en qa es
+"Administrador del sistema" y en el original "Marketing"; `prueba@` solo existe en qa.
+
+No se cargan (no hacen falta): Codigos Faltantes (reporte), Marketing Enlaces (enlaces de un solo uso del correo),
+Sesiones y Accesos (los reemplaza Supabase Auth), Papelera (la reemplaza el borrado lógico).
