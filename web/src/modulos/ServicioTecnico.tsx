@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Archive, BookOpen, Calendar, CalendarCheck, CalendarPlus, Check, CheckCheck, ClipboardList, Cpu, FileCheck2, FileText, Gauge, GraduationCap, Hammer, History, Hourglass, Lightbulb, List, ListChecks, MapPin, MessageCircle, PackageOpen, Package, Pencil, Phone, Play, Plus, PlugZap, RefreshCw, RotateCcw, Save, ScanSearch, Search, ShieldAlert, Stethoscope, User, UserPlus, Users, Wrench, X, XCircle, BadgeCheck, Camera } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
 import { descargarInforme, TITULOS, type OrdenDoc, type EquipoDoc } from './servicioInforme'
 import '../estilos/servicio.css'
+// Equipos de importación con defecto (RecepcionImportacion.gs): se carga solo al abrir la pestaña
+const RecepcionImp = lazy(() => import('./RecepcionImportaciones'))
 
 
 /* ============================ Tipos y constantes ============================ */
@@ -146,9 +148,9 @@ export default function ServicioTecnico({ perfil, aviso }: { perfil: Perfil; avi
   const en30 = new Date(Date.now() + 30 * 86400000)
   const kpis: [string, number, string][] = [['Abiertas', ab.length, ''], ['Para hoy', ab.filter((o) => esHoy(o.fechaProgramada)).length, ''], ['Esperan aprobación', ab.filter((o) => o.estado === 'Esperando aprobación').length, ''],
     ['Preventivos 30 días', E.filter((e) => e.proximo && e.plan !== 'Sin plan' && new Date(e.proximo + 'T12:00:00') <= en30).length, ''], ['Garantía en riesgo', E.filter((e) => e.garantiaEnRiesgo).length, E.some((e) => e.garantiaEnRiesgo) ? 'alerta' : '']]
-  const TABS: [string, string][] = [['inventario', 'Inventario con observaciones'], ['agendar', 'Por agendar'], ['agendadas', 'Agendadas'], ['proceso', 'En proceso'], ['mias', 'Mis órdenes'], ['finalizadas', 'Finalizadas'], ['equipos', 'Equipos'], ['documentos', 'Documentos técnicos'], ['tecnicos', 'Técnicos']]
+  const TABS: [string, string][] = [['inventario', 'Inventario con observaciones'], ['agendar', 'Por agendar'], ['agendadas', 'Agendadas'], ['proceso', 'En proceso'], ['mias', 'Mis órdenes'], ['finalizadas', 'Finalizadas'], ['equipos', 'Equipos'], ['importaciones', 'Importaciones'], ['documentos', 'Documentos técnicos'], ['tecnicos', 'Técnicos']]
   const tabsVis = TABS.filter(([k]) => !externo || ['mias', 'finalizadas'].includes(k))
-  const cuenta = (k: string) => k === 'equipos' ? E.length : k === 'tecnicos' ? tecnicos.filter((t) => t.tipo === 'Externo').length + tecnicos.filter((t) => t.tipo === 'Interno').length : k === 'inventario' || k === 'documentos' ? null : O.filter((o) => enTab(o, k)).length
+  const cuenta = (k: string) => k === 'equipos' ? E.length : k === 'tecnicos' ? tecnicos.filter((t) => t.tipo === 'Externo').length + tecnicos.filter((t) => t.tipo === 'Interno').length : k === 'inventario' || k === 'documentos' || k === 'importaciones' ? null : O.filter((o) => enTab(o, k)).length
 
   const lista = useMemo(() => {
     const w = norm(q).trim().split(/\s+/).filter(Boolean), pr: Record<string, number> = { Urgente: 0, Alta: 1, Normal: 2 }
@@ -165,7 +167,7 @@ export default function ServicioTecnico({ perfil, aviso }: { perfil: Perfil; avi
     aviso(`${r.nuevos} equipo(s) nuevo(s) · ${r.garantias} garantía(s) actualizada(s)`); cargarEquipos()
   }
 
-  const esListaOrdenes = !['inventario', 'equipos', 'documentos', 'tecnicos'].includes(tab)
+  const esListaOrdenes = !['inventario', 'equipos', 'documentos', 'tecnicos', 'importaciones'].includes(tab)
   return (
     <div className="vm-st">
       <header className="hdr text-white">
@@ -188,6 +190,7 @@ export default function ServicioTecnico({ perfil, aviso }: { perfil: Perfil; avi
         </div>
         {error && <div className="text-center py-14 text-red-600 font-semibold">{error}</div>}
         {tab === 'inventario' && <Inventario perfil={perfil} q={q} editar={editar} aviso={aviso} />}
+        {tab === 'importaciones' && !externo && <Suspense fallback={<div className="text-center py-14 text-slate-400"><span className="spin" /> Cargando…</div>}><RecepcionImp perfil={perfil} aviso={aviso} area="st" /></Suspense>}
         {tab === 'documentos' && <div className="sec text-sm text-slate-600"><b>Documentos técnicos</b> (manuales, protocolos y fichas por producto) tiene su propio módulo con permiso <span className="mono">documentos_tecnicos</span>; se migra en su turno. Esta pestaña se activará cuando exista.</div>}
         {tab === 'tecnicos' && (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity, AlertCircle, Award, BadgePercent, BookOpen, CalendarDays, CalendarRange, CheckCircle2, ClipboardCheck, Clapperboard, DollarSign, Download, FileText, Filter, FolderUp,
   GalleryHorizontal as Gallery, Image as ImageIcon, Images, LayoutDashboard, Lightbulb, ListChecks, Megaphone, PenLine, PieChart, Receipt, RefreshCw, Search, Send, ShoppingBag, Smartphone, Palette,
@@ -15,6 +15,9 @@ import { supabase, type Perfil } from '../supabase'
 import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
 import '../estilos/marketing.css'
+import { PackageSearch } from 'lucide-react'
+// Productos nuevos de las importaciones por identificar (vmRecIdentificar): se carga solo al abrirla
+const Recepcion = lazy(() => import('./RecepcionImportaciones'))
 
 Chart.register(...registerables)
 Chart.defaults.font.family = 'Inter'; Chart.defaults.font.size = 10; Chart.defaults.color = '#64748b'
@@ -56,7 +59,7 @@ const TITLES: Record<string, [string, string]> = {
 }
 const NAV: [string, string, typeof LayoutDashboard][] = [
   ['resumen', 'Resumen', LayoutDashboard], ['planificador', 'Planificador', CalendarDays], ['audiovisual', 'Audiovisual', Clapperboard], ['anuncios', 'Anuncios', Megaphone],
-  ['biblioteca', 'Biblioteca', Images], ['material', 'Material de proveedores', FolderUp], ['revision', 'Revisión', ClipboardCheck], ['promociones', 'Promociones', BadgePercent], ['configuracion', 'Configuración', Settings],
+  ['biblioteca', 'Biblioteca', Images], ['material', 'Material de proveedores', FolderUp], ['importacion', 'Importaciones', PackageSearch], ['revision', 'Revisión', ClipboardCheck], ['promociones', 'Promociones', BadgePercent], ['configuracion', 'Configuración', Settings],
 ]
 const AV_COLOR: Record<string, string> = { Idea: '#94a3b8', 'En producción': '#c98a1f', 'En edición': '#7c3aed', Listo: '#17a9ba', Programado: '#055c9d', Publicado: '#04896f' }
 const AV_ESTADOS = ['Idea', 'En producción', 'En edición', 'Listo', 'Programado', 'Publicado']
@@ -416,6 +419,7 @@ export default function Marketing({ perfil, aviso, accion, limpiarAccion }: { pe
         {tab === 'anuncios' && <Anuncios perfil={perfil} desde={desde} hasta={hasta} aviso={aviso} />}
         {tab === 'material' && <Material perfil={perfil} aviso={aviso} />}
         {tab === 'promociones' && <Promociones perfil={perfil} aviso={aviso} />}
+        {tab === 'importacion' && <Suspense fallback={<div className="card p-10 text-center text-slate-400">Cargando…</div>}><Recepcion perfil={perfil} aviso={aviso} area="marketing" /></Suspense>}
 
         {false && (
           <section>

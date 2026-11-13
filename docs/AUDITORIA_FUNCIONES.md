@@ -17,7 +17,7 @@ Estados: ✅ existe en la app nueva · 🆕 recuperado en esta auditoría · ⚠
 7. ✅ Agenda
 8. ✅ Bodega y Logística
 9. ✅ Servicio Técnico
-10. ⏭️ **Importaciones, Artículos, Adquisiciones y Recepción** (siguiente)
+10. ⏭️ **Importaciones, Artículos, Adquisiciones y Recepción** (en curso: parte 1 Recepción hecha; siguen tablero, artículos y material)
 11. Empleados y Solicitudes del personal (módulo nuevo de la versión 4)
 12. Talento Humano y Financiero
 13. Catálogos, Ofertas y Promociones
@@ -401,3 +401,38 @@ recepción `vmRec*`). Archivo: `ServicioTecnico.gs`.
 | `vmRec*` | Recepción de importaciones (resultado de Servicio Técnico) | ⏭️ | Vuelta 10 |
 
 Probado en la base de pruebas, dentro de una transacción que se deshace al final: código creado solo, aviso al técnico (una sola vez), página pública como visitante anónimo, código inválido rechazado y sin acceso directo a las órdenes.
+
+---
+
+## 10. Importaciones, Artículos, Adquisiciones y Recepción — Issue #30 (en curso)
+
+Pantallas: `ImportacionesVista.html` (tablero `vmTab*`), `ArticulosImportarVista.html` (`vmArt*`), y la bandeja de recepción
+`vmRec*` dentro de Bodega, Servicio Técnico y Marketing. Los `vmImp*` de `Importaciones.gs` (flujo anterior con aprobación,
+pagos, aduana y costeo) ya no los llama ninguna pantalla de la versión 4.
+
+### Parte 1 · Recepción (`RecepcionImportacion.gs`, Issue #19)
+
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `vmRecBandeja` | Bandejas de Importación, Marketing, Bodega y Servicio Técnico | ❌ → 🆕 | `rec_bandeja` + `RecepcionImportaciones.tsx` (Bodega › Recepción de importaciones, Servicio Técnico › Importaciones, Marketing › Importaciones, Importaciones › Recepción) |
+| `vmRecLlegada` | Bodega registra la llegada (etapa "En bodega") | ❌ → 🆕 | `rec_llegada` |
+| `vmRecRevisar` | Revisión por partes: recibidas, aprobadas → INGRESO "Principal", con defecto → INGRESO "Por reparar" + orden a Servicio Técnico, faltantes; lo demás queda pendiente | ❌ → 🆕 | `rec_revisar` (una operación por revisión, sin duplicar si se reintenta) |
+| `recEquipos_`, `recGuardarEquipos_`, `vmRecSubirEvidencia` | Serie y fotos por equipo (o fotos del lote), series sin repetir | ❌ → 🆕 | `app.rec_equipos`, `app.rec_guardar_equipos`, espacio privado `importaciones`, escáner con la cámara |
+| `vmRecResultadoST`, `vmRecSubirAdjunto` | Servicio Técnico: reparadas vuelven a Bodega, no reparables con decisión pendiente; fotos y adjunto | ❌ → 🆕 | `rec_resultado_st` |
+| `vmRecRevisarDevuelta` | Bodega revisa lo devuelto: TRASLADO "Por reparar" → "Principal" o nueva orden | ❌ → 🆕 | `rec_revisar_devuelta` |
+| `vmRecIdentificar`, `vmRecSugerirCodigo` | Marketing identifica productos nuevos (existente o nuevo, código reservado, código interno, foto) | ❌ → 🆕 | `rec_identificar`, `rec_sugerir_codigo` |
+| `vmRecEnviarMarketing` | Enviar el listado a Marketing | ⏭️ | Parte 2 (al confirmar la lista del tablero) |
+| `vmRecCierreAutorizado` | Cierre con pendientes (Gerencia) | ❌ → 🆕 | `rec_cierre_autorizado` (permiso "Aprobar" en Importaciones) |
+| `vmRecEliminarImportacion` | Quitar una importación sin revisiones (papelera) | ❌ → 🆕 | `rec_eliminar_importacion` |
+| `vmRecHistorialLinea` | Equipos, operaciones y órdenes de una línea | ❌ → 🆕 | `rec_historial_linea` |
+| `recActualizarRecepcion_` | Recepción completa cuando no queda nada pendiente | ❌ → 🆕 | `app.rec_actualizar_recepcion` |
+| `vmRecGenerarInforme` | Informe PDF de la orden de Servicio Técnico | ⚠️ | Se adjunta el informe (PDF o foto) al registrar el resultado |
+| `vmRecTrasladarCodigos`, `vmRecUsarCodigoImportacion` | Pasar el modelo de Importación al código interno de los productos | ⚠️ | Se hace al identificar cada producto; el traslado masivo queda para la parte 2 |
+| `actualizarStockInventarioInt_` (regla de stock) | "Por reparar" no es stock disponible; va a "stock por reparar" | ⚠️ → ✅ | `app.stock_mov` en `recalcular_stock_producto` y `recalcular_stock_general`. Con esta regla el stock de los 1 448 productos coincide con sus movimientos (la regla anterior descuadraba EQM327 y MOBI053) |
+
+Probado en la base de pruebas, dentro de una transacción que se deshace al final: revisión por partes, operación repetida
+sin duplicar, stock y "por reparar" correctos en cada paso, orden a Servicio Técnico, resultado, traslado al volver, series
+repetidas o ajenas rechazadas, permisos.
+
+### Parte 2 · Tablero (siguiente) y Parte 3 · Artículos y Material de proveedores
+Pendientes en el Issue #30.

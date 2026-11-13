@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Barcode, Calendar, Camera, Check, CheckCheck, Columns3, Download, ImageUp, Inbox, List, MinusCircle, Package, PackageCheck, Play, PlayCircle, RefreshCw, RotateCcw, Save, ScanLine, ScanSearch, Search, Send, ShieldCheck, Split, Truck, Upload, Video, Warehouse, X } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
 import '../estilos/bodega.css'
+// Recepción de importaciones (RecepcionImportacion.gs): se carga solo al abrirla
+const Recepcion = lazy(() => import('./RecepcionImportaciones'))
 
 /* ============================ Tipos ============================ */
 type Linea = { key: string; id: string; nombre: string; cantidad: number; requiereSerie: boolean; observacion: string; despachado: number }
@@ -93,6 +95,8 @@ export default function Bodega({ perfil, aviso }: { perfil: Perfil; aviso: (t: s
   const [vista, setVista] = useState<'tablero' | 'lista'>(() => lsGet('bd:vista') || (window.innerWidth < 768 ? 'lista' : 'tablero'))
   const [q, setQ] = useState('')
   const [tab, setTab] = useState('pendientes')
+  const [seccion, setSeccion] = useState<'despachos' | 'recepcion'>(() => (lsGet('bod:seccion') === 'recepcion' ? 'recepcion' : 'despachos'))
+  useEffect(() => { lsSet('bod:seccion', seccion) }, [seccion])
   const [kpi, setKpi] = useState('')
   const [verTodosDesp, setVerTodosDesp] = useState(false)
   const [abierto, setAbierto] = useState<{ id: string; despachar?: boolean } | null>(null)
@@ -246,7 +250,7 @@ export default function Bodega({ perfil, aviso }: { perfil: Perfil; aviso: (t: s
       <header className="hdr text-white">
         <div className="w-full px-4 lg:px-6 py-3 flex items-center gap-3 flex-wrap vm-head-pad">
           <div className="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center shrink-0"><Warehouse style={{ width: 20, height: 20 }} /></div>
-          <div className="min-w-0"><h1 className="font-display font-bold text-lg leading-tight">Bodega</h1><p className="text-[11px] text-white/70">Despacho de ventas facturadas · {perfil.nombre}</p></div>
+          <div className="min-w-0"><h1 className="font-display font-bold text-lg leading-tight">Bodega</h1><p className="text-[11px] text-white/70">{seccion === 'recepcion' ? 'Recepción de importaciones' : 'Despacho de ventas facturadas'} · {perfil.nombre}</p></div>
           <div className="ml-auto flex gap-2">
             <button className="btn btn-sm !bg-white/10 !border-white/20 !text-white" title="Buscar número de serie" onClick={() => setHoja('serie')}><ScanSearch /><span className="hidden sm:inline">Buscar serie</span></button>
             {editar && <button className="btn btn-sm !bg-white/10 !border-white/20 !text-white" title="Traer facturas anteriores" onClick={() => setHoja('traer')}><Download /><span className="hidden sm:inline">Traer facturas</span></button>}
@@ -255,6 +259,8 @@ export default function Bodega({ perfil, aviso }: { perfil: Perfil; aviso: (t: s
         </div>
       </header>
       <main className="w-full px-4 lg:px-6 py-4 space-y-3">
+        <div className="vista"><button className={seccion === 'despachos' ? 'on' : ''} onClick={() => setSeccion('despachos')}><Truck />Despachos</button><button className={seccion === 'recepcion' ? 'on' : ''} onClick={() => setSeccion('recepcion')}><PackageCheck />Recepción de importaciones</button></div>
+        {seccion === 'recepcion' ? <Suspense fallback={<div className="text-center py-14 text-slate-400"><span className="spin" /> Cargando…</div>}><Recepcion perfil={perfil} aviso={aviso} area="bodega" /></Suspense> : <>
         <div className="flex gap-2 items-center flex-wrap">
           <div className="vista"><button className={vista === 'tablero' ? 'on' : ''} onClick={() => setVista('tablero')}><Columns3 />Tablero</button><button className={vista === 'lista' ? 'on' : ''} onClick={() => setVista('lista')}><List />Lista</button></div>
           <div className="relative flex-1 min-w-[220px]"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input className="inp !pl-9" placeholder="Buscar cliente, factura, producto o número de serie…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
@@ -287,6 +293,7 @@ export default function Bodega({ perfil, aviso }: { perfil: Perfil; aviso: (t: s
             </div>
           </>
         )}
+        </>}
       </main>
       {abierto && <Panel id={abierto.id} despacharAlAbrir={abierto.despachar} perfil={perfil} editar={editar} aviso={aviso} cerrar={() => { setAbierto(null); cargar() }} cambio={cargar} />}
       {hoja === 'serie' && <BuscarSerie cerrar={() => setHoja(null)} ver={(id) => { setHoja(null); setAbierto({ id }) }} />}

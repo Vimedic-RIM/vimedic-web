@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft, ArrowRight, CheckCheck, Boxes, FileText, ImageOff, MoveRight, PackagePlus, Pencil, Plus, RefreshCw, Search, Ship, Trash2, Unlock, X,
 } from 'lucide-react'
@@ -8,6 +8,8 @@ import { puede } from '../permisos'
 import { imagen } from './Inventario'
 import { ConfirmarEliminar } from './CrmClientes'
 import '../estilos/importaciones.css'
+// Recepción por línea (RecepcionImportacion.gs): se carga solo al abrirla
+const Recepcion = lazy(() => import('./RecepcionImportaciones'))
 
 /* ============================ Datos y utilidades ============================ */
 const ETAPAS = ['Borrador', 'Registrado', 'En tránsito', 'En aduana', 'En bodega', 'Ingresado']
@@ -38,7 +40,7 @@ export default function Importaciones({ perfil, aviso, accion, limpiarAccion }: 
   const [error, setError] = useState('')
   const [q, setQ] = useState('')
   const [fProv, setFProv] = useState('')
-  const [vista, setVista] = useState<'tablero' | 'panel'>('tablero')
+  const [vista, setVista] = useState<'tablero' | 'panel' | 'recepcion'>('tablero')
   const [abierto, setAbierto] = useState<string | null>(null)
   const [nueva, setNueva] = useState(false)
   const [menuMover, setMenuMover] = useState<Exp | null>(null)
@@ -148,7 +150,7 @@ export default function Importaciones({ perfil, aviso, accion, limpiarAccion }: 
       <main className="wrap">
         <div className="kpis">{kpis.map(([t, v, al]) => <div key={t} className={'kpi' + (al ? ' al' : '')}><span>{t}</span><b>{v}</b></div>)}</div>
         <div className="barra">
-          <div className="seg"><button className={vista === 'tablero' ? 'on' : ''} onClick={() => setVista('tablero')}>Tablero</button><button className={vista === 'panel' ? 'on' : ''} onClick={() => setVista('panel')}>Panel</button></div>
+          <div className="seg"><button className={vista === 'tablero' ? 'on' : ''} onClick={() => setVista('tablero')}>Tablero</button><button className={vista === 'recepcion' ? 'on' : ''} onClick={() => setVista('recepcion')}>Recepción</button><button className={vista === 'panel' ? 'on' : ''} onClick={() => setVista('panel')}>Panel</button></div>
           <div className="busca"><Search /><input className="inp" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar código, nombre o proveedor  ( / )" /></div>
           <select className="inp" style={{ width: 'auto', minWidth: 170 }} value={fProv} onChange={(e) => setFProv(e.target.value)}><option value="">Todos los proveedores</option>{provs.map((p) => <option key={p}>{p}</option>)}</select>
         </div>
@@ -170,6 +172,7 @@ export default function Importaciones({ perfil, aviso, accion, limpiarAccion }: 
             })}
           </div></div>
         )}
+        {vista === 'recepcion' && <Suspense fallback={<div className="sec" style={{ textAlign: 'center', padding: 28 }}>Cargando…</div>}><Recepcion perfil={perfil} aviso={aviso} area="importacion" /></Suspense>}
         {vista === 'panel' && <div className="sec"><p className="text-sm text-slate-500" style={{ textAlign: 'center', padding: '28px 0' }}>El panel de compras y cobertura (sugeridos, cobertura y lead time) se está migrando. Sigue disponible en la app actual.</p></div>}
       </main>
 
