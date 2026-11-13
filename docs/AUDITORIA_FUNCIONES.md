@@ -17,7 +17,7 @@ Estados: ✅ existe en la app nueva · 🆕 recuperado en esta auditoría · ⚠
 7. ✅ Agenda
 8. ✅ Bodega y Logística
 9. ✅ Servicio Técnico
-10. ⏭️ **Importaciones, Artículos, Adquisiciones y Recepción** (en curso: parte 1 Recepción hecha; siguen tablero, artículos y material)
+10. ⏭️ **Importaciones, Artículos, Adquisiciones y Recepción** (en curso: partes 1 Recepción y 2 Tablero hechas; siguen artículos y material de proveedores)
 11. Empleados y Solicitudes del personal (módulo nuevo de la versión 4)
 12. Talento Humano y Financiero
 13. Catálogos, Ofertas y Promociones
@@ -434,5 +434,27 @@ Probado en la base de pruebas, dentro de una transacción que se deshace al fina
 sin duplicar, stock y "por reparar" correctos en cada paso, orden a Servicio Técnico, resultado, traslado al volver, series
 repetidas o ajenas rechazadas, permisos.
 
-### Parte 2 · Tablero (siguiente) y Parte 3 · Artículos y Material de proveedores
-Pendientes en el Issue #30.
+### Parte 2 · Tablero de Importaciones (`ImportacionesTablero.gs`, `PedidoImportacion.gs`)
+
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `vmTabInicio`, `tabResumen_`, `tabEtapa_` | Tablero con la etapa real e indicadores (en tránsito, en bodega, con novedades, en reparación, atrasadas) | ⚠️ → ✅ | `imp_tablero`: la etapa "En bodega"/"Ingresado" sale de la recepción; "Con novedades" y "En reparación" ya no son ceros fijos; la tarjeta muestra el avance |
+| `vmTabCrear`, `vmTabEliminarBorrador` | Crear (copiando la última del proveedor) y eliminar borrador | ✅ | `NuevaImportacion`, eliminar con motivo |
+| `vmTabCambios` (`op: linea`) | Productos existentes en la lista con guardado automático | ✅ | `Importaciones.tsx` |
+| `vmTabCambios` (`op: nuevo`), `vmTabCodigosLibres`, `vmTabVerificarCodigo` | Equipo nuevo: prefijo, código deseado (verificado), descripción, modelo, marca, foto | ❌ → 🆕 | `imp_linea`, `imp_prefijos`, `imp_codigos_libres`, `imp_verificar_codigo` + formulario "Equipo nuevo" (antes decía "se está migrando") |
+| Versión 4: agregar con lista confirmada | Solo agregar o aumentar cantidades hasta que ingrese al inventario, con nota en el historial | ❌ → 🆕 | `imp_linea` (no deja bajar cantidades con la lista confirmada) |
+| `vmTabConfirmar` + `vmRecEnviarMarketing` | Reserva los códigos de los equipos nuevos y envía el listado a Marketing (vincula solos los que ya existen) | ⚠️ → ✅ | `imp_confirmar` (antes solo cambiaba la etapa) |
+| `vmTabReabrir` | Reabrir solo si Bodega no revisó; libera los códigos no usados | ⚠️ → ✅ | `imp_reabrir` |
+| `vmTabCambiarCodigo` | Cambiar el código reservado mientras Marketing no cree el producto | ❌ → 🆕 | `imp_cambiar_codigo` |
+| `vmTabDetalle` (gráficos) | Avance por línea, daños, revisadas por día, días en Servicio Técnico, tasa de daño del proveedor, órdenes | ❌ → 🆕 | `imp_detalle` + pestaña Avance |
+| `vmTabPanel`, `vmTabEquiposPanel` | Panel de proveedores (tasa de daño, días de llegada), productos más dañados, unidades por mes; todos los equipos con su stock | ❌ → 🆕 | `imp_panel`, `imp_equipos_panel` + vista Panel |
+| `vmPapeleraListar`, `vmPapeleraRestaurar` | Papelera de importaciones | ❌ → 🆕 | `imp_papelera`, `imp_restaurar` |
+| `vmTabSubirImagen`, `vmTabEditarProducto`, `vmTabImagenProducto` | Foto de un equipo nuevo; editar el producto desde Importaciones | ⚠️ | La foto se sube en "Equipo nuevo"; los productos existentes se editan en Inventario |
+| `vmTabCatalogo` | Catálogo con fotos y datos para recomendar qué importar | ➖ | Está en Artículos (`art_analisis`); se revisa en la parte 3 |
+| `vmTabVersiones` | Revisar cambios cada 30 s | ✅ | Tiempo real de Supabase |
+
+Se corrigió el generador de códigos: con códigos de 3 cifras y otros más largos (EQM999 y EQM11815) recortaba el número al rellenar
+con ceros; además un código liberado ahora se puede volver a reservar.
+
+### Parte 3 · Artículos y Material de proveedores (siguiente)
+Pendiente en el Issue #30.
