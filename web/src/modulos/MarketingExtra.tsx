@@ -150,7 +150,7 @@ type ItemPromo = {
   id: string; desc?: number | null; descPropuesto?: number | null; unidades?: number | null; nota?: string; ofertaId?: string
   estadoAprobacion?: 'Pendiente' | 'Aprobado' | 'Rechazado'; descAprobado?: number; revisadoPor?: string; fechaRevision?: string; motivoRechazo?: string
 }
-type Camp = { id: string; codigo: string | null; nombre: string; inicio: string | null; fin: string | null; estado: string; items: ItemPromo[]; combos: unknown[]; preventa: boolean; comentario: string | null; historial: Hist[] }
+type Camp = { id: string; codigo: string | null; nombre: string; inicio: string | null; fin: string | null; estado: string; items: ItemPromo[]; combos: unknown[]; preventa: boolean; comentario: string | null; descripcion: string | null; historial: Hist[] }
 const COLOR_P: Record<string, [string, string]> = { Borrador: ['#64748b', '#f1f5f9'], 'En aprobación': ['#a16207', '#fff8eb'], Devuelta: ['#c2410c', '#fff1e6'], Aprobada: ['#04896f', '#ecfaf5'], Rechazada: ['#c0392b', '#fdecea'], Cancelada: ['#64748b', '#f1f5f9'] }
 
 export function Promociones({ perfil, aviso }: { perfil: Perfil; aviso: (t: string) => void }) {
@@ -161,7 +161,7 @@ export function Promociones({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
   const crear = puede(perfil, 'marketing', 'crear'), aprobar = puede(perfil, 'marketing', 'aprobar')
   const puedeEliminar = puede(perfil, 'marketing', 'eliminar') || puede(perfil, 'promociones', 'eliminar')
   const cargar = useCallback(() => {
-    supabase.from('promo_campanas').select('id,codigo,nombre,inicio,fin,estado,items,combos,preventa,comentario,historial').is('deleted_at', null).order('inicio', { ascending: false }).limit(200)
+    supabase.from('promo_campanas').select('id,codigo,nombre,inicio,fin,estado,items,combos,preventa,comentario,descripcion,historial').is('deleted_at', null).order('inicio', { ascending: false }).limit(200)
       .then(({ data, error }) => { if (error) setError(error.message); else { setError(''); setLista((data as unknown as Camp[]) ?? []) } })
   }, [])
   useEffect(() => { cargar() }, [cargar])
@@ -192,7 +192,7 @@ export function Promociones({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
     if (error) { aviso('No se pudo guardar: ' + error.message); return }
     aviso('Campaña: ' + estado.toLowerCase() + '.'); setAbierta(null); cargar()
   }
-  async function actualizarCampo(c: Camp, campos: Partial<Pick<Camp, 'nombre' | 'inicio' | 'fin' | 'items' | 'estado'>>) {
+  async function actualizarCampo(c: Camp, campos: Partial<Pick<Camp, 'nombre' | 'inicio' | 'fin' | 'items' | 'estado' | 'descripcion'>>) {
     const { error } = await supabase.from('promo_campanas').update(campos).eq('id', c.id)
     if (error) { aviso('No se pudo guardar: ' + error.message); return }
     setAbierta((a) => (a && a.id === c.id ? { ...a, ...campos } : a)); cargar()
@@ -218,6 +218,7 @@ export function Promociones({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
             {puedeEliminar && <button type="button" title="Eliminar campaña" className="absolute top-3 right-3 w-6 h-6 rounded-lg grid place-items-center text-slate-300 hover:text-red-600 hover:bg-red-50" onClick={(e) => { e.stopPropagation(); eliminar(c) }}><Trash2 className="w-3.5 h-3.5" /></button>}
             <div className="flex items-center gap-2 pr-7"><BadgePercent className="w-4 h-4 text-[var(--amber)]" /><span className="font-mono-spec text-[11px] text-slate-400">{c.codigo}</span><span className="pill ml-auto" style={{ background: bg, color: col }}>{c.estado}</span></div>
             <p className="text-sm font-bold text-slate-800 mt-1.5">{c.nombre}</p>
+            {c.descripcion && <p className="text-[11px] text-slate-600 mt-1 line-clamp-2">{c.descripcion}</p>}
             <p className="text-[11px] text-slate-500 mt-1">{fecha(c.inicio)} → {fecha(c.fin)}{c.preventa ? ' · Preventa' : ''}</p>
             <p className="text-[11px] text-slate-400">{(c.items ?? []).length} producto{(c.items ?? []).length === 1 ? '' : 's'} · {(c.combos ?? []).length} combo{(c.combos ?? []).length === 1 ? '' : 's'}</p>
           </article>) })}
@@ -240,12 +241,18 @@ const ORDENES_PROMO: [string, string][] = [
 function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mover, eliminar, actualizarCampo }: {
   c: Camp; perfil: Perfil; aprobar: boolean; editar: boolean; puedeEliminar: boolean; cerrar: () => void
   mover: (c: Camp, estado: string, comentario?: string) => void; eliminar: (c: Camp) => void
-  actualizarCampo: (c: Camp, campos: Partial<Pick<Camp, 'nombre' | 'inicio' | 'fin' | 'items' | 'estado'>>) => Promise<void> | void
+  actualizarCampo: (c: Camp, campos: Partial<Pick<Camp, 'nombre' | 'inicio' | 'fin' | 'items' | 'estado' | 'descripcion'>>) => Promise<void> | void
 }) {
   const [com, setCom] = useState('')
   const [nombreEd, setNombreEd] = useState(c.nombre)
   const [inicioEd, setInicioEd] = useState(c.inicio ?? '')
   const [finEd, setFinEd] = useState(c.fin ?? '')
+  const [descEd, setDescEd] = useState(c.descripcion ?? '')
+  function guardarDescripcion() {
+    const limpio = descEd.trim()
+    if (limpio === (c.descripcion ?? '')) { setDescEd(limpio); return }
+    actualizarCampo(c, { descripcion: limpio || null })
+  }
   function guardarNombre() {
     const limpio = nombreEd.trim()
     if (!limpio || limpio === c.nombre) { setNombreEd(c.nombre); return }
@@ -437,8 +444,12 @@ function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mov
                   <input type="date" className="inp w-full mt-1" value={inicioEd} onChange={(e) => setInicioEd(e.target.value)} onBlur={guardarVigencia} /></label>
                 <label className="block text-[11px] font-bold text-slate-500">Vigente hasta
                   <input type="date" className="inp w-full mt-1" value={finEd} onChange={(e) => setFinEd(e.target.value)} onBlur={guardarVigencia} /></label>
+                <label className="block text-[11px] font-bold text-slate-500">Descripción
+                  <textarea className="inp w-full mt-1 font-normal" rows={3} maxLength={300} value={descEd} onChange={(e) => setDescEd(e.target.value)} onBlur={guardarDescripcion}
+                    placeholder="Qué busca esta campaña (objetivo, público, canal)…" />
+                  <span className="block text-right text-[10px] font-normal text-slate-400">{descEd.length}/300</span></label>
               </>
-            ) : <p className="text-xs text-slate-600">{fecha(c.inicio)} → {fecha(c.fin)}</p>}
+            ) : <><p className="text-xs text-slate-600">{fecha(c.inicio)} → {fecha(c.fin)}</p>{c.descripcion && <p className="text-xs text-slate-600 mt-1">{c.descripcion}</p>}</>}
           </div>
 
           <div className="card p-4">
@@ -740,16 +751,17 @@ function AgregarProductos({ excluir, analisis, est, agregar }: { excluir: string
 }
 
 function NuevaCampana({ perfil, cerrar, hecho, aviso }: { perfil: Perfil; cerrar: () => void; hecho: () => void; aviso: (t: string) => void }) {
-  const [n, setN] = useState(''); const [ini, setIni] = useState(''); const [fin, setFin] = useState(''); const [pre, setPre] = useState(false)
+  const [n, setN] = useState(''); const [ini, setIni] = useState(''); const [fin, setFin] = useState(''); const [pre, setPre] = useState(false); const [desc, setDesc] = useState('')
   async function guardar() {
     if (!n.trim() || !ini || !fin) { aviso('Completa nombre y fechas.'); return }
     if (fin < ini) { aviso('La fecha final es anterior al inicio.'); return }
-    const { error } = await supabase.from('promo_campanas').insert({ id: crypto.randomUUID(), codigo: 'PR-' + crypto.randomUUID().slice(0, 6).toUpperCase(), nombre: n.trim(), inicio: ini, fin, preventa: pre, estado: 'Borrador', historial: [{ fecha: new Date().toISOString(), por: perfil.nombre, accion: 'Creada' }], actualizado_por: perfil.id })
+    const { error } = await supabase.from('promo_campanas').insert({ id: crypto.randomUUID(), codigo: 'PR-' + crypto.randomUUID().slice(0, 6).toUpperCase(), nombre: n.trim(), descripcion: desc.trim() || null, inicio: ini, fin, preventa: pre, estado: 'Borrador', historial: [{ fecha: new Date().toISOString(), por: perfil.nombre, accion: 'Creada' }], actualizado_por: perfil.id })
     if (error) aviso('No se pudo crear: ' + error.message); else hecho()
   }
   return (
     <Ventana titulo="Nueva campaña" cerrar={cerrar} pie={<button className="btn btn-primary" onClick={guardar}>Crear campaña</button>}>
       <label className="block text-[11px] font-bold text-slate-500">Nombre<input className="inp w-full mt-1" value={n} onChange={(e) => setN(e.target.value)} placeholder="Ej. Black Friday 2026" /></label>
+      <label className="block text-[11px] font-bold text-slate-500">Descripción (opcional)<textarea className="inp w-full mt-1 font-normal" rows={2} maxLength={300} value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Qué busca esta campaña (objetivo, público, canal)…" /></label>
       <div className="grid grid-cols-2 gap-3"><label className="block text-[11px] font-bold text-slate-500">Inicio<input type="date" className="inp w-full mt-1" value={ini} onChange={(e) => setIni(e.target.value)} /></label>
         <label className="block text-[11px] font-bold text-slate-500">Fin<input type="date" className="inp w-full mt-1" value={fin} onChange={(e) => setFin(e.target.value)} /></label></div>
       <label className="flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" checked={pre} onChange={(e) => setPre(e.target.checked)} />Con preventa</label>

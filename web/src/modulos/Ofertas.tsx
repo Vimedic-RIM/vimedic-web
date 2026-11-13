@@ -139,7 +139,7 @@ export function ChipsStockProceso({ e }: { e?: EstadoStock }) {
 
 /* ============================ Por aprobar (campañas de Promociones) ============================ */
 type ItemCampana = { id: string; desc?: number | null; descPropuesto?: number | null; unidades?: number | null; nota?: string; estadoAprobacion?: string; descAprobado?: number; ofertaId?: string }
-type CampanaPend = { id: string; codigo: string | null; nombre: string; inicio: string | null; fin: string | null; items: ItemCampana[] }
+type CampanaPend = { id: string; codigo: string | null; nombre: string; inicio: string | null; fin: string | null; descripcion?: string | null; items: ItemCampana[] }
 const itemsPendientes = (c: CampanaPend) => (c.items ?? []).filter((i) => Number(i.desc) > 0 && (!i.estadoAprobacion || i.estadoAprobacion === 'Pendiente'))
 const contarPendientes = (campanas: CampanaPend[]) => campanas.reduce((n, c) => n + itemsPendientes(c).length, 0)
 
@@ -172,7 +172,7 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
       supabase.from('ofertas').select('id,codigo,producto_id,tipo,descuento_pct,precio_oferta,pvp_base,costo,margen_pct,inicio,fin,estado,texto_cliente,combo_con,regalo,grupo,stock_inicial,unidades_objetivo,historial,created_at,updated_at,creador:empleados!ofertas_creado_por_fkey(nombre),producto:productos!ofertas_producto_id_fkey(nombre)').is('deleted_at', null).order('created_at', { ascending: false }).limit(1000),
       supabase.from('v_ofertas_resultados').select('oferta_id,vendidas,recuperado,dias'),
       supabase.from('ofertas_config').select('id,valor').is('deleted_at', null).limit(1),
-      supabase.from('promo_campanas').select('id,codigo,nombre,inicio,fin,items').eq('estado', 'En aprobación').is('deleted_at', null).limit(200),
+      supabase.from('promo_campanas').select('id,codigo,nombre,inicio,fin,descripcion,items').eq('estado', 'En aprobación').is('deleted_at', null).limit(200),
     ])
     setCargando(false)
     setCampanasPendientes((pc.data as unknown as CampanaPend[]) ?? [])
@@ -540,6 +540,7 @@ function PorAprobar({ campanas, prods, est, margenMinimo, aviso, recargar }: { c
             <div className="pa-cab">
               <div className="min-w-0 flex-1">
                 <p className="font-bold text-[15px] text-slate-800">{c.nombre}</p>
+                {c.descripcion && <p className="text-[12px] text-slate-600 mt-0.5 line-clamp-2" title={c.descripcion}>{c.descripcion}</p>}
                 <p className="text-[12px] text-slate-500">{c.codigo ? c.codigo + ' · ' : ''}{(c.inicio || c.fin) ? `vigente ${fechaC(c.inicio ?? '')} → ${fechaC(c.fin ?? '')} · ` : ''}{fs.length} producto{fs.length === 1 ? '' : 's'} por revisar</p>
               </div>
               <div className="pa-stats">{(() => {
