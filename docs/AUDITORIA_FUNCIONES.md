@@ -12,8 +12,8 @@ Estados: ✅ existe en la app nueva · 🆕 recuperado en esta auditoría · ⚠
 2. ✅ Facturación
 3. ✅ Marketing
 4. ✅ Carga del Excel actualizado (`datos_origen/Web App Vimedic (2).xlsx`) en vimedic-pruebas
-5. ⏭️ **Inventario y Movimientos** (siguiente)
-6. Clientes
+5. ✅ Inventario y Movimientos
+6. ⏭️ **Clientes** (siguiente)
 7. Agenda
 8. Bodega y Logística
 9. Servicio Técnico
@@ -245,3 +245,35 @@ Empleados (no se tocó nada; decisión en el Issue #24): no hay empleados nuevos
 
 No se cargan (no hacen falta): Codigos Faltantes (reporte), Marketing Enlaces (enlaces de un solo uso del correo),
 Sesiones y Accesos (los reemplaza Supabase Auth), Papelera (la reemplaza el borrado lógico).
+
+---
+
+## 5. Inventario y Movimientos — Issue #25
+
+Pantallas: `Inventario.html` (20 funciones de servidor) y `Movimientos.html` (5). Archivos: `Productos inventario.gs`,
+`DataMovimientos.gs`, `CargaRapida.gs`, `CategoriasCatalogo.gs`, `FichaTecnica.gs`, `DocumentosTecnicos.gs`, `ProductoDetalle.gs`.
+
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `vmInventarioInicial`, `getFullInventoryForCRM`, `getProducts`, `getCategories` | Carga del inventario (búsqueda, categorías, orden, páginas) | ✅ | `Inventario.tsx` |
+| `crearProducto`, `actualizarProducto` | Agregar / editar producto | ✅ | `FormularioProducto` (#9) |
+| `subirImagenProducto`, `subirImagenProductoForm` | Subir la imagen desde la computadora | 🆕 | Formulario y "Editar multimedia" (WebP en el espacio `catalogo`); antes solo se podía pegar el enlace |
+| `getProductoRawMultimedia`, `actualizarMultimediaProducto` | Imagen, ficha técnica y carpeta de multimedia | 🆕 | `inv_guardar_multimedia` + `InventarioMultimedia.tsx` |
+| `getGaleriaProducto`, `guardarGaleriaProducto` | Galería: fotos, videos, orden, texto alternativo, tipo de video | ✅ / 🆕 | Se veía en el detalle; ahora se edita (`inv_galeria_guardar`) |
+| permiso "Editar Multimedia" (`puedeEditarMultimedia_`) | Editar multimedia sin editar el resto del producto | 🆕 | `app.puede_multimedia` (el permiso existía en Empleados pero no se usaba) |
+| precios Femedics (`invPreciosFemedics_`, `fmReglaPrecio_`) | PVP +11,11 % para quien tiene el permiso o es de FEMEDICS, con aviso | 🆕 | `mis_banderas` + `Inventario.tsx` (el permiso existía pero no se aplicaba) |
+| `copiarCorto_`, `linkEquipoInv_` | Copiar nombre, código y precio con "Ver equipo" y el asesor | ✅ + 🆕 | Faltaba el enlace con `&a=asesor` |
+| `toggleEstadoProducto`, mostrar inactivos | Activar / desactivar | ✅ | `Inventario.tsx` |
+| `guardarOrdenInventario` | Ordenar arrastrando | ✅ | `inv_guardar_orden` |
+| `vmInvEstadoStock` | En revisión, en reparación, por llegar | ✅ | `inv_estado_stock` |
+| `vmProductoEliminar`, `vmPapeleraListar/Restaurar` | Eliminar y papelera | ✅ | `PapeleraProductos` |
+| `getCategoriasCatalogo`, `guardarCategoriaCatalogo` | Categorías del catálogo | ✅ | `GestionCategorias` (#10) |
+| `ft*` (ficha técnica), `dt*` (documentos técnicos) | Ficha automática y documentos | ✅ | Marketing › Biblioteca (#7, #11) |
+| `vmPdfDocumentoBase64`, `vmImagenProductoBase64` | Ver PDF dentro de la app; descargar imagen | ➖ | Se abren directo |
+| `copiarProducto`, `copiarImagenProducto_` | Copia completa y copiar imagen | ➖ | Código sin uso en el original (ningún botón los llamaba) |
+| `mvDatos`, `vmMovDetalle`, `vmEditarMovimiento`, `vmRecalcularStockGeneral` | Movimientos: lista, detalle, modificar con motivo, recalcular stock | ✅ | `Movimientos.tsx` |
+| `getMovimientosPorProducto`, `actualizarStockInventario`, `separarDetallesProductos`, `vmCRMInicial`, `vmAgendaCatalogos`… | Ayudas internas y cargas rápidas de otras pantallas | ➖ | Consultas y RLS de la base nueva |
+
+Verificación del stock (13-nov-2026): de 1 448 productos con movimientos, el stock coincide con la suma de sus
+movimientos salvo en 2 (EQM327: stock 0, movimientos −2; MOBI053: stock 8, movimientos 9). Están así en la app
+original; "Recalcular stock" los dejaría en el valor de los movimientos.

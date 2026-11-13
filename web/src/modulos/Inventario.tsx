@@ -9,6 +9,8 @@ import { supabase, type Perfil } from '../supabase'
 import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
 import '../estilos/inventario-original.css'
+import { EditarMultimedia } from './InventarioMultimedia'
+import { imagenWebp, subirCatalogo } from './audiovisualMedios'
 
 // Mismo lote que la app original: 24 productos por carga, al desplazarse.
 const LOTE = 24
@@ -83,6 +85,13 @@ const esNuevo = (p: Fila) => {
   return isFinite(t) && Date.now() - t < 30 * 864e5
 }
 
+// Quien copia queda en el enlace (&a=nombre_del_asesor) para saber de dónde llegan las visitas.
+let asesorEnlace = ''
+const slug = (v: string) => v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+const enlaceEquipo = (codigo: string) => 'https://vimedic.com.ec/equipo/?id=' + encodeURIComponent(codigo) + (asesorEnlace ? '&a=' + asesorEnlace : '')
+// Precios Femedics: PVP / 0,90 (+11,11 %), como fmReglaPrecio_ del original.
+const pvpFemedics = (pvp: number | null | undefined) => Math.round(((Number(pvp) || 0) / 0.9) * 100) / 100
+
 function copiarTexto(p: Fila, tipo: 'pvp' | 'dis'): string {
   const iva = p.aplica_iva === false ? ' (IVA 0%)' : ' + IVA'
   const l = ['*' + (p.nombre || '') + '*', 'Código: ' + (p.codigo || '')]
@@ -90,6 +99,7 @@ function copiarTexto(p: Fila, tipo: 'pvp' | 'dis'): string {
     if (!(Number(p.precio_dis) > 0)) return ''
     l.push('Precio distribuidor: $' + num2(p.precio_dis) + iva)
   } else l.push('Precio: $' + num2(p.pvp) + iva)
+  if (p.codigo) l.push('Ver equipo: ' + enlaceEquipo(p.codigo))
   return l.join('\n')
 }
 
@@ -431,6 +441,13 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
 
   const editar = puede(perfil, 'inventario', 'editar')
   const crear = puede(perfil, 'inventario', 'crear')
+  asesorEnlace = slug(perfil.nombre || '')
+  const [band, setBand] = useState<{ preciosFemedics?: boolean; multimedia?: boolean }>({})
+  const femRef = useRef(false)
+  femRef.current = !!band.preciosFemedics
+  useEffect(() => { supabase.rpc('mis_banderas').then(({ data }) => setBand((data as { preciosFemedics?: boolean; multimedia?: boolean } | null) ?? {})) }, [])
+  const ajustar = (l: Fila[]) => (femRef.current ? l.map((x) => ({ ...x, pvp: pvpFemedics(x.pvp) })) : l)
+  const [multimedia, setMultimedia] = useState<Fila | null>(null)
 
   const car: Carrito | null = conCrm ? {
     cant: (id) => carrito.find((x) => x.id === id)?.cantidad ?? 0,
@@ -510,11 +527,13 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
     const { data, count, error } = await consulta().range(0, hasta - 1)
     if (n !== peticion.current) return
     if (error) setError('No se pudo cargar el inventario: ' + error.message)
-    else { setError(''); setItems((data as unknown as Fila[]) ?? []); setTotal(count ?? 0) }
+    else { setError(''); setItems(ajustar((data as unknown as Fila[]) ?? [])); setTotal(count ?? 0) }
     setCargando(false)
   }, [consulta])
 
   useEffect(() => { cargar() }, [cargar])
+  // Al saber que ve precios Femedics, se vuelven a pedir los productos ya con el +11,11 %.
+  useEffect(() => { if (band.preciosFemedics) cargar(Math.max(LOTE, itemsRef.current.length)) }, [band.preciosFemedics]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const cargarMas = useCallback(async () => {
     if (reordRef.current || cargando || cargandoMas || itemsRef.current.length >= total) return
@@ -522,7 +541,7 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
     setCargandoMas(true)
     const desde = itemsRef.current.length
     const { data, error } = await consulta().range(desde, desde + LOTE - 1)
-    if (n === peticion.current && !error) setItems((a) => [...a, ...((data as unknown as Fila[]) ?? [])])
+    if (n === peticion.current && !error) setItems((a) => [...a, ...ajustar((data as unknown as Fila[]) ?? [])])
     setCargandoMas(false)
   }, [consulta, cargando, cargandoMas, total])
 
@@ -852,6 +871,7 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
           cerrar={() => setCajon(null)}
           abrirEditar={(id) => { setCajon(null); setForm(id) }}
           eliminado={() => { setCajon(null); cargar(Math.max(LOTE, items.length)) }}
+          editarMultimedia={band.multimedia ? () => setMultimedia(enCajon) : undefined}
         />
       )}
 
@@ -913,6 +933,8 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
           guardado={() => { setForm(null); cargarCategorias(); cargar(Math.max(LOTE, items.length)) }}
         />
       )}
+      {multimedia && <EditarMultimedia producto={multimedia} cerrar={() => setMultimedia(null)} guardado={() => { setMultimedia(null); setCajon(null); cargar(Math.max(LOTE, items.length)) }} />}
+      {band.preciosFemedics && <div role="status" style={{ position: 'fixed', left: '50%', bottom: 14, transform: 'translateX(-50%)', zIndex: 40, background: '#0cc4cf', color: '#fff', font: '700 11px/1.2 Inter,sans-serif', padding: '7px 14px', borderRadius: 999, boxShadow: '0 6px 18px rgba(12,196,207,.35)', pointerEvents: 'none' }}>PVP Femedics +11,11 % aplicado automáticamente</div>}
       {papelera && <PapeleraProductos cerrar={() => setPapelera(false)} restaurado={() => cargar(Math.max(LOTE, items.length))} />}
       {gestionCat && <GestionCategorias cerrar={() => setGestionCat(false)} actualizado={cargarCategorias} />}
     </div>
@@ -1042,9 +1064,9 @@ function urlVideoEmbed(url: string): string | null {
   return null
 }
 
-function DetalleProducto({ p, editar, eliminar, verMovimientos, irAMovimientos, cerrar, abrirEditar, eliminado, car }: {
+function DetalleProducto({ p, editar, eliminar, verMovimientos, irAMovimientos, cerrar, abrirEditar, eliminado, car, editarMultimedia }: {
   p: Fila; editar: boolean; eliminar: boolean; verMovimientos?: boolean; irAMovimientos?: (codigo: string) => void
-  cerrar: () => void; abrirEditar: (id: string) => void; eliminado: () => void; car: Carrito | null
+  cerrar: () => void; abrirEditar: (id: string) => void; eliminado: () => void; car: Carrito | null; editarMultimedia?: () => void
 }) {
   const nCot = car?.cant(p.id) ?? 0
   const [info, setInfo] = useState<InfoExtra | null>(null)
@@ -1202,6 +1224,11 @@ function DetalleProducto({ p, editar, eliminar, verMovimientos, irAMovimientos, 
                     <Pencil className="w-3.5 h-3.5" /> Editar producto
                   </button>
                 )}
+                {editarMultimedia && (
+                  <button type="button" onClick={editarMultimedia} className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg border bg-white flex items-center gap-1.5" style={{ borderColor: '#cdebe4', color: 'var(--teal)' }}>
+                    <ImagePlus className="w-3.5 h-3.5" /> Editar multimedia
+                  </button>
+                )}
                 {eliminar && (
                   <button type="button" onClick={eliminarProducto} className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg border flex items-center gap-1.5" style={{ borderColor: '#fecaca', color: '#b91c1c', background: '#fff5f5' }}>
                     <Trash2 className="w-3.5 h-3.5" /> Eliminar
@@ -1296,6 +1323,7 @@ function FormularioProducto({ id, categorias, cerrar, guardado }: {
   } : null)
   const [marcas, setMarcas] = useState<string[]>([])
   const [imgError, setImgError] = useState(false)
+  const [subiendoImg, setSubiendoImg] = useState(false)
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState('')
 
@@ -1421,8 +1449,17 @@ function FormularioProducto({ id, categorias, cerrar, guardado }: {
                   </div>
                   <div className="min-w-0 flex-1">
                     <input type="text" placeholder="Pega el enlace de la imagen (Drive o web)" className="pf-in" value={f.imagen_url} onChange={(e) => set('imagen_url', e.target.value)} />
-                    {f.imagen_url && <div className="flex flex-wrap gap-2 mt-2"><button type="button" className="pf-img-btn pf-img-del" onClick={() => set('imagen_url', '')}><Trash2 className="w-4 h-4" />Quitar</button></div>}
-                    <p role="status" className="text-[11px] text-slate-500 mt-1.5">Por ahora se pega el enlace de la imagen. La subida de archivos se habilita al conectar el almacenamiento de imágenes.</p>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      <label className="pf-img-btn" style={{ cursor: 'pointer' }}><ImagePlus className="w-4 h-4" />{subiendoImg ? 'Subiendo…' : 'Subir imagen'}
+                        <input type="file" hidden accept="image/jpeg,image/png,image/webp" disabled={subiendoImg} onChange={async (e) => {
+                          const file = e.target.files?.[0]; e.target.value = ''; if (!file) return
+                          setSubiendoImg(true); setError('')
+                          try { set('imagen_url', await subirCatalogo(await imagenWebp(file), 'productos/' + (f.codigo.trim() || 'nuevo'), 'webp', 'image/webp')) } catch (er) { setError((er as Error).message) }
+                          setSubiendoImg(false)
+                        }} /></label>
+                      {f.imagen_url && <button type="button" className="pf-img-btn pf-img-del" onClick={() => set('imagen_url', '')}><Trash2 className="w-4 h-4" />Quitar</button>}
+                    </div>
+                    <p role="status" className="text-[11px] text-slate-500 mt-1.5">Sube la foto (se guarda en WebP, liviana) o pega el enlace. Recomendado 4:3 y fondo claro.</p>
                   </div>
                 </div>
               </Seccion>
@@ -1478,7 +1515,7 @@ function FormularioProducto({ id, categorias, cerrar, guardado }: {
               {error && <div className="text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{error}</div>}
             </div>
             <div className="shrink-0 border-t border-slate-200 bg-white p-3 sm:p-4">
-              <button onClick={guardar} disabled={guardando} className="pf-submit">{guardando ? 'Guardando…' : 'Guardar producto'}</button>
+              <button onClick={guardar} disabled={guardando || subiendoImg} className="pf-submit">{guardando ? 'Guardando…' : 'Guardar producto'}</button>
             </div>
           </>
         )}
