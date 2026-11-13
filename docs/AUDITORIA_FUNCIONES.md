@@ -15,8 +15,8 @@ Estados: ✅ existe en la app nueva · 🆕 recuperado en esta auditoría · ⚠
 5. ✅ Inventario y Movimientos
 6. ✅ Clientes
 7. ✅ Agenda
-8. ⏭️ **Bodega y Logística** (siguiente)
-9. Servicio Técnico
+8. ✅ Bodega y Logística
+9. ⏭️ **Servicio Técnico** (siguiente)
 10. Importaciones, Artículos, Adquisiciones y Recepción
 11. Empleados y Solicitudes del personal (módulo nuevo de la versión 4)
 12. Talento Humano y Financiero
@@ -336,3 +336,38 @@ Seguridad corregida en esta vuelta (probado dentro de una transacción que se de
 - Las monedas se podían sumar o editar directo desde fuera de la pantalla; ahora solo las mueven las funciones de la Agenda, y cada quien ve solo las suyas (administración de la tienda ve todas).
 - Desde la pantalla ya no se puede cambiar el estado, el tiempo, las monedas ni la revisión de una actividad sin pasar por sus funciones.
 - Los precios de los premios solo los cambia quien administra la tienda.
+
+---
+
+## 8. Bodega y Logística — Issue #28
+
+Pantallas: `BodegaVista.html` (15 funciones de Bodega + la bandeja de recepción `vmRec*`) y `LogisticaVista.html` (11).
+Archivos: `Bodega.gs`, `Logistica.gs`, `Aviso Guia.gs`.
+
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `vmBodegaCrearDesdeFacturacion_`, `vmBodegaImportar` | La orden de despacho nace al facturar; "traer facturas" de los últimos días | ✅ | `tg_factura_a_bodega`, `bodega_traer_facturas` |
+| `vmBodegaInicial`, `vmBodegaDetalle` | Tablero, pestañas, indicadores y detalle | ✅ | `Bodega.tsx` |
+| `vmBodegaGuardarSeries` | Series por unidad (escáner o teclado), sin repetir | ✅ | `Bodega.tsx` |
+| `vmBodegaAccion` | Iniciar, lista, verificar (otra persona), reabrir | ✅ | `Bodega.tsx` |
+| `vmBodegaSinSerie` | Marcar un producto sin número de serie | ✅ | `Bodega.tsx` (también en el producto) |
+| `vmBodegaSubirFoto`, `vmBodegaQuitarFoto`, `vmBodegaIniciarVideo`, `vmBodegaSubirParteVideo`, `vmBodegaRegistrarVideo` | Fotos y videos de evidencia | ✅ | Espacio `despachos` |
+| `vmBodegaNovedad`, `vmBodegaResolverNovedad` | Novedades con aviso al asesor y a Facturación | ✅ | `bodega_avisar_novedad` |
+| `vmBodegaDespachar` | Despacho total o parcial, exige series y foto, pasa a Logística | ✅ | `bodega_despachar` |
+| `impValidarSeriesDespacho_`, `impMarcarVendidas_` | Solo salen equipos importados revisados en la Bodega principal; la serie pasa a "Vendida" | ❌ → 🆕 | `app.tg_despacho_envio` |
+| `logInteraction_` (Bodega, Logística) | "Despachado completo / parcial" y "Entregado" en el historial del CRM | ❌ → 🆕 | `app.tg_despacho_envio`, `app.tg_entrega_entregada` |
+| `vmBodegaBuscarSerie` | Buscar una serie despachada o en bodega | ✅ | `bodega_buscar_serie` |
+| `vmLogisticaInicial`, `vmLogisticaDetalle` | Pestañas, equipo de choferes, detalle | ✅ | `Logistica.tsx`, `lg_equipo` |
+| `vmLogisticaConfirmar`, `vmLogisticaEnRuta`, `vmLogisticaGuia`, `vmLogisticaSubirArchivo` | Confirmar con el cliente, modalidad, guía del transportista | ✅ | `Logistica.tsx` |
+| `vmLogisticaEntregar`, `vmLogisticaNoEntregada` | Entrega con firma, cédula, fotos y GPS; no entregada | ✅ | `lg_entregar` |
+| `vmLogisticaIncidencia`, `vmLogisticaResolverIncidencia` | Incidencias con aviso | ✅ | `Logistica.tsx` |
+| `vmLogisticaMensajeEnviado` | Mensajes de WhatsApp con el enlace | ✅ | `Mensajes` |
+| `lgConstancia_` | Constancia de entrega | ✅ | `descargarConstancia` |
+| `lgActivarPostventas_`, `lgCrearPostventa_`, `lgInstalarActivador` | Gestión de postventa para el asesor | ✅ | `lg_activar_postventas` |
+| `vmSeguimientoPedido` | Página pública de seguimiento | ✅ | `tracking_publico` (la página está en el sitio público) |
+| `vmEncuestaDatos`, `vmEncuestaGuardar` | Encuesta de satisfacción con aviso si hay queja | ❌ → 🆕 | `encuesta_datos`, `encuesta_guardar` + página pública `/encuesta/?c=` en la app (`EncuestaPublica.tsx`) |
+| `lgActualizarFacturacion_` | Escribía "Estado entrega" en Facturación | ➖ | Ninguna pantalla del original lo mostraba |
+| `Aviso Guia.gs` | Franja "FRÁGIL · EQUIPO MÉDICO · NO COLOCAR PESO ENCIMA" en la guía de envío | ✅ | Guía de envío de `Facturacion.tsx` |
+| `vmRec*` (bandeja de recepción en Bodega, revisión de equipos por partes) | Llegada, revisión, Servicio Técnico, informe y cierre de importaciones | ⏭️ | Vuelta 10 (Importaciones y Recepción) |
+
+Probado en la base de pruebas, dentro de una transacción que se deshace al final: encuesta como visitante anónimo (datos, validaciones, guardar, corregir, aviso al asesor con enlace a la cotización), serie sin revisar bloqueada, serie de la Bodega principal pasa a "Vendida", historial del CRM al despachar y al entregar.

@@ -291,7 +291,7 @@ const GuiaLink = ({ ruta }: { ruta: string }) => { const [u, setU] = useState(/^
 
 /* ============================ Hojas ============================ */
 function Mensajes({ o, link, cerrar, registrar }: { o: Entrega; link: string; cerrar: () => void; registrar: (t: string) => void }) {
-  const n = String(o.cliente || '').split(' ')[0], marca = o.empresa === 'FEMEDICS' ? 'FEMEDICS' : 'VIMEDIC', enc = link.replace('/seguimiento/', '/encuesta/')
+  const n = String(o.cliente || '').split(' ')[0], marca = o.empresa === 'FEMEDICS' ? 'FEMEDICS' : 'VIMEDIC', enc = o.token ? window.location.origin + '/encuesta/?c=' + o.token : '' // la encuesta vive en la app (página pública sin iniciar sesión)
   const f = o.fechaProgramada ? new Date(o.fechaProgramada + 'T12:00:00').toLocaleDateString('es-EC', { weekday: 'long', day: 'numeric', month: 'long' }) : ''
   const pl: [string, string][] = [
     ['Confirmar datos de entrega', `Hola ${n}, le saluda el equipo de logística de ${marca}. Su pedido (factura ${o.factura || ''}) está listo para entrega. Para coordinarla, ¿nos confirma por favor?\n• Dirección exacta y referencia\n• Persona que recibe (nombre y cédula)\n• Horario de recepción\n• ¿El lugar cuenta con ascensor? ¿En qué piso?\n• ¿Hay acceso o parqueo para el vehículo?\n• ¿Se requiere permiso o credencial para ingresar?\nPuede seguir su pedido aquí: ${link}`],
