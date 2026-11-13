@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { BadgePercent, Check, FileDown, FolderUp, Megaphone, Plus, Send, Trash2, X } from 'lucide-react'
+import { AlertTriangle, BadgePercent, Check, FileDown, FolderUp, Megaphone, Package, Plus, Search, Send, Trash2, Users, X, XCircle } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
 import { imagen as imgUrl } from './Inventario'
+import { armarProductos, CFG_DEF, GRUPOS, meses, type Prod } from './Ofertas'
+import '../estilos/ofertas.css'
 
 const money = (n: number) => '$' + (Number(n) || 0).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 async function aDataUrl(url: string): Promise<string> { try { const b = await (await fetch(url)).blob(); if (b.size > 4 * 1048576) return ''; return await new Promise<string>((ok) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.onerror = () => ok(''); r.readAsDataURL(b) }) } catch { return '' } }
@@ -190,7 +192,7 @@ export function Promociones({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
     if (error) { aviso('No se pudo guardar: ' + error.message); return }
     aviso('Campaña: ' + estado.toLowerCase() + '.'); setAbierta(null); cargar()
   }
-  async function actualizarCampo(c: Camp, campos: Partial<Pick<Camp, 'nombre' | 'inicio' | 'fin'>>) {
+  async function actualizarCampo(c: Camp, campos: Partial<Pick<Camp, 'nombre' | 'inicio' | 'fin' | 'items' | 'estado'>>) {
     const { error } = await supabase.from('promo_campanas').update(campos).eq('id', c.id)
     if (error) { aviso('No se pudo guardar: ' + error.message); return }
     setAbierta((a) => (a && a.id === c.id ? { ...a, ...campos } : a)); cargar()
@@ -225,8 +227,9 @@ export function Promociones({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
 }
 
 type ProdPromo = {
-  codigo: string; nombre: string; categoria: string; pvp: number; costo: number | null; enCatalogo: boolean; imagen: string; desc: number; precioFinal: number; margen: number | null
+  id: string; codigo: string; nombre: string; categoria: string; pvp: number; costo: number | null; enCatalogo: boolean; imagen: string; desc: number; precioFinal: number; margen: number | null
   estadoAprobacion?: ItemPromo['estadoAprobacion']; descOriginal?: number; revisadoPor?: string; motivoRechazo?: string
+  stock: number; dias: number; grupo: string; conObs: boolean; motivosObs: string[]; interes: number; capitalPvp: number
 }
 const ORDENES_PROMO: [string, string][] = [
   ['cat', 'Categoría (A-Z)'], ['costo', 'Costo (mayor a menor)'], ['desc', '% Descuento (mayor a menor)'],
@@ -236,7 +239,7 @@ const ORDENES_PROMO: [string, string][] = [
 function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mover, eliminar, actualizarCampo }: {
   c: Camp; perfil: Perfil; aprobar: boolean; editar: boolean; puedeEliminar: boolean; cerrar: () => void
   mover: (c: Camp, estado: string, comentario?: string) => void; eliminar: (c: Camp) => void
-  actualizarCampo: (c: Camp, campos: Partial<Pick<Camp, 'nombre' | 'inicio' | 'fin'>>) => void
+  actualizarCampo: (c: Camp, campos: Partial<Pick<Camp, 'nombre' | 'inicio' | 'fin' | 'items' | 'estado'>>) => Promise<void> | void
 }) {
   const [com, setCom] = useState('')
   const [nombreEd, setNombreEd] = useState(c.nombre)
@@ -255,19 +258,35 @@ function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mov
   }
   const verCostos = puede(perfil, 'promociones', 'ver_costos') || puede(perfil, 'ofertas', 'ver_costos')
   const [prods, setProds] = useState<ProdPromo[] | null>(null)
+  const [analisis, setAnalisis] = useState<Prod[] | null>(null)
+  const [ventasTot, setVentasTot] = useState<Record<string, number>>({})
   const [orden, setOrden] = useState('cat')
   const [generando, setGenerando] = useState(false)
+  const [buscando, setBuscando] = useState(false)
   const items = c.items ?? []
+
+  // Misma analítica de "stock dormido" que usa Oportunidades (antigüedad, interés, observaciones):
+  // solo trae candidatos (dormidos o con novedades), por eso los que no aparecen ahí quedan en blanco.
+  useEffect(() => {
+    let vivo = true
+    supabase.rpc('of_analisis').then(({ data }) => {
+      if (!vivo) return
+      const an = (data ?? { productos: [], estrellas: [] }) as { productos: unknown[]; estrellas: unknown[] }
+      setAnalisis(armarProductos(an.productos as never[], an.estrellas as never[], CFG_DEF, {}))
+    })
+    return () => { vivo = false }
+  }, [])
 
   useEffect(() => {
     if (!items.length) { setProds([]); return }
     let vivo = true
     const codigos = items.map((i) => i.id)
+    const porAnalisis = new Map((analisis ?? []).map((p) => [p.codigo, p]))
     ;(async () => {
-      const { data: p, error } = await supabase.from('productos').select('id,codigo,nombre,pvp,en_catalogo,imagen_url,categoria:categorias(nombre)').in('codigo', codigos).is('deleted_at', null)
+      const { data: p, error } = await supabase.from('productos').select('id,codigo,nombre,pvp,stock,en_catalogo,imagen_url,categoria:categorias(nombre)').in('codigo', codigos).is('deleted_at', null)
       if (!vivo) return
       if (error) { setProds([]); return }
-      const prodRows = (p ?? []) as unknown as { id: string; codigo: string; nombre: string; pvp: number | null; en_catalogo: boolean | null; imagen_url: string | null; categoria: { nombre: string } | null }[]
+      const prodRows = (p ?? []) as unknown as { id: string; codigo: string; nombre: string; pvp: number | null; stock: number | null; en_catalogo: boolean | null; imagen_url: string | null; categoria: { nombre: string } | null }[]
       let costos: Record<string, number> = {}
       if (verCostos && prodRows.length) {
         const { data: co } = await supabase.from('productos_costos').select('producto_id,costo_importacion').in('producto_id', prodRows.map((x) => x.id)).is('deleted_at', null)
@@ -276,18 +295,54 @@ function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mov
       const porCodigo = new Map(prodRows.map((x) => [x.codigo, x]))
       const filas: ProdPromo[] = items.map((it) => {
         const p0 = porCodigo.get(it.id)
+        const an = porAnalisis.get(it.id)
         const pvp = Number(p0?.pvp) || 0, desc = Number(it.desc) || 0
         const descEfectivo = it.estadoAprobacion === 'Aprobado' && it.descAprobado != null ? Number(it.descAprobado) : desc
         const precioFinal = Math.round(pvp * (1 - descEfectivo / 100) * 100) / 100
         const costo = p0 && verCostos ? (costos[p0.id] ?? 0) : null
         const margen = costo != null && costo > 0 && precioFinal > 0 ? Math.round((precioFinal - costo) / precioFinal * 1000) / 10 : null
-        return { codigo: it.id, nombre: p0?.nombre ?? it.id, categoria: p0?.categoria?.nombre ?? '—', pvp, costo, enCatalogo: !!p0?.en_catalogo, imagen: p0?.imagen_url ?? '', desc: descEfectivo, precioFinal, margen,
-          estadoAprobacion: it.estadoAprobacion, descOriginal: desc, revisadoPor: it.revisadoPor, motivoRechazo: it.motivoRechazo }
+        return {
+          id: p0?.id ?? '', codigo: it.id, nombre: p0?.nombre ?? it.id, categoria: p0?.categoria?.nombre ?? '—', pvp, costo, enCatalogo: !!p0?.en_catalogo, imagen: p0?.imagen_url ?? '', desc: descEfectivo, precioFinal, margen,
+          estadoAprobacion: it.estadoAprobacion, descOriginal: desc, revisadoPor: it.revisadoPor, motivoRechazo: it.motivoRechazo,
+          stock: Number(p0?.stock) || 0, dias: an?.dias ?? 0, grupo: an?.grupo ?? '', conObs: an?.conObs ?? false, motivosObs: an?.motivosObs ?? [], interes: an?.interes ?? 0, capitalPvp: an?.capitalPvp ?? (Number(p0?.stock) || 0) * pvp,
+        }
       })
       setProds(filas)
     })()
     return () => { vivo = false }
-  }, [items, verCostos])
+  }, [items, verCostos, analisis])
+
+  // Ventas totales de siempre (no solo los últimos 12 meses), para la etiqueta "N ventas registradas".
+  useEffect(() => {
+    const ids = [...new Set((prods ?? []).map((p) => p.id).filter(Boolean))]
+    if (!ids.length) return
+    let vivo = true
+    supabase.from('movimientos_inventario').select('producto_id,cantidad').in('producto_id', ids).eq('tipo', 'SALIDA').is('deleted_at', null).then(({ data }) => {
+      if (!vivo) return
+      const porId: Record<string, number> = {}
+      ;((data ?? []) as { producto_id: string; cantidad: number }[]).forEach((m) => { porId[m.producto_id] = (porId[m.producto_id] || 0) + Math.abs(Number(m.cantidad) || 0) })
+      const porCod: Record<string, number> = {}
+      ;(prods ?? []).forEach((p) => { if (p.id) porCod[p.codigo] = porId[p.id] || 0 })
+      setVentasTot((x) => ({ ...x, ...porCod }))
+    })
+    return () => { vivo = false }
+  }, [prods])
+
+  async function agregarProducto(codigo: string) {
+    if (items.some((i) => i.id === codigo)) return
+    await actualizarCampo(c, { items: [...items, { id: codigo, desc: 0, nota: '' }] })
+  }
+  async function quitarProducto(codigo: string) {
+    if (!confirm('¿Quitar este producto de la campaña?')) return
+    await actualizarCampo(c, { items: items.filter((i) => i.id !== codigo) })
+  }
+  async function guardarDesc(codigo: string, nuevoDesc: number) {
+    const nuevos = items.map((i) => (i.id === codigo ? { ...i, desc: nuevoDesc, descPropuesto: nuevoDesc } : i))
+    // Si la campaña ya estaba cerrada (aprobada/rechazada) y se suma un producto con descuento,
+    // vuelve a "En aprobación" para que aparezca en Ofertas › Por aprobar. Los ya aprobados no se tocan.
+    const reabrir = nuevoDesc > 0 && ['Aprobada', 'Rechazada'].includes(c.estado)
+    await actualizarCampo(c, reabrir ? { items: nuevos, estado: 'En aprobación' } : { items: nuevos })
+  }
 
   const filas = useMemo(() => {
     if (!prods) return []
@@ -374,6 +429,7 @@ function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mov
       <div className="flex items-center gap-2 flex-wrap">
         <p className="text-[11px] text-slate-500 mr-auto">{items.length} producto{items.length === 1 ? '' : 's'} en promoción.</p>
         <select className="inp" style={{ width: 'auto' }} value={orden} onChange={(e) => setOrden(e.target.value)}>{ORDENES_PROMO.map(([v, t]) => (!verCostos && (v === 'costo' || v === 'margen')) ? null : <option key={v} value={v}>{t}</option>)}</select>
+        {editar && !['Cancelada'].includes(c.estado) && <button className="btn btn-sm btn-primary" onClick={() => setBuscando(true)}><Plus className="w-3.5 h-3.5" />Agregar producto</button>}
         <button className="btn btn-sm" disabled={!filas.length || generando} onClick={exportarPdf}><FileDown className="w-3.5 h-3.5" />{generando ? 'Generando…' : 'Exportar PDF'}</button>
       </div>
 
@@ -381,35 +437,154 @@ function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mov
         {!prods && <p className="p-4 text-center text-xs text-slate-400">Cargando productos…</p>}
         {prods && !filas.length && <p className="p-4 text-center text-xs text-slate-400">Esta campaña todavía no tiene productos.</p>}
         {filas.length > 0 && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">{filas.map((f) => (
-            <article key={f.codigo} className="card p-4">
-              <div className="flex items-center gap-2"><BadgePercent className="w-4 h-4 text-[var(--amber)]" /><span className="font-mono-spec text-[11px] text-slate-400">{f.codigo}</span>
-                <span className="pill ml-auto" style={f.desc ? { background: '#fff8eb', color: '#a16207' } : { background: '#f1f5f9', color: '#64748b' }}>{f.desc ? '-' + f.desc + '%' : 'Sin descuento'}</span></div>
-              <p className="text-sm font-bold text-slate-800 mt-1.5">{f.nombre}</p>
-              <p className="text-[11px] text-slate-500 mt-1">{f.categoria}{!f.enCatalogo ? ' · No está en el catálogo' : ''}</p>
-              <div className="flex items-end gap-2 mt-2">
-                {f.desc > 0 && <span className="text-[11px] text-slate-400 line-through">{money(f.pvp)}</span>}
-                <span className="text-base font-bold" style={{ color: f.desc ? '#c2410c' : 'var(--navy)' }}>{money(f.precioFinal)}</span>
-              </div>
-              {verCostos && <p className="text-[10px] text-slate-400 mt-1">Costo: {f.costo != null ? money(f.costo) : '—'} · Margen: {f.margen != null ? f.margen + '%' : '—'}</p>}
-              {f.estadoAprobacion === 'Aprobado' && (
-                <p className="text-[11px] font-semibold mt-2 rounded-lg px-2 py-1" style={{ background: '#ecfaf5', color: '#04896f' }}>
-                  Aprobado por {f.revisadoPor}{f.descOriginal != null && f.descOriginal !== f.desc ? ' · se propuso -' + f.descOriginal + '%, se aprobó -' + f.desc + '%' : ''}
-                </p>
-              )}
-              {f.estadoAprobacion === 'Rechazado' && (
-                <p className="text-[11px] font-semibold mt-2 rounded-lg px-2 py-1" style={{ background: '#fdecea', color: '#c0392b' }}>
-                  Rechazado por {f.revisadoPor}{f.motivoRechazo ? ': ' + f.motivoRechazo : ''}
-                </p>
-              )}
-            </article>
-          ))}</div>
+          <div className="vm-of" style={ESTILO_TARJETAS}><div className="grid-p">{filas.map((f) => (
+            <TarjetaPromo key={f.codigo} f={f} ventas={ventasTot[f.codigo]}
+              editable={editar && (!f.estadoAprobacion || f.estadoAprobacion === 'Pendiente')}
+              onGuardar={(d) => guardarDesc(f.codigo, d)} onQuitar={() => quitarProducto(f.codigo)} />
+          ))}</div></div>
         )}
       </div>
+      {buscando && <BuscarProductoPromo excluir={items.map((i) => i.id)} analisis={analisis ?? []} cerrar={() => setBuscando(false)} agregar={agregarProducto} />}
 
       <div><p className="text-[10px] font-bold uppercase text-slate-400 mb-1.5">Historial</p>
         {!(c.historial ?? []).length && <p className="text-[11px] text-slate-400">Sin movimientos.</p>}
         <ul className="space-y-1.5">{[...(c.historial ?? [])].reverse().map((h, i) => <li key={i} className="text-[11px] text-slate-600"><b>{h.accion}</b> · {h.por} · {new Date(h.fecha).toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' })}{h.comentario ? ' — ' + h.comentario : ''}</li>)}</ul></div>
+    </Ventana>
+  )
+}
+
+// Las tarjetas reusan los estilos de Ofertas, que viven bajo .vm-of; se anula su alto/fondo de pantalla completa.
+const ESTILO_TARJETAS: React.CSSProperties = { minHeight: 0, background: 'transparent' }
+
+/* Mismas etiquetas que Ofertas › Por aprobar, para leer igual los productos en los dos lados. */
+function EtiquetasProducto({ conObs, grupo, dias, ventas, stock, interes }: { conObs: boolean; grupo: string; dias: number; ventas?: number; stock: number; interes: number }) {
+  const g = GRUPOS[grupo]
+  return (
+    <div className="flex gap-1.5 flex-wrap mb-1">
+      {conObs && <span className="pill" style={{ background: '#f3e8ff', color: '#6d28d9' }}><AlertTriangle style={{ width: 11, height: 11 }} />Con observaciones</span>}
+      {g && <span className="pill" style={{ background: g.hex + '1f', color: g.hex }}>Antigüedad · {meses(dias)}</span>}
+      {ventas != null && (ventas === 0
+        ? <span className="pill" style={{ background: '#f1f5f9', color: '#334155' }}>Nunca vendido</span>
+        : <span className="pill" style={{ background: '#ecfdf5', color: '#047857' }}>{ventas} venta{ventas === 1 ? '' : 's'} registrada{ventas === 1 ? '' : 's'}</span>)}
+      {stock >= 3 && <span className="pill" style={{ background: '#fff1e6', color: '#c2410c' }}>Sobrestock · {stock} u.</span>}
+      {interes > 0 && <span className="pill" style={{ background: '#fff7ed', color: '#c2410c' }}><Users style={{ width: 11, height: 11 }} />{interes} cotizaron sin comprar</span>}
+    </div>
+  )
+}
+
+function TarjetaPromo({ f, ventas, editable, onGuardar, onQuitar }: { f: ProdPromo; ventas?: number; editable: boolean; onGuardar: (desc: number) => void; onQuitar: () => void }) {
+  const original = f.descOriginal ?? f.desc
+  const [valor, setValor] = useState(String(original))
+  useEffect(() => { setValor(String(original)) }, [original])
+  const desc = Math.max(0, Math.min(90, Number(valor) || 0))
+  const mostrar = editable ? desc : f.desc
+  const precio = f.pvp > 0 ? Math.round(f.pvp * (1 - mostrar / 100) * 100) / 100 : 0
+  const ahorro = f.pvp > 0 ? Math.round((f.pvp - precio) * 100) / 100 : 0
+  function guardar() { if (desc !== original) onGuardar(desc) }
+  return (
+    <article className="pc">
+      <div className="pc-top"><div className="ph">{f.imagen ? <img loading="lazy" src={imgUrl(f.imagen, 300)} alt="" onError={(ev) => ev.currentTarget.remove()} /> : <Package style={{ width: 28, height: 28 }} />}</div>
+        <div className="min-w-0 flex-1">
+          <EtiquetasProducto conObs={f.conObs} grupo={f.grupo} dias={f.dias} ventas={ventas} stock={f.stock} interes={f.interes} />
+          <p className="font-bold text-[14px] leading-snug text-slate-800 line-clamp-2">{f.nombre}</p>
+          <p className="text-[11px] text-slate-400 mono">{f.codigo} · {f.categoria}{!f.enCatalogo ? ' · No está en el catálogo' : ''}</p>
+          <p className="text-[12px] text-slate-600 mt-1"><b>{f.stock}</b> u. · {money(f.capitalPvp)} detenido</p>
+          {f.conObs && <p className="text-[11.5px] text-violet-700 font-semibold mt-1 line-clamp-2">{f.motivosObs.join(' · ')}</p>}
+        </div>
+      </div>
+      <div className="jug">
+        <div className="t"><BadgePercent style={{ width: 13, height: 13 }} />% de descuento propuesto</div>
+        <div className="flex items-center gap-2 mt-1.5">
+          {editable
+            ? <input type="number" min="0" max="90" step="0.5" className="inp font-bold" style={{ fontSize: 26, height: 48, width: 92, color: 'var(--acc)' }} value={valor}
+                onChange={(ev) => setValor(ev.target.value)} onBlur={guardar} onKeyDown={(ev) => { if (ev.key === 'Enter') (ev.target as HTMLInputElement).blur() }} />
+            : <span className="font-bold" style={{ fontSize: 26, color: 'var(--acc)' }}>{f.desc}</span>}
+          <span className="text-lg font-bold" style={{ color: 'var(--acc)' }}>%</span>
+          <div className="ml-auto text-right">
+            {f.pvp > 0 && mostrar > 0 && <span className="precio-a">{money(f.pvp)}</span>} <span className="precio-n">{money(precio)}</span>
+          </div>
+        </div>
+        {f.pvp > 0 && mostrar > 0 && <p className="text-[11.5px] font-semibold mt-1.5" style={{ color: '#04896f' }}>El cliente ahorra {money(ahorro)}</p>}
+      </div>
+      {f.estadoAprobacion === 'Aprobado' && (
+        <p className="text-[11px] font-semibold rounded-lg px-2 py-1" style={{ background: '#ecfaf5', color: '#04896f', margin: '0 12px 12px' }}>
+          Aprobado por {f.revisadoPor}{f.descOriginal != null && f.descOriginal !== f.desc ? ' · se propuso -' + f.descOriginal + '%, se aprobó -' + f.desc + '%' : ''}
+        </p>
+      )}
+      {f.estadoAprobacion === 'Rechazado' && (
+        <p className="text-[11px] font-semibold rounded-lg px-2 py-1" style={{ background: '#fdecea', color: '#c0392b', margin: '0 12px 12px' }}>
+          Rechazado por {f.revisadoPor}{f.motivoRechazo ? ': ' + f.motivoRechazo : ''}
+        </p>
+      )}
+      {editable && (
+        <div style={{ margin: '0 12px 12px' }}>
+          <button className="btn w-full" style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={onQuitar}><XCircle className="w-4 h-4" />Quitar de la campaña</button>
+        </div>
+      )}
+    </article>
+  )
+}
+
+/* Buscador libre: cualquier producto del inventario, no solo lo que sugiere el sistema. */
+type ProdBusqueda = { id: string; codigo: string; nombre: string; pvp: number | null; stock: number | null; imagen_url: string | null; en_catalogo: boolean | null; categoria: { nombre: string } | null }
+function BuscarProductoPromo({ excluir, analisis, cerrar, agregar }: { excluir: string[]; analisis: Prod[]; cerrar: () => void; agregar: (codigo: string) => Promise<void> | void }) {
+  const [q, setQ] = useState('')
+  const [res, setRes] = useState<ProdBusqueda[] | null>(null)
+  const [orden, setOrden] = useState('cat')
+  const [agregando, setAgregando] = useState('')
+  const porCodigo = useMemo(() => new Map(analisis.map((p) => [p.codigo, p])), [analisis])
+  useEffect(() => {
+    const palabras = normalize(q).split(/\s+/).filter(Boolean)
+    if (!palabras.length) { setRes(null); return }
+    let vivo = true
+    const t = setTimeout(() => {
+      let consulta = supabase.from('productos').select('id,codigo,nombre,pvp,stock,imagen_url,en_catalogo,categoria:categorias(nombre)').is('deleted_at', null)
+      for (const w of palabras) consulta = consulta.ilike('busqueda_normalizada', `%${w}%`)
+      consulta.limit(40).then(({ data }) => { if (vivo) setRes((data as unknown as ProdBusqueda[]) ?? []) })
+    }, 300)
+    return () => { vivo = false; clearTimeout(t) }
+  }, [q])
+  const lista = useMemo(() => {
+    const cmp: Record<string, (a: ProdBusqueda, b: ProdBusqueda) => number> = {
+      cat: (a, b) => (a.categoria?.nombre ?? '').localeCompare(b.categoria?.nombre ?? '', 'es') || a.nombre.localeCompare(b.nombre, 'es'),
+      pvp: (a, b) => (Number(b.pvp) || 0) - (Number(a.pvp) || 0),
+      nombre: (a, b) => a.nombre.localeCompare(b.nombre, 'es'),
+    }
+    return [...(res ?? [])].sort((a, b) => (Number(!!b.en_catalogo) - Number(!!a.en_catalogo)) || cmp[orden](a, b))
+  }, [res, orden])
+  return (
+    <Ventana titulo="Agregar productos a la campaña" ancha cerrar={cerrar} pie={<button className="btn ml-auto" onClick={cerrar}>Listo</button>}>
+      <div className="flex gap-2 flex-wrap items-center">
+        <div className="relative flex-1 min-w-[220px]"><Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input autoFocus className="inp w-full" style={{ paddingLeft: 34 }} placeholder="Buscar por nombre, código o marca…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <select className="inp" style={{ width: 'auto' }} value={orden} onChange={(e) => setOrden(e.target.value)}>
+          <option value="cat">Categoría (A-Z)</option><option value="pvp">Precio (mayor a menor)</option><option value="nombre">Nombre (A-Z)</option></select>
+      </div>
+      {res === null && <p className="text-xs text-slate-400 text-center py-6">Escribe para buscar cualquier producto del inventario.</p>}
+      {res && !res.length && <p className="text-xs text-slate-400 text-center py-6">Sin resultados.</p>}
+      {lista.length > 0 && (
+        <div className="vm-of" style={ESTILO_TARJETAS}><div className="grid-p">{lista.map((p) => {
+          const an = porCodigo.get(p.codigo), ya = excluir.includes(p.codigo)
+          return (
+            <article key={p.id} className="pc">
+              <div className="pc-top"><div className="ph">{p.imagen_url ? <img loading="lazy" src={imgUrl(p.imagen_url, 300)} alt="" onError={(ev) => ev.currentTarget.remove()} /> : <Package style={{ width: 28, height: 28 }} />}</div>
+                <div className="min-w-0 flex-1">
+                  <EtiquetasProducto conObs={an?.conObs ?? false} grupo={an?.grupo ?? ''} dias={an?.dias ?? 0} stock={Number(p.stock) || 0} interes={an?.interes ?? 0} />
+                  <p className="font-bold text-[14px] leading-snug text-slate-800 line-clamp-2">{p.nombre}</p>
+                  <p className="text-[11px] text-slate-400 mono">{p.codigo} · {p.categoria?.nombre ?? '—'}{!p.en_catalogo ? ' · No está en el catálogo' : ''}</p>
+                  <p className="text-[12px] text-slate-600 mt-1"><b>{Number(p.stock) || 0}</b> u. · PVP {money(Number(p.pvp) || 0)}</p>
+                </div>
+              </div>
+              <div style={{ margin: '0 12px 12px' }}>
+                <button className="btn w-full" disabled={ya || agregando === p.codigo} style={ya ? undefined : { background: '#04896f', borderColor: '#04896f', color: '#fff' }}
+                  onClick={async () => { setAgregando(p.codigo); await agregar(p.codigo); setAgregando('') }}>
+                  {ya ? <><Check className="w-4 h-4" />Ya está en la campaña</> : <><Plus className="w-4 h-4" />{agregando === p.codigo ? 'Agregando…' : 'Agregar'}</>}
+                </button>
+              </div>
+            </article>
+          )
+        })}</div></div>
+      )}
     </Ventana>
   )
 }

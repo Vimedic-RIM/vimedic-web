@@ -9,11 +9,11 @@ import '../estilos/ofertas.css'
 /* ============================ Tipos y utilidades ============================ */
 const TIPOS = ['Oferta relámpago', 'Precio especial', 'Combo', 'Regalo', 'Liquidación', 'Outlet', 'Lote distribuidor', 'Campaña']
 const TIPO_IC: Record<string, LucideIcon> = { 'Oferta relámpago': Zap, 'Precio especial': BadgePercent, Combo: PackagePlus, Regalo: Gift, 'Liquidación': Flame, Outlet: ShieldAlert, 'Lote distribuidor': Boxes }
-const GRUPOS: Record<string, { t: string; hex: string }> = { '36': { t: '3 a 6 meses', hex: '#f59e0b' }, '612': { t: '6 a 12 meses', hex: '#ea580c' }, '12': { t: 'Más de 12 meses', hex: '#b91c1c' }, obs: { t: 'Con observaciones', hex: '#7c3aed' }, nunca: { t: 'Nunca vendidos', hex: '#475569' } }
-type Cfg = { margenMinimo: number; desc36: number; desc612: number; desc12: number; descObs: number; diasOferta: number }
-const CFG_DEF: Cfg = { margenMinimo: 10, desc36: 8, desc612: 15, desc12: 25, descObs: 30, diasOferta: 30 }
-type Estrategia = { tipo: string; descuento: number; precio: number; porque: string; limitadoPorCosto: boolean; maxDesc: number; piso: number; margen: number | null; recupera: number; dias: number; comboCon: string; comboNombre: string; regalo: string }
-type Prod = {
+export const GRUPOS: Record<string, { t: string; hex: string }> = { '36': { t: '3 a 6 meses', hex: '#f59e0b' }, '612': { t: '6 a 12 meses', hex: '#ea580c' }, '12': { t: 'Más de 12 meses', hex: '#b91c1c' }, obs: { t: 'Con observaciones', hex: '#7c3aed' }, nunca: { t: 'Nunca vendidos', hex: '#475569' } }
+export type Cfg = { margenMinimo: number; desc36: number; desc612: number; desc12: number; descObs: number; diasOferta: number }
+export const CFG_DEF: Cfg = { margenMinimo: 10, desc36: 8, desc612: 15, desc12: 25, descObs: 30, diasOferta: 30 }
+export type Estrategia = { tipo: string; descuento: number; precio: number; porque: string; limitadoPorCosto: boolean; maxDesc: number; piso: number; margen: number | null; recupera: number; dias: number; comboCon: string; comboNombre: string; regalo: string }
+export type Prod = {
   id: string; codigo: string; nombre: string; categoria: string; marca: string; img: string; stock: number; pvp: number; dis: number; costo: number; obs: string; nc: number; rep: number; noRep: number; motivosObs: string[]; conObs: boolean
   oculto: boolean; dias: number; grupo: string; lotes: [string | null, number][]; ultVenta: string; diasSinVenta: number | null; v90: number; v365: number; nuncaVendido: boolean; interes: number; capitalCosto: number; capitalPvp: number; ofertaId: string
   urgencia: number; estrategia: Estrategia
@@ -26,7 +26,7 @@ const R2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
 const money = (n: number) => '$' + (Number(n) || 0).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const money0 = (n: number) => { n = Number(n) || 0; return n >= 10000 ? '$' + (n / 1000).toLocaleString('es-EC', { maximumFractionDigits: 1 }) + ' mil' : '$' + Math.round(n).toLocaleString('es-EC') }
 const fechaC = (s: string) => (s ? String(s).slice(8, 10) + '/' + String(s).slice(5, 7) + '/' + String(s).slice(0, 4) : '')
-const meses = (d: number) => (d >= 60 ? Math.round(d / 30) + ' meses' : d + ' días')
+export const meses = (d: number) => (d >= 60 ? Math.round(d / 30) + ' meses' : d + ' días')
 const ymd = (d: number | Date) => { const x = new Date(d); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0') }
 const norm = (v: unknown) => String(v ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 const DIA = 864e5
@@ -62,7 +62,7 @@ function estrategiaDe(p: Omit<Prod, 'estrategia' | 'urgencia'>, cfg: Cfg, estrel
 const textoBase = (p: Prod, e: Estrategia) => e.tipo === 'Outlet' ? 'Equipo con detalle, revisado por nuestro servicio técnico. ' + (p.motivosObs[0] || '') : e.tipo === 'Combo' ? `Llévalo junto con ${e.comboNombre || 'nuestro equipo estrella'} con ${e.descuento}% de descuento.` : e.tipo === 'Regalo' ? (e.regalo || '') + '.' : e.tipo === 'Lote distribuidor' ? 'Precio especial por lote para distribuidores.' : e.descuento + '% de descuento por tiempo limitado.'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function armarProductos(filas: any[], estrellasRaw: any[], cfg: Cfg, vigentes: Record<string, string>): Prod[] {
+export function armarProductos(filas: any[], estrellasRaw: any[], cfg: Cfg, vigentes: Record<string, string>): Prod[] {
   const estrellas: Record<string, { codigo: string; nombre: string; id: string }[]> = {}
   estrellasRaw.forEach((e) => { (estrellas[e.categoria] = estrellas[e.categoria] || []).push({ id: e.id, codigo: e.codigo, nombre: e.nombre }) })
   const ahora = Date.now(), out: Prod[] = []
@@ -354,6 +354,7 @@ type ProdPend = { id: string; codigo: string; nombre: string; imagen: string; ca
 function PorAprobar({ campanas, prods, aviso, recargar }: { campanas: CampanaPend[]; prods: Prod[]; aviso: (t: string) => void; recargar: () => void }) {
   const [extra, setExtra] = useState<Record<string, ProdPend>>({})
   const [ventasTot, setVentasTot] = useState<Record<string, number>>({})
+  const [orden, setOrden] = useState('cat')
   const [ediciones, setEdiciones] = useState<Record<string, string>>({})
   const [ocupado, setOcupado] = useState('')
   const filas = useMemo(() => campanas.flatMap((c) => itemsPendientes(c).map((it) => ({ campana: c, item: it }))), [campanas])
@@ -426,10 +427,23 @@ function PorAprobar({ campanas, prods, aviso, recargar }: { campanas: CampanaPen
     recargar()
   }
 
+  const ordenadas = [...filas].sort((a, b) => {
+    const pa = prodDe(a.item.id), pb = prodDe(b.item.id)
+    if (orden === 'pvp') return (pb?.pvp ?? 0) - (pa?.pvp ?? 0)
+    if (orden === 'desc') return (Number(b.item.desc) || 0) - (Number(a.item.desc) || 0)
+    if (orden === 'nombre') return (pa?.nombre ?? a.item.id).localeCompare(pb?.nombre ?? b.item.id, 'es')
+    return (pa?.categoria ?? '').localeCompare(pb?.categoria ?? '', 'es') || (pa?.nombre ?? '').localeCompare(pb?.nombre ?? '', 'es')
+  })
+
   if (!filas.length) return <div className="vacio"><BadgePercent className="mx-auto mb-2" style={{ width: 34, height: 34 }} /><p className="font-semibold">No hay productos por aprobar.</p><p className="text-sm">Cuando Marketing envíe una campaña de Promociones a aprobación, sus productos aparecen aquí.</p></div>
   return (
+    <>
+    <div className="flex justify-end mb-3">
+      <select className="inp" style={{ width: 'auto' }} value={orden} onChange={(e) => setOrden(e.target.value)}>
+        <option value="cat">Categoría (A-Z)</option><option value="pvp">Precio (mayor a menor)</option><option value="desc">% Descuento (mayor a menor)</option><option value="nombre">Nombre (A-Z)</option></select>
+    </div>
     <div className="grid-p">
-      {filas.map(({ campana, item }) => {
+      {ordenadas.map(({ campana, item }) => {
         const p = prodDe(item.id)
         const clave = campana.id + ':' + item.id
         const valor = ediciones[clave] ?? String(item.desc ?? 0)
@@ -441,6 +455,7 @@ function PorAprobar({ campanas, prods, aviso, recargar }: { campanas: CampanaPen
         )
       })}
     </div>
+    </>
   )
 }
 
@@ -484,7 +499,7 @@ function TarjetaAprobar({ p, conAnalitica, ventasTotales, campana, valor, setVal
         </div>
         {p.pvp > 0 && desc > 0 && <p className="text-[11.5px] font-semibold mt-1.5" style={{ color: '#04896f' }}>El cliente ahorra {money(ahorro)}</p>}
       </div>
-      <div className="flex gap-2 mt-2.5">
+      <div className="flex gap-2" style={{ margin: '0 12px 12px' }}>
         <button className="btn flex-1 justify-center" disabled={trabajando} style={{ background: '#c0392b', borderColor: '#c0392b', color: '#fff' }} onClick={onRechazar}><XCircle className="w-4 h-4" />Rechazar</button>
         <button className="btn flex-1 justify-center" disabled={trabajando || desc <= 0} style={{ background: '#04896f', borderColor: '#04896f', color: '#fff' }} onClick={() => onAprobar(desc)}><Check className="w-4 h-4" />Aprobar</button>
       </div>
