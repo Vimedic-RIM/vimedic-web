@@ -190,10 +190,10 @@ export function Promociones({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
     if (error) { aviso('No se pudo guardar: ' + error.message); return }
     aviso('Campaña: ' + estado.toLowerCase() + '.'); setAbierta(null); cargar()
   }
-  async function renombrar(c: Camp, nombre: string) {
-    const { error } = await supabase.from('promo_campanas').update({ nombre }).eq('id', c.id)
-    if (error) { aviso('No se pudo renombrar: ' + error.message); return }
-    setAbierta((a) => (a && a.id === c.id ? { ...a, nombre } : a)); cargar()
+  async function actualizarCampo(c: Camp, campos: Partial<Pick<Camp, 'nombre' | 'inicio' | 'fin'>>) {
+    const { error } = await supabase.from('promo_campanas').update(campos).eq('id', c.id)
+    if (error) { aviso('No se pudo guardar: ' + error.message); return }
+    setAbierta((a) => (a && a.id === c.id ? { ...a, ...campos } : a)); cargar()
   }
   async function eliminar(c: Camp) {
     if (!confirm(`¿Eliminar "${c.nombre}" (${c.codigo})? No se podrá deshacer desde aquí.`)) return
@@ -218,7 +218,7 @@ export function Promociones({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
             <p className="text-[11px] text-slate-400">{(c.items ?? []).length} producto{(c.items ?? []).length === 1 ? '' : 's'} · {(c.combos ?? []).length} combo{(c.combos ?? []).length === 1 ? '' : 's'}</p>
           </article>) })}
       </div>
-      {abierta && <DetalleCampana c={abierta} perfil={perfil} aprobar={aprobar} editar={crear} puedeEliminar={puedeEliminar} cerrar={() => setAbierta(null)} mover={mover} eliminar={eliminar} renombrar={renombrar} />}
+      {abierta && <DetalleCampana c={abierta} perfil={perfil} aprobar={aprobar} editar={crear} puedeEliminar={puedeEliminar} cerrar={() => setAbierta(null)} mover={mover} eliminar={eliminar} actualizarCampo={actualizarCampo} />}
       {nueva && <NuevaCampana perfil={perfil} cerrar={() => setNueva(false)} hecho={() => { setNueva(false); cargar(); aviso('Campaña creada.') }} aviso={aviso} />}
     </section>
   )
@@ -233,16 +233,25 @@ const ORDENES_PROMO: [string, string][] = [
   ['pvp', 'PVP (mayor a menor)'], ['margen', 'Margen (mayor a menor)'], ['nombre', 'Nombre (A-Z)'],
 ]
 
-function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mover, eliminar, renombrar }: {
+function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mover, eliminar, actualizarCampo }: {
   c: Camp; perfil: Perfil; aprobar: boolean; editar: boolean; puedeEliminar: boolean; cerrar: () => void
-  mover: (c: Camp, estado: string, comentario?: string) => void; eliminar: (c: Camp) => void; renombrar: (c: Camp, nombre: string) => void
+  mover: (c: Camp, estado: string, comentario?: string) => void; eliminar: (c: Camp) => void
+  actualizarCampo: (c: Camp, campos: Partial<Pick<Camp, 'nombre' | 'inicio' | 'fin'>>) => void
 }) {
   const [com, setCom] = useState('')
   const [nombreEd, setNombreEd] = useState(c.nombre)
+  const [inicioEd, setInicioEd] = useState(c.inicio ?? '')
+  const [finEd, setFinEd] = useState(c.fin ?? '')
   function guardarNombre() {
     const limpio = nombreEd.trim()
     if (!limpio || limpio === c.nombre) { setNombreEd(c.nombre); return }
-    renombrar(c, limpio)
+    actualizarCampo(c, { nombre: limpio })
+  }
+  function guardarVigencia() {
+    if (!inicioEd || !finEd) { setInicioEd(c.inicio ?? ''); setFinEd(c.fin ?? ''); return }
+    if (finEd < inicioEd) { alert('La fecha de fin es anterior al inicio.'); setInicioEd(c.inicio ?? ''); setFinEd(c.fin ?? ''); return }
+    if (inicioEd === c.inicio && finEd === c.fin) return
+    actualizarCampo(c, { inicio: inicioEd, fin: finEd })
   }
   const verCostos = puede(perfil, 'promociones', 'ver_costos') || puede(perfil, 'ofertas', 'ver_costos')
   const [prods, setProds] = useState<ProdPromo[] | null>(null)
@@ -346,9 +355,17 @@ function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mov
       {editar && ['Aprobada', 'Borrador'].includes(c.estado) && <button className={'btn' + (puedeEliminar ? '' : ' ml-auto')} style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => { if (confirm('¿Cancelar esta campaña?')) mover(c, 'Cancelada') }}><X />Cancelar campaña</button>}
       {puedeEliminar && <button className="btn ml-auto" style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => eliminar(c)}><Trash2 />Eliminar</button>}</>}>
       {editar ? (
-        <label className="block text-[11px] font-bold text-slate-500">Nombre de la campaña
-          <input className="inp w-full mt-1 font-bold" value={nombreEd} onChange={(e) => setNombreEd(e.target.value)} onBlur={guardarNombre}
-            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} /></label>
+        <>
+          <label className="block text-[11px] font-bold text-slate-500">Nombre de la campaña
+            <input className="inp w-full mt-1 font-bold" value={nombreEd} onChange={(e) => setNombreEd(e.target.value)} onBlur={guardarNombre}
+              onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} /></label>
+          <div className="grid grid-cols-2 gap-2.5">
+            <label className="block text-[11px] font-bold text-slate-500">Vigente desde
+              <input type="date" className="inp w-full mt-1" value={inicioEd} onChange={(e) => setInicioEd(e.target.value)} onBlur={guardarVigencia} /></label>
+            <label className="block text-[11px] font-bold text-slate-500">Vigente hasta
+              <input type="date" className="inp w-full mt-1" value={finEd} onChange={(e) => setFinEd(e.target.value)} onBlur={guardarVigencia} /></label>
+          </div>
+        </>
       ) : null}
       <p className="text-[11px] text-slate-500">{c.codigo} · {fecha(c.inicio)} → {fecha(c.fin)}{c.preventa ? ' · Preventa' : ''} · <b>{c.estado}</b></p>
       {c.comentario && <p className="text-xs rounded-lg p-2.5 bg-amber-50 text-amber-800">Comentario: {c.comentario}</p>}

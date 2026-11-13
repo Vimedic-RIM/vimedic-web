@@ -350,16 +350,17 @@ function Tarjeta({ p, sel, click }: { p: Prod; sel: boolean; click: () => void }
   )
 }
 
-type ProdPend = { codigo: string; nombre: string; imagen: string; categoria: string; pvp: number; costo: number | null }
+type ProdPend = { id: string; codigo: string; nombre: string; imagen: string; categoria: string; pvp: number; costo: number | null }
 function PorAprobar({ campanas, prods, aviso, recargar }: { campanas: CampanaPend[]; prods: Prod[]; aviso: (t: string) => void; recargar: () => void }) {
   const [extra, setExtra] = useState<Record<string, ProdPend>>({})
+  const [ventasTot, setVentasTot] = useState<Record<string, number>>({})
   const [ediciones, setEdiciones] = useState<Record<string, string>>({})
   const [ocupado, setOcupado] = useState('')
   const filas = useMemo(() => campanas.flatMap((c) => itemsPendientes(c).map((it) => ({ campana: c, item: it }))), [campanas])
   const porCodigo = useMemo(() => new Map(prods.map((p) => [p.codigo, p])), [prods])
 
   // Los productos que ya están en "Oportunidades" (stock dormido) traen toda su analítica
-  // (antigüedad, interesados, jugada sugerida…); los que no, se piden sueltos aquí.
+  // (antigüedad, interesados…); los que no, se piden sueltos aquí.
   useEffect(() => {
     const faltan = [...new Set(filas.map((f) => f.item.id).filter((cod) => !porCodigo.has(cod)))]
     if (!faltan.length) { setExtra({}); return }
@@ -371,11 +372,34 @@ function PorAprobar({ campanas, prods, aviso, recargar }: { campanas: CampanaPen
       const { data: co } = await supabase.from('productos_costos').select('producto_id,costo_importacion').in('producto_id', filas2.map((x) => x.id)).is('deleted_at', null)
       const costos = Object.fromEntries(((co ?? []) as { producto_id: string; costo_importacion: number | null }[]).map((x) => [x.producto_id, Number(x.costo_importacion) || 0]))
       const mapa: Record<string, ProdPend> = {}
-      filas2.forEach((x) => { mapa[x.codigo] = { codigo: x.codigo, nombre: x.nombre, imagen: x.imagen_url ?? '', categoria: x.categoria?.nombre ?? '—', pvp: Number(x.pvp) || 0, costo: costos[x.id] ?? 0 } })
+      filas2.forEach((x) => { mapa[x.codigo] = { id: x.id, codigo: x.codigo, nombre: x.nombre, imagen: x.imagen_url ?? '', categoria: x.categoria?.nombre ?? '—', pvp: Number(x.pvp) || 0, costo: costos[x.id] ?? 0 } })
       setExtra(mapa)
     })()
     return () => { vivo = false }
   }, [filas, porCodigo])
+
+  // Ventas totales de siempre (no solo los últimos 12 meses) para cada producto pendiente.
+  useEffect(() => {
+    const idCod: [string, string][] = []
+    filas.forEach((f) => {
+      const real = porCodigo.get(f.item.id)
+      if (real) idCod.push([real.id, f.item.id])
+      else { const x = extra[f.item.id]; if (x) idCod.push([x.id, f.item.id]) }
+    })
+    const ids = [...new Set(idCod.map(([id]) => id))]
+    if (!ids.length) return
+    let vivo = true
+    ;(async () => {
+      const { data } = await supabase.from('movimientos_inventario').select('producto_id,cantidad').in('producto_id', ids).eq('tipo', 'SALIDA').is('deleted_at', null)
+      if (!vivo) return
+      const porId: Record<string, number> = {}
+      ;((data ?? []) as { producto_id: string; cantidad: number }[]).forEach((m) => { porId[m.producto_id] = (porId[m.producto_id] || 0) + (Number(m.cantidad) || 0) })
+      const porCod: Record<string, number> = {}
+      idCod.forEach(([id, cod]) => { porCod[cod] = Math.round(porId[id] || 0) })
+      setVentasTot((x) => ({ ...x, ...porCod }))
+    })()
+    return () => { vivo = false }
+  }, [filas, porCodigo, extra])
 
   function prodDe(codigo: string): Prod | null {
     const real = porCodigo.get(codigo)
@@ -383,7 +407,7 @@ function PorAprobar({ campanas, prods, aviso, recargar }: { campanas: CampanaPen
     const x = extra[codigo]
     if (!x) return null
     return {
-      id: x.codigo, codigo: x.codigo, nombre: x.nombre, categoria: x.categoria, marca: '', img: x.imagen ? imgUrl(x.imagen, 300) : '', stock: 0, pvp: x.pvp, dis: 0, costo: x.costo ?? 0,
+      id: x.id, codigo: x.codigo, nombre: x.nombre, categoria: x.categoria, marca: '', img: x.imagen ? imgUrl(x.imagen, 300) : '', stock: 0, pvp: x.pvp, dis: 0, costo: x.costo ?? 0,
       obs: '', nc: 0, rep: 0, noRep: 0, motivosObs: [], conObs: false, oculto: false, dias: 0, grupo: '', lotes: [], ultVenta: '', diasSinVenta: null, v90: 0, v365: 0, nuncaVendido: false,
       interes: 0, capitalCosto: 0, capitalPvp: 0, ofertaId: '', urgencia: 0,
       estrategia: { tipo: 'Precio especial', descuento: 0, precio: x.pvp, porque: '', limitadoPorCosto: false, maxDesc: 90, piso: 0, margen: null, recupera: 0, dias: 30, comboCon: '', comboNombre: '', regalo: '' },
@@ -412,7 +436,7 @@ function PorAprobar({ campanas, prods, aviso, recargar }: { campanas: CampanaPen
         const trabajando = ocupado === clave
         if (!p) return <article key={clave} className="pc"><p className="text-[11px] text-amber-700 p-3">Cargando {item.id}…</p></article>
         return (
-          <TarjetaAprobar key={clave} p={p} conAnalitica={porCodigo.has(item.id)} campana={campana.nombre} valor={valor} setValor={(v) => setEdiciones((x) => ({ ...x, [clave]: v }))} nota={item.nota}
+          <TarjetaAprobar key={clave} p={p} conAnalitica={porCodigo.has(item.id)} ventasTotales={ventasTot[item.id]} campana={campana} valor={valor} setValor={(v) => setEdiciones((x) => ({ ...x, [clave]: v }))} nota={item.nota}
             trabajando={trabajando} onAprobar={(d) => decidir(campana.id, item.id, 'Aprobar', d)} onRechazar={() => decidir(campana.id, item.id, 'Rechazar')} />
         )
       })}
@@ -420,8 +444,8 @@ function PorAprobar({ campanas, prods, aviso, recargar }: { campanas: CampanaPen
   )
 }
 
-function TarjetaAprobar({ p, conAnalitica, campana, valor, setValor, nota, trabajando, onAprobar, onRechazar }: {
-  p: Prod; conAnalitica: boolean; campana: string; valor: string; setValor: (v: string) => void; nota?: string; trabajando: boolean; onAprobar: (desc: number) => void; onRechazar: () => void
+function TarjetaAprobar({ p, conAnalitica, ventasTotales, campana, valor, setValor, nota, trabajando, onAprobar, onRechazar }: {
+  p: Prod; conAnalitica: boolean; ventasTotales?: number; campana: CampanaPend; valor: string; setValor: (v: string) => void; nota?: string; trabajando: boolean; onAprobar: (desc: number) => void; onRechazar: () => void
 }) {
   const g = GRUPOS[p.grupo]
   const desc = Math.max(0, Math.min(90, Number(valor) || 0))
@@ -435,15 +459,15 @@ function TarjetaAprobar({ p, conAnalitica, campana, valor, setValor, nota, traba
           <div className="flex gap-1.5 flex-wrap mb-1">
             {p.conObs && <span className="pill" style={{ background: '#f3e8ff', color: '#6d28d9' }}><AlertTriangle style={{ width: 11, height: 11 }} />Con observaciones</span>}
             {g && <span className="pill" style={{ background: g.hex + '1f', color: g.hex }}>Antigüedad · {meses(p.dias)}</span>}
-            {conAnalitica && (p.nuncaVendido
+            {ventasTotales != null && (ventasTotales === 0
               ? <span className="pill" style={{ background: '#f1f5f9', color: '#334155' }}>Nunca vendido</span>
-              : <span className="pill" style={{ background: '#ecfdf5', color: '#047857' }}>{p.v365} venta{p.v365 === 1 ? '' : 's'} en 12 meses</span>)}
+              : <span className="pill" style={{ background: '#ecfdf5', color: '#047857' }}>{ventasTotales} venta{ventasTotales === 1 ? '' : 's'} registrada{ventasTotales === 1 ? '' : 's'}</span>)}
             {sobrestock && <span className="pill" style={{ background: '#fff1e6', color: '#c2410c' }}>Sobrestock · {p.stock} u.</span>}
             {p.interes > 0 && <span className="pill" style={{ background: '#fff7ed', color: '#c2410c' }}><Users style={{ width: 11, height: 11 }} />{p.interes} cotizaron sin comprar</span>}
-            <span className="pill" style={{ background: '#eff6ff', color: '#055c9d' }}>{campana}</span>
           </div>
           <p className="font-bold text-[14px] leading-snug text-slate-800 line-clamp-2">{p.nombre}</p>
           <p className="text-[11px] text-slate-400 mono">{p.codigo} · {p.categoria}</p>
+          <p className="text-[11.5px] mt-1" style={{ color: '#055c9d' }}><b>{campana.nombre}</b>{(campana.inicio || campana.fin) && <> · vigente {fechaC(campana.inicio ?? '')} → {fechaC(campana.fin ?? '')}</>}</p>
           {conAnalitica && <p className="text-[12px] text-slate-600 mt-1"><b>{p.stock}</b> u. · {money0(p.capitalPvp)} detenido{p.ultVenta ? ' · última venta ' + meses(p.diasSinVenta ?? 0) : ' · sin ventas registradas'}</p>}
           {p.conObs && <p className="text-[11.5px] text-violet-700 font-semibold mt-1 line-clamp-2">{p.motivosObs.join(' · ')}</p>}
           {nota && <p className="text-[11.5px] text-slate-500 mt-1 italic">"{nota}"</p>}
