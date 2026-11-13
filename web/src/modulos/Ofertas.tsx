@@ -498,15 +498,17 @@ function PorAprobar({ campanas, prods, margenMinimo, aviso, recargar }: { campan
                 <p className="font-bold text-[15px] text-slate-800">{c.nombre}</p>
                 <p className="text-[12px] text-slate-500">{c.codigo ? c.codigo + ' · ' : ''}{(c.inicio || c.fin) ? `vigente ${fechaC(c.inicio ?? '')} → ${fechaC(c.fin ?? '')} · ` : ''}{fs.length} producto{fs.length === 1 ? '' : 's'} por revisar</p>
               </div>
-              <button className="btn" disabled={enGrupo} style={{ color: '#c0392b', borderColor: '#fecaca' }} onClick={() => decidirTodos(c, fs.map((f) => f.item), 'Rechazar')}><XCircle style={{ width: 16, height: 16 }} />Rechazar todos</button>
-              <button className="btn" disabled={enGrupo} style={{ background: '#04896f', borderColor: '#04896f', color: '#fff' }} onClick={() => decidirTodos(c, fs.map((f) => f.item), 'Aprobar')}><Check style={{ width: 16, height: 16 }} />{enGrupo ? 'Procesando…' : `Aprobar todos (${fs.length})`}</button>
+              <div className="pa-cab-btns">
+                <button className="btn" disabled={enGrupo} style={{ color: '#c0392b', borderColor: '#fecaca' }} onClick={() => decidirTodos(c, fs.map((f) => f.item), 'Rechazar')}><XCircle style={{ width: 16, height: 16 }} />Rechazar todos</button>
+                <button className="btn" disabled={enGrupo} style={{ background: '#04896f', borderColor: '#04896f', color: '#fff' }} onClick={() => decidirTodos(c, fs.map((f) => f.item), 'Aprobar')}><Check style={{ width: 16, height: 16 }} />{enGrupo ? 'Procesando…' : `Aprobar todos (${fs.length})`}</button>
+              </div>
             </div>
             <div className="grid-p">
               {fs.map(({ campana, item }) => {
                 const p = prodDe(item.id)
                 const clave = campana.id + ':' + item.id
                 const valor = ediciones[clave] ?? String(item.desc ?? 0)
-                if (!p) return <article key={clave} className="pc"><p className="text-[11px] text-amber-700 p-3">Cargando {item.id}…</p></article>
+                if (!p) return <article key={clave} className="pc pc-ap"><p className="text-[11px] text-amber-700 p-3">Cargando {item.id}…</p></article>
                 return (
                   <TarjetaAprobar key={clave} p={p} conAnalitica={porCodigo.has(item.id)} ventasTotales={ventasTot[item.id]} maxDesc={maxDe(p)} valor={valor} setValor={(v) => setEdiciones((x) => ({ ...x, [clave]: v }))} nota={item.nota}
                     trabajando={ocupado === clave || enGrupo} onAprobar={(d) => decidir(campana.id, item.id, 'Aprobar', d)} onRechazar={() => decidir(campana.id, item.id, 'Rechazar')} />
@@ -530,45 +532,53 @@ function TarjetaAprobar({ p, conAnalitica, ventasTotales, maxDesc, valor, setVal
   const sobrestock = p.stock >= 3
   const pasa = maxDesc != null && desc > maxDesc
   return (
-    <article className="pc">
-      <div className="pc-top"><div className="ph">{p.img ? <img loading="lazy" src={p.img} alt="" onError={(ev) => ev.currentTarget.remove()} /> : <Package style={{ width: 28, height: 28 }} />}</div>
+    <article className="pc pc-ap">
+      <div className="pc-top">
+        <div className="ph">{p.img ? <img loading="lazy" src={p.img} alt="" onError={(ev) => ev.currentTarget.remove()} /> : <Package style={{ width: 28, height: 28 }} />}</div>
         <div className="min-w-0 flex-1">
-          <div className="flex gap-1.5 flex-wrap mb-1">
-            {p.conObs && <span className="pill" style={{ background: '#f3e8ff', color: '#6d28d9' }}><AlertTriangle style={{ width: 11, height: 11 }} />Con observaciones</span>}
-            {g && <span className="pill" style={{ background: g.hex + '1f', color: g.hex }}>Antigüedad · {meses(p.dias)}</span>}
-            {ventasTotales != null && (ventasTotales === 0
-              ? <span className="pill" style={{ background: '#f1f5f9', color: '#334155' }}>Nunca vendido</span>
-              : <span className="pill" style={{ background: '#ecfdf5', color: '#047857' }}>{ventasTotales} venta{ventasTotales === 1 ? '' : 's'} registrada{ventasTotales === 1 ? '' : 's'}</span>)}
-            {sobrestock && <span className="pill" style={{ background: '#fff1e6', color: '#c2410c' }}>Sobrestock · {p.stock} u.</span>}
-            {p.interes > 0 && <span className="pill" style={{ background: '#fff7ed', color: '#c2410c' }}><Users style={{ width: 11, height: 11 }} />{p.interes} cotizaron sin comprar</span>}
-          </div>
-          <p className="font-bold text-[14px] leading-snug text-slate-800 line-clamp-2">{p.nombre}</p>
-          <p className="text-[11px] text-slate-400 mono">{p.codigo} · {p.categoria}</p>
+          <p className="font-bold text-[14px] leading-snug text-slate-800 line-clamp-2" style={{ minHeight: 39 }} title={p.nombre}>{p.nombre}</p>
+          <p className="text-[11px] text-slate-400 mono truncate">{p.codigo} · {p.categoria}</p>
           {conAnalitica && <p className="text-[12px] text-slate-600 mt-1"><b>{p.stock}</b> u. · {money0(p.capitalPvp)} detenido{p.ultVenta ? ' · última venta ' + meses(p.diasSinVenta ?? 0) : ' · sin ventas registradas'}</p>}
-          {p.conObs && <p className="text-[11.5px] text-violet-700 font-semibold mt-1 line-clamp-2">{p.motivosObs.join(' · ')}</p>}
-          {nota && <p className="text-[11.5px] text-slate-500 mt-1 italic">"{nota}"</p>}
         </div>
       </div>
-      <div className="jug">
-        <div className="t"><BadgePercent style={{ width: 13, height: 13 }} />% propuesto por Marketing</div>
-        <div className="flex items-center gap-2 mt-1.5">
-          <input type="number" min="0" max="90" step="0.5" className="inp font-bold" style={{ fontSize: 26, height: 48, width: 92, color: 'var(--acc)' }} value={valor} disabled={trabajando} onChange={(ev) => setValor(ev.target.value)} />
-          <span className="text-lg font-bold" style={{ color: 'var(--acc)' }}>%</span>
-          <div className="ml-auto text-right">
-            {p.pvp > 0 && <span className="precio-a">{money(p.pvp)}</span>} <span className="precio-n">{money(precio)}</span>
+      <div className="pc-meta">
+        <div className="pc-chips">
+          {p.conObs && <span className="pill" style={{ background: '#f3e8ff', color: '#6d28d9' }}><AlertTriangle style={{ width: 11, height: 11 }} />Con observaciones</span>}
+          {g && <span className="pill" style={{ background: g.hex + '1f', color: g.hex }}>Antigüedad · {meses(p.dias)}</span>}
+          {ventasTotales != null && (ventasTotales === 0
+            ? <span className="pill" style={{ background: '#f1f5f9', color: '#334155' }}>Nunca vendido</span>
+            : <span className="pill" style={{ background: '#ecfdf5', color: '#047857' }}>{ventasTotales} venta{ventasTotales === 1 ? '' : 's'} registrada{ventasTotales === 1 ? '' : 's'}</span>)}
+          {sobrestock && <span className="pill" style={{ background: '#fff1e6', color: '#c2410c' }}>Sobrestock · {p.stock} u.</span>}
+          {p.interes > 0 && <span className="pill" style={{ background: '#fff7ed', color: '#c2410c' }}><Users style={{ width: 11, height: 11 }} />{p.interes} cotizaron sin comprar</span>}
+        </div>
+        {p.conObs && <p className="text-[11.5px] text-violet-700 font-semibold mt-1.5 line-clamp-2">{p.motivosObs.join(' · ')}</p>}
+        {nota && <p className="text-[11.5px] text-slate-500 mt-1.5 italic">"{nota}"</p>}
+      </div>
+      <div className="pc-pie">
+        <div className="jug">
+          <div className="t"><BadgePercent style={{ width: 13, height: 13 }} />% propuesto por Marketing</div>
+          <div className="pa-precio">
+            <div className="pa-pct">
+              <input type="number" min="0" max="90" step="0.5" className="inp font-bold" value={valor} disabled={trabajando} onChange={(ev) => setValor(ev.target.value)} />
+              <span>%</span>
+            </div>
+            <div className="pa-final">
+              <span className="precio-a">{p.pvp > 0 && desc > 0 ? money(p.pvp) : ' '}</span>
+              <span className="precio-n">{money(precio)}</span>
+            </div>
           </div>
+          <p className="pa-ahorro">{p.pvp > 0 && desc > 0 ? `El cliente ahorra ${money(ahorro)}` : ' '}</p>
+          {pasa && (
+            <p className="text-[11.5px] font-semibold mt-1" style={{ color: '#c0392b' }}>
+              Pasa el máximo permitido ({maxDesc}%) para no bajar del margen mínimo.{' '}
+              <button type="button" className="underline" disabled={trabajando} onClick={() => setValor(String(maxDesc))}>Ajustar a {maxDesc}%</button>
+            </p>
+          )}
         </div>
-        {p.pvp > 0 && desc > 0 && <p className="text-[11.5px] font-semibold mt-1.5" style={{ color: '#04896f' }}>El cliente ahorra {money(ahorro)}</p>}
-        {pasa && (
-          <p className="text-[11.5px] font-semibold mt-1.5" style={{ color: '#c0392b' }}>
-            Pasa el máximo permitido ({maxDesc}%) para no bajar del margen mínimo.{' '}
-            <button type="button" className="underline" disabled={trabajando} onClick={() => setValor(String(maxDesc))}>Ajustar a {maxDesc}%</button>
-          </p>
-        )}
-      </div>
-      <div className="flex gap-2" style={{ margin: '0 12px 12px' }}>
-        <button className="btn flex-1 justify-center" disabled={trabajando} style={{ background: '#c0392b', borderColor: '#c0392b', color: '#fff' }} onClick={onRechazar}><XCircle className="w-4 h-4" />Rechazar</button>
-        <button className="btn flex-1 justify-center" disabled={trabajando || desc <= 0 || pasa} style={{ background: '#04896f', borderColor: '#04896f', color: '#fff' }} onClick={() => onAprobar(desc)}><Check className="w-4 h-4" />Aprobar</button>
+        <div className="pa-botones">
+          <button className="btn" disabled={trabajando} style={{ background: '#c0392b', borderColor: '#c0392b', color: '#fff' }} onClick={onRechazar}><XCircle className="w-4 h-4" />Rechazar</button>
+          <button className="btn" disabled={trabajando || desc <= 0 || pasa} style={{ background: '#04896f', borderColor: '#04896f', color: '#fff' }} onClick={() => onAprobar(desc)}><Check className="w-4 h-4" />Aprobar</button>
+        </div>
       </div>
     </article>
   )
