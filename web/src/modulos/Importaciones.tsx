@@ -58,7 +58,7 @@ export default function Importaciones({ perfil, aviso, accion, limpiarAccion }: 
     const [e, it, p] = await Promise.all([
       supabase.from('imp_expedientes').select('id,codigo,nombre,proveedor_texto,pais_origen,flujo,estado').is('deleted_at', null).order('created_at', { ascending: false }).limit(500),
       supabase.from('imp_items').select('pedido_codigo,cantidad').is('deleted_at', null).limit(10000),
-      supabase.from('proveedores').select('nombre,pais').is('deleted_at', null).order('nombre').limit(500),
+      supabase.from('proveedores').select('nombre:razon_social,pais').is('deleted_at', null).order('razon_social').limit(500),
     ])
     if (e.error) { setError(e.error.message); return }
     setError('')
