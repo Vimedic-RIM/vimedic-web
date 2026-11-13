@@ -9,6 +9,7 @@ import { FormularioCliente, type Cliente as ClienteFicha } from './CrmClientes'
 import { imagen } from './Inventario'
 import type { DatosDoc } from '../proforma'
 import { EtiquetasStockCotizacion, FranjaStock, marcoStock, useEstadoStock } from '../estadoStock'
+import { leerDatosEmpresa } from './CrmMeta'
 
 type Asesor = { id: string; nombre: string }
 /** Lo que el CRM necesita saber al guardar (p. ej. para pedir el seguimiento de una proforma nueva). */
@@ -128,6 +129,8 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   const [fletePaga, setFletePaga] = useState('')
   const [fechaEntrega, setFechaEntrega] = useState('')
   const [rem, setRem] = useState({ nombre: 'Importaciones Médicas Richard', cedula: '1721050035001', telefono: '095 887 9773' })
+  // Remitente de la guía: datos de la empresa (FEMEDICS los edita en su CRM, igual que fmGuardarConfig del original).
+  useEffect(() => { leerDatosEmpresa(empresa).then((d) => { if (d) setRem({ nombre: d.razon_social, cedula: d.ruc ?? '', telefono: d.telefono ?? '' }) }) }, [empresa])
   const [dest, setDest] = useState({ nombre: '', telefono: '', cedula: '', email: '' })
   const [dirEnvio, setDirEnvio] = useState('')
   const [caja, setCaja] = useState('')

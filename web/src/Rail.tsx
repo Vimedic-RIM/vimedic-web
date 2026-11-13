@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { PanelAvisos, useAvisos } from './Avisos'
 import {
-  AlarmClock, BadgeDollarSign, CalendarPlus, ChevronDown, ChevronUp, CirclePlus, CloudUpload, FilePlus2, LayoutDashboard,
+  AlarmClock, BadgeDollarSign, Bell, CalendarPlus, ChevronDown, ChevronUp, CirclePlus, CloudUpload, FilePlus2, LayoutDashboard,
   LayoutGrid, LogOut, MessageCircle, PackagePlus, PenLine, Pin, Search, Settings, ShieldCheck, SlidersHorizontal, UserPlus, X, type LucideIcon,
 } from 'lucide-react'
 import { supabase, type Perfil } from './supabase'
@@ -63,6 +64,8 @@ export default function Rail({ perfil, actual, ir, accion, aviso }: Props) {
   // Arrastre para ordenar dentro de la misma barra (ratón y dedo con pulsación larga).
   const [arr, setArr] = useState<{ g: 'acc' | 'mod'; k: string } | null>(null)
   const [orden, setOrden] = useState<string[] | null>(null)
+  const avisos = useAvisos(perfil)
+  const [verAvisos, setVerAvisos] = useState(false)
   const ordenRef = useRef<string[] | null>(null)
   const evitarClick = useRef(false)
 
@@ -295,6 +298,10 @@ export default function Rail({ perfil, actual, ir, accion, aviso }: Props) {
         </div>
 
         <div className="vr-pie">
+          <button type="button" className="vr-item" onClick={() => { setMenuAbierto(false); setTip(null); setVerAvisos(true) }} {...verTip('Avisos', avisos.sinLeer ? avisos.sinLeer + ' sin leer' : 'Al día')} style={{ position: 'relative' }}>
+            <Bell className="ic" /><span className="vr-lbl">Avisos{avisos.sinLeer ? ` (${avisos.sinLeer})` : ''}</span>
+            {avisos.sinLeer > 0 && <span style={{ position: 'absolute', top: 4, left: 30, minWidth: 16, height: 16, padding: '0 4px', borderRadius: 999, background: '#ef4444', color: '#fff', fontSize: 9, fontWeight: 800, display: 'grid', placeItems: 'center', lineHeight: 1 }}>{avisos.sinLeer > 9 ? '9+' : avisos.sinLeer}</span>}
+          </button>
           <button type="button" className="vr-item" onClick={abrirMenuPerfil} {...verTip(nombre, 'Mi cuenta')}>
             {foto ? <img src={foto} alt="" className="vr-ava" style={{ objectFit: 'cover' }} /> : <span className="vr-ava">{ini}</span>}
             <span className="vr-lbl vr-quien"><b>{nombre}</b><span>{perfil.rol || perfil.email || ''}</span></span>
@@ -302,6 +309,7 @@ export default function Rail({ perfil, actual, ir, accion, aviso }: Props) {
         </div>
       </nav>
 
+      {verAvisos && <PanelAvisos lista={avisos.lista} cerrar={() => { setVerAvisos(false); avisos.marcarLeidas() }} marcarLeidas={avisos.marcarLeidas} ir={(m) => { setMenuAbierto(false); ir(m) }} />}
       {tip && <div id="vrTip" role="tooltip" className="on" style={{ left: tip.left, top: tip.top }}>{tip.t}{tip.s && <small>{tip.s}</small>}</div>}
 
       {paleta && (

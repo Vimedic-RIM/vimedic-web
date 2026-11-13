@@ -4,7 +4,7 @@ import {
   ClipboardPlus, Contact, Copy, FilePlus2, FileText, Handshake, Hourglass, IdCard, ImagePlus, KanbanSquare, Lock,
   Magnet, Mail, MapPin, Menu, MessageCircle, MessageSquareText, Phone, PhoneCall, PhoneMissed, Plus, Receipt, RefreshCw,
   Repeat, Search, Settings, Settings2, SlidersHorizontal, Sparkles, Trash2, Trophy, TriangleAlert, User, UserPlus, UserRound,
-  Users, UserX, Wallet, X, CircleX, Pencil,
+  Users, UserX, Wallet, X, CircleX, Pencil, Megaphone, Building2,
 } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
@@ -17,6 +17,7 @@ import {
   estadoConIntento, leerVisto, subirCaptura, tipoObservacion, type GestionRef, type ModoEtapa,
 } from './CrmEtapas'
 import { FichaCliente } from './Clientes'
+import { EditorDatosEmpresa, RepartoMeta } from './CrmMeta'
 import '../estilos/crm-original.css'
 import '../estilos/clientes.css'
 
@@ -128,6 +129,8 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
   const [nuevasActividad, setNuevasActividad] = useState(0)
   const [verComo, setVerComo] = useState('')
   const [fichaCliente, setFichaCliente] = useState<string | null>(null)
+  const [repartoMeta, setRepartoMeta] = useState(false)
+  const [datosEmpresa, setDatosEmpresa] = useState(false)
   const peticion = useRef(0)
 
   // Acceso directo de la barra lateral (Rail): abre de una vez el formulario pedido.
@@ -146,6 +149,9 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
   const eliminar = puede(perfil, mod, 'eliminar')
   const adminEtapas = perfil.es_superadmin || puede(perfil, 'crm', 'administrar') || puede(perfil, 'marketing', 'administrar')
   const veTodos = puede(perfil, mod, 'ver_todos')
+  // Reparto de leads de Meta: Marketing / administración (en el original, solo el rol Marketing).
+  const puedeMeta = perfil.es_superadmin || puede(perfil, 'marketing', 'editar') || puede(perfil, 'crm', 'administrar') || puede(perfil, 'femedics', 'administrar')
+  const puedeDatosEmpresa = perfil.es_superadmin || puede(perfil, empresa === 'FEMEDICS' ? 'femedics' : 'crm', 'administrar')
   const nombres = useMemo(() => new Map(asesores.map((a) => [a.id, a.nombre])), [asesores])
   const estados = etapas.map((e) => e.nombre)
   const colorEstado = (e: string) => COLOR_ESTADO[e] ?? PALETA[Math.max(0, estados.indexOf(e)) % PALETA.length]
@@ -182,6 +188,10 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
       }))
     setGestiones([...deLead, ...deCot])
     setCargando(false)
+    try {
+      const k = sessionStorage.getItem('vm_crm_abrir')
+      if (k && [...deLead, ...deCot].some((g) => g.key === k)) { sessionStorage.removeItem('vm_crm_abrir'); setAbierta(k) }
+    } catch { /* sin almacenamiento */ }
   }, [])
 
   useEffect(() => {
@@ -400,6 +410,8 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
           </div>
 
           <div className="hidden sm:flex items-center gap-2 ml-auto">
+            {puedeMeta && <button onClick={() => setRepartoMeta(true)} className="bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg transition-colors" title="Clientes potenciales de Meta (reparto)"><Megaphone className="w-4 h-4" /></button>}
+            {puedeDatosEmpresa && empresa === 'FEMEDICS' && <button onClick={() => setDatosEmpresa(true)} className="bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg transition-colors" title="Datos de FEMEDICS (remitente de la guía)"><Building2 className="w-4 h-4" /></button>}
             {adminEtapas && <button onClick={() => setEditorEtapas(true)} className="bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg transition-colors" title="Administrar etapas del pipeline"><Settings className="w-4 h-4" /></button>}
             <button type="button" onClick={(e) => { e.stopPropagation(); setPanelAlertas(false); setActividad((v) => !v); setNuevasActividad(0) }} className="bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg transition-colors relative" title="Actividad reciente">
               <Bell className="w-4 h-4" />
@@ -432,6 +444,8 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
               {eliminar && <button onClick={() => { setMenuMovil(false); setPapelera(true) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><Trash2 className="w-4 h-4 text-slate-500"  /> Papelera</button>}
               <div className="border-t border-slate-100 my-1.5" />
               <button onClick={() => { setMenuMovil(false); setPanelAlertas(false); setActividad(true); setNuevasActividad(0) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><Bell className="w-4 h-4 text-slate-500" /> Actividad reciente{nuevasActividad > 0 ? ` (${nuevasActividad})` : ''}</button>
+              {puedeMeta && <button onClick={() => { setMenuMovil(false); setRepartoMeta(true) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><Megaphone className="w-4 h-4 text-slate-500" /> Leads de Meta (reparto)</button>}
+              {puedeDatosEmpresa && empresa === 'FEMEDICS' && <button onClick={() => { setMenuMovil(false); setDatosEmpresa(true) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><Building2 className="w-4 h-4 text-slate-500" /> Datos de FEMEDICS</button>}
               {adminEtapas && <button onClick={() => { setMenuMovil(false); setEditorEtapas(true) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><Settings className="w-4 h-4 text-slate-500"  /> Administrar etapas</button>}
               <button onClick={() => { setMenuMovil(false); cargar() }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><RefreshCw className="w-4 h-4 text-slate-500" /> Actualizar</button>
             </div>
@@ -602,6 +616,8 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
       {proforma && <ProformaVisor datos={proforma} cerrar={() => { setProforma(null); if (pasoTrasProforma) { setPaso(pasoTrasProforma); setPasoTrasProforma(null) } }} />}
       {nueva && <NuevaGestion empresa={empresa} perfil={perfil} asesores={asesores} cerrar={() => setNueva(false)} guardado={() => { setNueva(false); aviso('Gestión creada.'); cargar() }} />}
       {paso && <FormEtapa g={paso.g} modo={paso.modo} destino={paso.destino} titulo={paso.titulo} boton={paso.boton} ayuda={paso.ayuda} aviso={aviso} cerrar={() => setPaso(null)} hecho={(p) => pasoGuardado(paso, p)} />}
+      {repartoMeta && <RepartoMeta empresa={empresa} cerrar={() => setRepartoMeta(false)} aviso={aviso} cambio={cargar} />}
+      {datosEmpresa && <EditorDatosEmpresa empresa={empresa} cerrar={() => setDatosEmpresa(false)} aviso={aviso} />}
       {editorEtapas && <EditorEtapas etapas={estados} colorEstado={colorEstado} conteo={(e) => gestiones.filter((x) => x.estado === e).length} cerrar={() => setEditorEtapas(false)} guardado={() => { setEditorEtapas(false); setVersionEtapas((v) => v + 1); aviso('Etapas del pipeline guardadas.') }} />}
     </div>
   )
