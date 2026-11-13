@@ -101,7 +101,7 @@ export function RepartoMeta({ empresa, cerrar, aviso, cambio }: { empresa: 'VIME
                 <div key={a.id} className="flex items-center gap-2.5 rounded-xl border px-3 py-2" style={{ borderColor: a.siguiente ? 'var(--acc)' : '#e2e8f0', background: a.siguiente ? 'var(--acc-l)' : '#fff' }}>
                   <span className="text-[10px] font-bold text-slate-400 w-4 shrink-0">{i + 1}</span>
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs font-bold text-slate-800 truncate">{a.nombre}{!a.conTelefono && <span className="pill ml-1.5" style={{ background: '#fef3c7', color: '#92400e' }} title="Sin celular en Empleados">sin celular</span>}</p>
+                    <p className="text-xs font-bold text-slate-800 truncate">{a.nombre}{!a.conTelefono && <span className="pill" style={{ marginLeft: 6, background: '#fef3c7', color: '#92400e' }} title="Sin celular en Empleados">sin celular</span>}</p>
                     <p className="text-[10px] text-slate-400 truncate">{a.email}</p>
                   </div>
                   <div className="text-right shrink-0">

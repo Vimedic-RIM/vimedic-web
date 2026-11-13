@@ -351,7 +351,7 @@ export function EditorEtapas({ etapas, conteo, colorEstado, cerrar, guardado }: 
                 <button type="button" onClick={() => mover(i, 1)} disabled={i === lista.length - 1} className="w-7 h-7 rounded-lg grid place-items-center text-slate-500 hover:bg-slate-100 disabled:opacity-30" aria-label="Bajar"><ArrowDown className="w-3.5 h-3.5" /></button>
                 {prot
                   ? <span className="w-7 h-7 grid place-items-center text-slate-300" title="Etapa obligatoria"><Lock className="w-3.5 h-3.5" /></span>
-                  : <button type="button" onClick={() => setLista((a) => a.filter((x) => x !== e))} disabled={n > 0} title={n > 0 ? 'Tiene gestiones: muévelas antes de quitarla' : 'Quitar etapa'} className="w-7 h-7 rounded-lg grid place-items-center text-red-500 hover:bg-red-50 disabled:opacity-25" aria-label="Quitar"><Trash2 className="w-3.5 h-3.5" /></button>}
+                  : <button type="button" onClick={() => setLista((a) => a.filter((x) => x !== e))} disabled={n > 0} title={n > 0 ? 'Tiene gestiones: muévelas antes de quitarla' : 'Quitar etapa'} className="w-7 h-7 rounded-lg grid place-items-center text-red-500 hover:bg-red-50 disabled:opacity-30" aria-label="Quitar"><Trash2 className="w-3.5 h-3.5" /></button>}
               </div>
             )
           })}

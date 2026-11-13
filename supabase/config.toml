@@ -24,3 +24,6 @@ secret = "env(GOOGLE_CLIENT_SECRET)"
 # Solo expone lo mismo que ya es público en el catálogo: producto visible, nombre, precio e imagen.
 [functions.pinterest-feed]
 verify_jwt = false
+
+[functions.crm-mensajes]
+verify_jwt = false

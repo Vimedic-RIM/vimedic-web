@@ -5,3 +5,10 @@
 @media (min-width:768px){.vm-modulo .md\:block{display:block}.vm-modulo .md\:flex{display:flex}.vm-modulo .md\:grid{display:grid}.vm-modulo .md\:hidden{display:none}}
 @media (min-width:1024px){.vm-modulo .lg\:block{display:block}.vm-modulo .lg\:flex{display:flex}.vm-modulo .lg\:grid{display:grid}.vm-modulo .lg\:hidden{display:none}}
 @media (min-width:1280px){.vm-modulo .xl\:block{display:block}.vm-modulo .xl\:flex{display:flex}.vm-modulo .xl\:hidden{display:none}}
+
+/* Ventanas a pantalla completa de los módulos (cotización, venta, mensajes, formularios…): en computadora
+   empiezan después de la barra lateral en lugar de quedar debajo de ella (se cortaba el lado izquierdo). */
+@media (min-width:640px){
+  body.vm-con-rail .vm-modulo .fixed.inset-0{left:var(--vr-w)}
+  body.vm-con-rail.vm-rail-fijo .vm-modulo .fixed.inset-0{left:var(--vr-we)}
+}

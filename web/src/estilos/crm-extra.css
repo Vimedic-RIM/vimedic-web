@@ -1,0 +1,4 @@
+/* Mensajes del CRM: alto fijo en computadora (bandeja + chat) y pantalla completa en el teléfono. */
+.vm-msg-caja{height:100dvh}
+.vm-msg-bandeja{width:100%}
+@media(min-width:640px){.vm-msg-caja{height:92vh}.vm-msg-bandeja{width:340px}}

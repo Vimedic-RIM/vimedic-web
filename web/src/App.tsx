@@ -108,11 +108,10 @@ export default function App() {
   const irAMovimientosDe = (codigo: string) => { setFiltroMovProducto(codigo); abrir('movimientos') }
   // A qué módulo lleva cada acceso directo de la barra lateral.
   const DESTINO_ACCION: Record<string, string> = {
-    gestion: 'crm', cotizacion: 'crm', venta: 'crm', cliente: 'crm', seguimientos: 'crm',
+    gestion: 'crm', cotizacion: 'crm', venta: 'crm', cliente: 'crm', seguimientos: 'crm', mensajes: 'crm',
     actividad: 'agenda', ingreso: 'importaciones', publicacion: 'marketing', audiovisual: 'marketing',
   }
   const ejecutarAccion = (clave: string) => {
-    if (clave === 'mensajes') { avisar('Mensajes se está migrando: sigue disponible en la app actual.'); return }
     const destino = DESTINO_ACCION[clave]
     if (!destino) { avisar('Esta acción todavía se está migrando.'); return }
     setAccionPendiente(clave)

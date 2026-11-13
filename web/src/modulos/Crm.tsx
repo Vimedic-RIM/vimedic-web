@@ -18,6 +18,7 @@ import {
 } from './CrmEtapas'
 import { FichaCliente } from './Clientes'
 import { EditorDatosEmpresa, RepartoMeta } from './CrmMeta'
+import CrmMensajes from './CrmMensajes'
 import '../estilos/crm-original.css'
 import '../estilos/clientes.css'
 
@@ -27,7 +28,7 @@ type Asesor = { id: string; nombre: string }
 type Gestion = {
   key: string; tabla: 'leads' | 'cotizaciones'; id: string; codigo: string; tipo: string; nombre: string; estado: string
   asesorId: string | null; fechaTS: number; ultimaTS: number; proximoTS: number; total: number
-  telefono: string; email: string; identificacion: string; pdfUrl: string; medio: string; interes: string; clienteId: string | null
+  telefono: string; email: string; identificacion: string; pdfUrl: string; medio: string; interes: string; clienteId: string | null; conversacionId: string | null
 }
 type PasoEtapa = { g: GestionRef; modo: ModoEtapa; destino: string; titulo?: string; boton?: string; ayuda?: string }
 const refDe = (g: Gestion): GestionRef => ({ tabla: g.tabla, id: g.id, nombre: g.nombre, estado: g.estado, total: g.total })
@@ -130,6 +131,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
   const [verComo, setVerComo] = useState('')
   const [fichaCliente, setFichaCliente] = useState<string | null>(null)
   const [repartoMeta, setRepartoMeta] = useState(false)
+  const [mensajes, setMensajes] = useState<{ conversacion: string | null } | null>(null)
   const [datosEmpresa, setDatosEmpresa] = useState(false)
   const peticion = useRef(0)
 
@@ -141,6 +143,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
     else if (accion === 'venta') setDocumento({ modo: 'Venta', origen: null })
     else if (accion === 'cliente') { setClienteNuevo(true); setClientes(true) }
     else if (accion === 'seguimientos') setPanelAlertas(true)
+    else if (accion === 'mensajes') setMensajes({ conversacion: null })
     limpiarAccion?.()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accion])
@@ -161,7 +164,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
     setCargando(true)
     const [l, c] = await Promise.all([
       supabase.from('leads')
-        .select('id,codigo,origen_tipo,fecha,nombre,telefono,email,identificacion,interes,medio_captacion,asesor_id,estado_crm,ultima_actividad,proximo_seguimiento,cliente_id')
+        .select('id,codigo,origen_tipo,fecha,nombre,telefono,email,identificacion,interes,medio_captacion,asesor_id,estado_crm,ultima_actividad,proximo_seguimiento,cliente_id,conversacion_id')
         .is('deleted_at', null).eq('empresa', empresa).order('fecha', { ascending: false }).limit(2000),
       supabase.from('cotizaciones')
         .select('id,codigo,fecha,tipo_registro,nombre,telefono,email,identificacion,asesor_id,estado_crm,ultima_actividad,proximo_seguimiento,total,pdf_url,lead_id,medio_captacion_lead,detalle_equipos,cliente_id')
@@ -176,7 +179,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
       key: 'cotizaciones:' + x.id, tabla: 'cotizaciones', id: x.id, codigo: x.codigo ?? '', tipo: x.tipo_registro === 'Venta' ? 'Venta' : 'Cotización',
       nombre: x.nombre ?? '', estado: x.estado_crm || 'Nuevo', asesorId: x.asesor_id, fechaTS: ts(x.fecha), ultimaTS: ts(x.ultima_actividad),
       proximoTS: ts(x.proximo_seguimiento), total: Number(x.total) || 0, telefono: x.telefono ?? '', email: x.email ?? '',
-      identificacion: x.identificacion ?? '', pdfUrl: x.pdf_url ?? '', medio: x.medio_captacion_lead ?? '', interes: x.detalle_equipos ?? '', clienteId: x.cliente_id ?? null,
+      identificacion: x.identificacion ?? '', pdfUrl: x.pdf_url ?? '', medio: x.medio_captacion_lead ?? '', interes: x.detalle_equipos ?? '', clienteId: x.cliente_id ?? null, conversacionId: null,
     }))
     const deLead: Gestion[] = ((l.data ?? []) as Record<string, any>[]) // eslint-disable-line @typescript-eslint/no-explicit-any
       .filter((x) => !conCotizacion.has(x.id))
@@ -184,7 +187,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
         key: 'leads:' + x.id, tabla: 'leads', id: x.id, codigo: x.codigo ?? '', tipo: TIPO_LEAD[x.origen_tipo] ?? 'Contacto',
         nombre: x.nombre ?? '', estado: x.estado_crm || 'Nuevo', asesorId: x.asesor_id, fechaTS: ts(x.fecha), ultimaTS: ts(x.ultima_actividad),
         proximoTS: ts(x.proximo_seguimiento), total: 0, telefono: x.telefono ?? '', email: x.email ?? '', identificacion: x.identificacion ?? '',
-        pdfUrl: '', medio: x.medio_captacion ?? '', interes: x.interes ?? '', clienteId: x.cliente_id ?? null,
+        pdfUrl: '', medio: x.medio_captacion ?? '', interes: x.interes ?? '', clienteId: x.cliente_id ?? null, conversacionId: x.conversacion_id ?? null,
       }))
     setGestiones([...deLead, ...deCot])
     setCargando(false)
@@ -404,6 +407,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
             {crear && <button type="button" onClick={() => setNueva(true)} className="vm-hqa" title="Nueva gestión"><CirclePlus /><span>Nueva gestión</span></button>}
             {crear && <button type="button" onClick={() => setDocumento({ modo: 'Cotización', origen: null })} className="vm-hqa" title="Nueva cotización"><FilePlus2 /><span>Cotización</span></button>}
             {crear && <button type="button" onClick={() => setDocumento({ modo: 'Venta', origen: null })} className="vm-hqa" title="Nueva venta"><Receipt /><span>Venta</span></button>}
+            <button type="button" onClick={() => setMensajes({ conversacion: null })} className="vm-hqa" title="Mensajes (Facebook, Instagram, WhatsApp)"><MessageCircle /><span>Mensajes</span></button>
             <button type="button" onClick={() => setClientes(true)} className="vm-hqa" title="Clientes"><Users /><span>Clientes</span></button>
             <button type="button" onClick={() => setRutasViaticos(true)} className="vm-hqa" title="Rutas y viáticos"><MapPin /><span>Rutas y viáticos</span></button>
             {eliminar && <button type="button" onClick={() => setPapelera(true)} className="vm-hqa" title="Papelera"><Trash2 /><span>Papelera</span></button>}
@@ -440,7 +444,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
               {crear && <button onClick={() => { setMenuMovil(false); setDocumento({ modo: 'Venta', origen: null }) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><Receipt className="w-4 h-4" style={{ color: '#04896f' }} /> Nueva Venta</button>}
               <button onClick={() => { setMenuMovil(false); setClientes(true) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><Users className="w-4 h-4 text-slate-500"  /> Clientes</button>
               <button onClick={() => { setMenuMovil(false); setRutasViaticos(true) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><MapPin className="w-4 h-4 text-slate-500"  /> Rutas y viáticos</button>
-              {empresa !== 'FEMEDICS' && <button onClick={() => { setMenuMovil(false); aviso('Mensajes se está migrando: sigue disponible en la app actual.') }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><MessageCircle className="w-4 h-4 text-slate-500"  /> Mensajes</button>}
+              <button onClick={() => { setMenuMovil(false); setMensajes({ conversacion: null }) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><MessageCircle className="w-4 h-4 text-slate-500"  /> Mensajes</button>
               {eliminar && <button onClick={() => { setMenuMovil(false); setPapelera(true) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><Trash2 className="w-4 h-4 text-slate-500"  /> Papelera</button>}
               <div className="border-t border-slate-100 my-1.5" />
               <button onClick={() => { setMenuMovil(false); setPanelAlertas(false); setActividad(true); setNuevasActividad(0) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><Bell className="w-4 h-4 text-slate-500" /> Actividad reciente{nuevasActividad > 0 ? ` (${nuevasActividad})` : ''}</button>
@@ -600,7 +604,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
             mod={mod} empresa={empresa} verProforma={setProforma} editarDoc={(row) => { setAbierta(null); setDocumento({ modo: 'Cotización', origen: null, editar: row }) }}
             facturar={() => abrirVenta(ga)} cotizar={() => cotizarDesde(ga)} clientes={() => abrirFichaCliente(ga)}
             seguimiento={() => setPaso({ g: refDe(ga), modo: 'registro', destino: ga.estado, titulo: 'Registrar seguimiento · ' + ga.estado, boton: 'Guardar seguimiento' })}
-            duplicar={() => duplicar(ga)} />
+            duplicar={() => duplicar(ga)} chat={ga.conversacionId ? () => { setAbierta(null); setMensajes({ conversacion: ga.conversacionId }) } : undefined} />
         )
       })()}
       {clientes && <ClientesLista empresa={empresa} perfil={perfil} asesores={asesores} cerrar={() => setClientes(false)} aviso={aviso} abrirNuevo={clienteNuevo} consumirAbrirNuevo={() => setClienteNuevo(false)} />}
@@ -616,6 +620,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
       {proforma && <ProformaVisor datos={proforma} cerrar={() => { setProforma(null); if (pasoTrasProforma) { setPaso(pasoTrasProforma); setPasoTrasProforma(null) } }} />}
       {nueva && <NuevaGestion empresa={empresa} perfil={perfil} asesores={asesores} cerrar={() => setNueva(false)} guardado={() => { setNueva(false); aviso('Gestión creada.'); cargar() }} />}
       {paso && <FormEtapa g={paso.g} modo={paso.modo} destino={paso.destino} titulo={paso.titulo} boton={paso.boton} ayuda={paso.ayuda} aviso={aviso} cerrar={() => setPaso(null)} hecho={(p) => pasoGuardado(paso, p)} />}
+      {mensajes && <CrmMensajes empresa={empresa} inicial={mensajes.conversacion} aviso={aviso} cerrar={() => setMensajes(null)} />}
       {repartoMeta && <RepartoMeta empresa={empresa} cerrar={() => setRepartoMeta(false)} aviso={aviso} cambio={cargar} />}
       {datosEmpresa && <EditorDatosEmpresa empresa={empresa} cerrar={() => setDatosEmpresa(false)} aviso={aviso} />}
       {editorEtapas && <EditorEtapas etapas={estados} colorEstado={colorEstado} conteo={(e) => gestiones.filter((x) => x.estado === e).length} cerrar={() => setEditorEtapas(false)} guardado={() => { setEditorEtapas(false); setVersionEtapas((v) => v + 1); aviso('Etapas del pipeline guardadas.') }} />}
@@ -673,8 +678,8 @@ function Tarjeta({ g, asesor, color, arrastrando, abrir, intento: abrirIntento, 
 }
 
 /* ============================ Ficha lateral de la gestión ============================ */
-function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado, recargar, aviso, facturar, cotizar, clientes, verProforma, editarDoc, mod, empresa, seguimiento, duplicar }: {
-  mod: string; empresa: 'VIMEDIC' | 'FEMEDICS'; seguimiento: () => void; duplicar: () => void
+function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado, recargar, aviso, facturar, cotizar, clientes, verProforma, editarDoc, mod, empresa, seguimiento, duplicar, chat }: {
+  mod: string; empresa: 'VIMEDIC' | 'FEMEDICS'; seguimiento: () => void; duplicar: () => void; chat?: () => void
   g: Gestion; perfil: Perfil; asesores: Asesor[]; etapas: string[]; colorEstado: (e: string) => string
   cerrar: () => void; cambiarEstado: (key: string, nuevo: string) => Promise<void>; recargar: () => void; aviso: (t: string) => void; facturar: () => void; cotizar: () => void; clientes: () => void; verProforma: (d: DatosDoc) => void; editarDoc: (row: Record<string, any>) => void // eslint-disable-line @typescript-eslint/no-explicit-any
 }) {
@@ -873,6 +878,7 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
             <a className={'vm-qbtn ' + (tel ? '' : 'off')} style={{ ['--c' as string]: 'var(--primary)' }} {...(tel ? { href: tel } : {})}><Phone />Llamar</a>
             <a className={'vm-qbtn ' + (mail ? '' : 'off')} style={{ ['--c' as string]: '#7c3aed' }} {...(mail ? { href: mail } : {})}><Mail />Correo</a>
             {g.pdfUrl && <a className="vm-qbtn" style={{ ['--c' as string]: '#c0392b' }} href={g.pdfUrl} target="_blank" rel="noopener"><FileText />Proforma</a>}
+            {chat && <button type="button" className="vm-qbtn" style={{ ['--c' as string]: '#e1306c' }} onClick={chat}><MessageSquareText />Chat</button>}
           </div>
 
           <div className="grid grid-cols-2 gap-2.5">
