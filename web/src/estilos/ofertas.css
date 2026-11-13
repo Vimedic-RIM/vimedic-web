@@ -299,3 +299,4 @@ body.vm-con-rail .vm-of .planbar{left:var(--vr-w);z-index:130}
 .vm-of .pc-ap .pa-ahorro{font-size:11.5px;font-weight:600;color:#04896f;margin-top:6px;min-height:17px}
 .vm-of .pc-ap .pa-botones{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 12px 12px}
 .vm-of .pa-cab-btns{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+@media(min-width:1200px){.vm-of .kpis.k7{grid-template-columns:repeat(7,1fr)}}

@@ -3,7 +3,7 @@ import { AlertTriangle, ArrowLeft, BadgePercent, Check, FileDown, FolderUp, Mega
 import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
 import { imagen as imgUrl } from './Inventario'
-import { armarProductos, CFG_DEF, GRUPOS, meses, type Prod } from './Ofertas'
+import { armarProductos, CFG_DEF, ChipsStockProceso, GRUPOS, meses, useEstadoStock, type EstadoStock, type Prod } from './Ofertas'
 import '../estilos/ofertas.css'
 
 const money = (n: number) => '$' + (Number(n) || 0).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -315,6 +315,7 @@ function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mov
   }, [items, verCostos, analisis])
 
   const ventasPorId = useVentasTotales((prods ?? []).map((p) => p.id))
+  const est = useEstadoStock()
 
   // Agrega uno o varios de una sola vez (un solo guardado, así no se pisan entre sí).
   async function agregarProductos(nuevos: { codigo: string; desc: number }[]) {
@@ -492,7 +493,7 @@ function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mov
             {filas.length > 0 && !visibles.length && <p className="p-4 text-center text-xs text-slate-400">Ningún producto coincide con la búsqueda.</p>}
             {visibles.length > 0 && (
               <div className="vm-of" style={ESTILO_TARJETAS}><div className="grid-p">{visibles.map((f) => (
-                <TarjetaPromo key={f.codigo} f={f} ventas={f.id ? ventasPorId[f.id] : undefined}
+                <TarjetaPromo key={f.codigo} f={f} est={est?.[f.id]} ventas={f.id ? ventasPorId[f.id] : undefined}
                   editable={editar && (!f.estadoAprobacion || f.estadoAprobacion === 'Pendiente')}
                   onGuardar={(d) => guardarDesc(f.codigo, d)} onQuitar={() => quitarProducto(f.codigo)} />
               ))}</div></div>
@@ -500,7 +501,7 @@ function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mov
           </>}
 
           {vista === 'agregar' && puedeAgregar && (
-            <AgregarProductos excluir={items.map((i) => i.id)} analisis={analisis} agregar={agregarProductos} />
+            <AgregarProductos excluir={items.map((i) => i.id)} analisis={analisis} est={est} agregar={agregarProductos} />
           )}
         </div>
       </div>
@@ -512,7 +513,7 @@ function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mov
 const ESTILO_TARJETAS: React.CSSProperties = { minHeight: 0, background: 'transparent' }
 
 /* Mismas etiquetas que Ofertas › Por aprobar, para leer igual los productos en los dos lados. */
-function EtiquetasProducto({ conObs, grupo, dias, ventas, stock, interes }: { conObs: boolean; grupo: string; dias: number; ventas?: number; stock: number; interes: number }) {
+function EtiquetasProducto({ conObs, grupo, dias, ventas, stock, interes, est }: { conObs: boolean; grupo: string; dias: number; ventas?: number; stock: number; interes: number; est?: EstadoStock }) {
   const g = GRUPOS[grupo]
   return (
     <div className="flex gap-1.5 flex-wrap mb-1">
@@ -523,11 +524,12 @@ function EtiquetasProducto({ conObs, grupo, dias, ventas, stock, interes }: { co
         : <span className="pill" style={{ background: '#ecfdf5', color: '#047857' }}>{ventas} venta{ventas === 1 ? '' : 's'} registrada{ventas === 1 ? '' : 's'}</span>)}
       {stock >= 3 && <span className="pill" style={{ background: '#fff1e6', color: '#c2410c' }}>Sobrestock · {stock} u.</span>}
       {interes > 0 && <span className="pill" style={{ background: '#fff7ed', color: '#c2410c' }}><Users style={{ width: 11, height: 11 }} />{interes} cotizaron sin comprar</span>}
+      <ChipsStockProceso e={est} />
     </div>
   )
 }
 
-function TarjetaPromo({ f, ventas, editable, onGuardar, onQuitar }: { f: ProdPromo; ventas?: number; editable: boolean; onGuardar: (desc: number) => void; onQuitar: () => void }) {
+function TarjetaPromo({ f, est, ventas, editable, onGuardar, onQuitar }: { f: ProdPromo; est?: EstadoStock; ventas?: number; editable: boolean; onGuardar: (desc: number) => void; onQuitar: () => void }) {
   const original = f.descOriginal ?? f.desc
   const [valor, setValor] = useState(String(original))
   useEffect(() => { setValor(String(original)) }, [original])
@@ -540,7 +542,7 @@ function TarjetaPromo({ f, ventas, editable, onGuardar, onQuitar }: { f: ProdPro
     <article className="pc">
       <div className="pc-top"><div className="ph">{f.imagen ? <img loading="lazy" src={imgUrl(f.imagen, 300)} alt="" onError={(ev) => ev.currentTarget.remove()} /> : <Package style={{ width: 28, height: 28 }} />}</div>
         <div className="min-w-0 flex-1">
-          <EtiquetasProducto conObs={f.conObs} grupo={f.grupo} dias={f.dias} ventas={ventas} stock={f.stock} interes={f.interes} />
+          <EtiquetasProducto conObs={f.conObs} grupo={f.grupo} dias={f.dias} ventas={ventas} stock={f.stock} interes={f.interes} est={est} />
           <p className="font-bold text-[14px] leading-snug text-slate-800 line-clamp-2">{f.nombre}</p>
           <p className="text-[11px] text-slate-400 mono">{f.codigo} · {f.categoria}{!f.enCatalogo ? ' · No está en el catálogo' : ''}</p>
           <p className="text-[12px] text-slate-600 mt-1"><b>{f.stock}</b> u. · {money(f.capitalPvp)} detenido</p>
@@ -605,7 +607,7 @@ function useVentasTotales(ids: string[]) {
    está en la campaña; al escribir, busca en TODO el inventario, sin depender de lo que sugiera el sistema. */
 type Cand = { id: string; codigo: string; nombre: string; categoria: string; img: string; pvp: number; stock: number; enCatalogo: boolean | null; an?: Prod }
 type ProdBusqueda = { id: string; codigo: string; nombre: string; pvp: number | null; stock: number | null; imagen_url: string | null; en_catalogo: boolean | null; categoria: { nombre: string } | null }
-const FILTROS_REC: [string, string, (p: Prod) => boolean][] = [
+const FILTROS_REC: [string, string, (p: Prod, e?: EstadoStock) => boolean][] = [
   ['', 'Todos', () => true],
   ['12', 'Más de 12 meses', (p) => p.grupo === '12'],
   ['612', '6 a 12 meses', (p) => p.grupo === '612'],
@@ -613,9 +615,10 @@ const FILTROS_REC: [string, string, (p: Prod) => boolean][] = [
   ['obs', 'Con observaciones', (p) => p.conObs],
   ['int', 'Con interesados', (p) => p.interes > 0],
   ['sob', 'Sobrestock', (p) => p.stock >= 3],
+  ['rev', 'Por revisar', (_p, e) => (e?.revision ?? 0) > 0],
   ['nunca', 'Nunca vendidos', (p) => p.nuncaVendido],
 ]
-function AgregarProductos({ excluir, analisis, agregar }: { excluir: string[]; analisis: Prod[] | null; agregar: (n: { codigo: string; desc: number }[]) => Promise<void> }) {
+function AgregarProductos({ excluir, analisis, est, agregar }: { excluir: string[]; analisis: Prod[] | null; est: Record<string, EstadoStock> | null; agregar: (n: { codigo: string; desc: number }[]) => Promise<void> }) {
   const [q, setQ] = useState('')
   const [res, setRes] = useState<ProdBusqueda[] | null>(null)
   const [orden, setOrden] = useState('urg')
@@ -643,8 +646,8 @@ function AgregarProductos({ excluir, analisis, agregar }: { excluir: string[]; a
 
   const recomendados = useMemo(() => {
     const f = FILTROS_REC.find(([k]) => k === filtro)?.[2] ?? (() => true)
-    return (analisis ?? []).filter((p) => !fuera.has(p.codigo) && !p.oculto && p.pvp > 0 && f(p) && (!cat || p.categoria === cat))
-  }, [analisis, fuera, filtro, cat])
+    return (analisis ?? []).filter((p) => !fuera.has(p.codigo) && !p.oculto && p.pvp > 0 && f(p, est?.[p.id]) && (!cat || p.categoria === cat))
+  }, [analisis, fuera, filtro, cat, est])
   const categorias = useMemo(() => [...new Set((analisis ?? []).filter((p) => !fuera.has(p.codigo)).map((p) => p.categoria).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es')), [analisis, fuera])
 
   const lista: Cand[] = useMemo(() => {
@@ -683,7 +686,7 @@ function AgregarProductos({ excluir, analisis, agregar }: { excluir: string[]; a
             <option value="urg">Más urgentes de liquidar</option><option value="cat">Categoría (A-Z)</option><option value="pvp">Precio (mayor a menor)</option>
             <option value="desc">% sugerido (mayor a menor)</option><option value="nombre">Nombre (A-Z)</option></select>
         </div>
-        {!buscando && <div className="mkc-chips">{FILTROS_REC.map(([k, t]) => <button key={k} type="button" className={filtro === k ? 'on' : ''} onClick={() => setFiltro(k)}>{t}</button>)}</div>}
+        {!buscando && <div className="mkc-chips">{FILTROS_REC.filter(([k]) => k !== 'rev' || est).map(([k, t]) => <button key={k} type="button" className={filtro === k ? 'on' : ''} onClick={() => setFiltro(k)}>{t}</button>)}</div>}
         <div className="flex items-center gap-2 flex-wrap">
           <p className="text-[12px] text-slate-500 mr-auto">
             {buscando
@@ -704,7 +707,7 @@ function AgregarProductos({ excluir, analisis, agregar }: { excluir: string[]; a
             <article key={p.id} className="pc">
               <div className="pc-top"><div className="ph">{p.img ? <img loading="lazy" src={p.img} alt="" onError={(ev) => ev.currentTarget.remove()} /> : <Package style={{ width: 28, height: 28 }} />}</div>
                 <div className="min-w-0 flex-1">
-                  <EtiquetasProducto conObs={an?.conObs ?? false} grupo={an?.grupo ?? ''} dias={an?.dias ?? 0} ventas={ventas[p.id]} stock={p.stock} interes={an?.interes ?? 0} />
+                  <EtiquetasProducto conObs={an?.conObs ?? false} grupo={an?.grupo ?? ''} dias={an?.dias ?? 0} ventas={ventas[p.id]} stock={p.stock} interes={an?.interes ?? 0} est={est?.[p.id]} />
                   <p className="font-bold text-[14px] leading-snug text-slate-800 line-clamp-2">{p.nombre}</p>
                   <p className="text-[11px] text-slate-400 mono">{p.codigo} · {p.categoria}{p.enCatalogo === false ? ' · No está en el catálogo' : ''}</p>
                   <p className="text-[12px] text-slate-600 mt-1"><b>{p.stock}</b> u.{an ? ` · ${money(an.capitalPvp)} detenido` : ''}</p>

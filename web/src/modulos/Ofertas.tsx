@@ -109,6 +109,34 @@ function plantillas(p: Prod, o: Oferta) {
 }
 type Textos = ReturnType<typeof plantillas>
 
+/* Dónde está el stock que NO es vendible todavía (misma fuente que Inventario: inv_estado_stock):
+   por revisar = ya llegó a bodega (importación) y Bodega aún no lo aprueba; en reparación = Servicio Técnico;
+   por llegar = en camino. Devuelve null mientras carga o si el usuario no tiene acceso a Inventario. */
+export type EstadoStock = { revision: number; reparacion: number; porLlegar: number }
+export function useEstadoStock(): Record<string, EstadoStock> | null {
+  const [est, setEst] = useState<Record<string, EstadoStock> | null>(null)
+  useEffect(() => {
+    let vivo = true
+    supabase.rpc('inv_estado_stock').then(({ data, error }) => {
+      if (!vivo || error) return
+      const m = (data as { productos?: Record<string, Partial<EstadoStock>> } | null)?.productos ?? {}
+      setEst(Object.fromEntries(Object.entries(m).map(([id, o]) => [id, { revision: Number(o.revision) || 0, reparacion: Number(o.reparacion) || 0, porLlegar: Number(o.porLlegar) || 0 }])))
+    })
+    return () => { vivo = false }
+  }, [])
+  return est
+}
+export function ChipsStockProceso({ e }: { e?: EstadoStock }) {
+  if (!e || (!e.revision && !e.reparacion && !e.porLlegar)) return null
+  return (
+    <>
+      {e.revision > 0 && <span className="pill" title="Ya llegó a bodega y Bodega aún no lo aprueba" style={{ background: '#eef2ff', color: '#4338ca' }}>{e.revision} por revisar</span>}
+      {e.reparacion > 0 && <span className="pill" title="En Servicio Técnico" style={{ background: '#fef3c7', color: '#92400e' }}>{e.reparacion} en reparación</span>}
+      {e.porLlegar > 0 && <span className="pill" title="En camino de una importación" style={{ background: '#e0f2fe', color: '#075985' }}>{e.porLlegar} por llegar</span>}
+    </>
+  )
+}
+
 /* ============================ Por aprobar (campañas de Promociones) ============================ */
 type ItemCampana = { id: string; desc?: number | null; descPropuesto?: number | null; nota?: string; estadoAprobacion?: string; descAprobado?: number; ofertaId?: string }
 type CampanaPend = { id: string; codigo: string | null; nombre: string; inicio: string | null; fin: string | null; items: ItemCampana[] }
@@ -134,6 +162,7 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
   const [abierto, setAbierto] = useState<{ p: Prod; o: Oferta | null } | null>(null)
   const [hoja, setHoja] = useState<'ajustes' | 'plan' | 'pdf' | 'papelera' | null>(null)
   const [cargando, setCargando] = useState(false)
+  const est = useEstadoStock()
   const puedeEditar = puede(perfil, 'ofertas', 'editar'), puedeCrear = puede(perfil, 'ofertas', 'crear'), puedeEliminar = puede(perfil, 'ofertas', 'eliminar')
 
   const cargar = useCallback(async () => {
@@ -172,10 +201,10 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
   const ofertasVis = ofertas.filter((o) => acepta(catOferta(o)))
   const filtrados = useMemo(() => {
     const w = norm(q).trim().split(/\s+/).filter(Boolean)
-    const l = P.filter((p) => acepta(p.categoria) && enGrupo(p, filtro) && (!w.length || w.every((x) => norm([p.codigo, p.nombre, p.categoria, p.marca, p.motivosObs.join(' ')].join(' ')).includes(x))))
+    const l = P.filter((p) => acepta(p.categoria) && (filtro === 'rev' ? (est?.[p.id]?.revision ?? 0) > 0 : enGrupo(p, filtro)) && (!w.length || w.every((x) => norm([p.codigo, p.nombre, p.categoria, p.marca, p.motivosObs.join(' ')].join(' ')).includes(x))))
     const f: Record<string, (a: Prod, b: Prod) => number> = { urg: (a, b) => b.urgencia - a.urgencia, cap: (a, b) => b.capitalPvp - a.capitalPvp, edad: (a, b) => b.dias - a.dias, int: (a, b) => b.interes - a.interes || b.urgencia - a.urgencia }
     return l.sort(f[orden])
-  }, [P, q, filtro, orden, cats]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [P, q, filtro, orden, cats, est]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const R: Record<string, [number, number, number]> = { '36': [0, 0, 0], '612': [0, 0, 0], '12': [0, 0, 0], obs: [0, 0, 0], nunca: [0, 0, 0] }
   P.forEach((x) => { const add = (k: string) => { R[k][0]++; R[k][1] += x.capitalCosto; R[k][2] += x.capitalPvp }; if (!x.conObs && R[x.grupo]) add(x.grupo); if (x.conObs) add('obs'); if (x.nuncaVendido) add('nunca') })
@@ -245,7 +274,7 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
           <div className="min-w-0"><h1 className="font-display font-bold text-lg leading-tight">Ofertas y Liquidación</h1><p className="text-[11px] text-white/70">Stock dormido, estrategias y resultados · {perfil.nombre}</p></div>
           <div className="ml-auto flex gap-2 flex-wrap">
             <button className="btn btn-sm btn-g" title="Filtrar productos y descargar PDF con fotos" onClick={() => setHoja('pdf')}><FileDown /><span>PDF con fotos</span></button>
-            <button className="btn btn-sm btn-g" title="Descargar la lista actual en Excel" onClick={() => descargarExcel(tab, filtrados, ofertasVis, aviso)}><Download /><span>Descargar Excel</span></button>
+            <button className="btn btn-sm btn-g" title="Descargar la lista actual en Excel" onClick={() => descargarExcel(tab, filtrados, ofertasVis, aviso, est)}><Download /><span>Descargar Excel</span></button>
             {puedeEliminar && <button className="btn btn-sm btn-g" title="Ofertas eliminadas" onClick={() => setHoja('papelera')}><Trash2 /></button>}
             {puedeCrear && <button className="btn btn-sm btn-g" title="Elegir varios productos y crear sus ofertas sugeridas" onClick={() => { setPlan(!plan); setSel(new Set()); setTab('opor'); if (!plan) aviso('Toca los productos para incluirlos en el plan.') }}><WandSparkles /><span className="hidden sm:inline">Plan de liquidación</span></button>}
             <button className="btn btn-sm btn-g" title="Ajustes" onClick={() => setHoja('ajustes')}><SlidersHorizontal /><span className="hidden sm:inline">Ajustes</span></button>
@@ -266,8 +295,9 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
                 <div className="rounded-2xl bg-white/10 p-3"><p className="text-[11px] text-white/70 font-semibold">Ofertas activas</p><b className="font-display text-xl">{activas.length}</b><p className="text-[11px] text-white/60">{money0(recTotal)} recuperado en total</p></div></div></div>
           )}
         </section>
-        <div className="kpis">
-          {[...['36', '612', '12', 'obs', 'nunca'].map((k) => [k, GRUPOS[k].t, R[k][0], money0(R[k][2]) + ' detenido', GRUPOS[k].hex] as const), ['activas', 'Con oferta vigente', act, `de ${P.length} productos`, '#04896f'] as const].map(([k, t, n, s, c]) => (
+        <div className={'kpis' + (est ? ' k7' : '')}>
+          {[...['36', '612', '12', 'obs', 'nunca'].map((k) => [k, GRUPOS[k].t, R[k][0], money0(R[k][2]) + ' detenido', GRUPOS[k].hex] as const), ['activas', 'Con oferta vigente', act, `de ${P.length} productos`, '#04896f'] as const,
+            ...(est ? [['rev', 'Con stock por revisar', P.filter((p) => (est[p.id]?.revision ?? 0) > 0).length, `${P.reduce((a, p) => a + (est[p.id]?.revision ?? 0), 0)} u. en bodega sin aprobar`, '#4338ca'] as const] : [])].map(([k, t, n, s, c]) => (
             <button key={k} className={'kpi' + (filtro === k ? ' on' : '')} style={{ ['--c' as string]: c }} onClick={() => { setFiltro(filtro === k ? '' : k); setTab('opor'); setMostrar(24) }}><small>{t}</small><b>{n}</b><span>{s}</span></button>
           ))}
         </div>
@@ -287,7 +317,7 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
             </div>
             <div className={'grid-p' + (plan ? ' plan' : '')}>
               {prods && !filtrados.length && <div className="vacio col-span-full"><PartyPopper className="mx-auto mb-2" style={{ width: 34, height: 34 }} /><p className="font-semibold">Nada por aquí.</p><p className="text-sm">{filtro ? 'Ningún producto en este grupo.' : 'No hay stock dormido: todo rota en menos de 3 meses.'}</p></div>}
-              {filtrados.slice(0, mostrar).map((p) => <Tarjeta key={p.id} p={p} sel={sel.has(p.id)} click={() => {
+              {filtrados.slice(0, mostrar).map((p) => <Tarjeta key={p.id} p={p} est={est?.[p.id]} sel={sel.has(p.id)} click={() => {
                 if (plan) { if (p.ofertaId || !(p.pvp > 0)) { aviso(p.ofertaId ? 'Ya tiene una oferta vigente.' : 'Sin PVP no se puede ofertar.'); return } const n = new Set(sel); n.has(p.id) ? n.delete(p.id) : n.add(p.id); setSel(n); return }
                 abrirProd(p) }} />)}
             </div>
@@ -295,7 +325,7 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
           </section>
         )}
         {tab === 'ofertas' && <ListaOfertas ofertas={ofertasVis} prods={P} abrir={(o) => abrirProd(P.find((p) => p.id === o.productoId) ?? productoDesdeOferta(o), o)} />}
-        {tab === 'aprobar' && <PorAprobar campanas={campanasPendientes} prods={P} margenMinimo={cfg.margenMinimo} aviso={aviso} recargar={cargar} />}
+        {tab === 'aprobar' && <PorAprobar campanas={campanasPendientes} prods={P} est={est} margenMinimo={cfg.margenMinimo} aviso={aviso} recargar={cargar} />}
         {tab === 'res' && <Resultados ofertas={ofertasVis.filter((o) => o.estado !== 'Programada')} />}
       </main>
 
@@ -324,7 +354,7 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
   )
 }
 
-function Tarjeta({ p, sel, click }: { p: Prod; sel: boolean; click: () => void }) {
+function Tarjeta({ p, est, sel, click }: { p: Prod; est?: EstadoStock; sel: boolean; click: () => void }) {
   const e = p.estrategia, I = TIPO_IC[e.tipo] || Tag, g = GRUPOS[p.grupo]
   return (
     <article className={'pc' + (sel ? ' sel' : '')} onClick={click}>
@@ -335,7 +365,7 @@ function Tarjeta({ p, sel, click }: { p: Prod; sel: boolean; click: () => void }
           <div className="flex gap-1.5 flex-wrap mb-1">
             {p.conObs ? <span className="pill" style={{ background: '#f3e8ff', color: '#6d28d9' }}><AlertTriangle style={{ width: 11, height: 11 }} />Con observaciones</span> : g ? <span className="pill" style={{ background: g.hex + '1f', color: g.hex }}>{meses(p.dias)} en bodega</span> : p.nuncaVendido ? <span className="pill" style={{ background: '#f1f5f9', color: '#334155' }}>Nunca vendido</span> : null}
             {p.ofertaId && <span className="pill e-Activa"><Tag style={{ width: 11, height: 11 }} />En oferta</span>}
-            {p.interes > 0 && <span className="pill" style={{ background: '#e0f2fe', color: '#075985' }}><Users style={{ width: 11, height: 11 }} />{p.interes} interesado{p.interes > 1 ? 's' : ''}</span>}</div>
+            {p.interes > 0 && <span className="pill" style={{ background: '#e0f2fe', color: '#075985' }}><Users style={{ width: 11, height: 11 }} />{p.interes} interesado{p.interes > 1 ? 's' : ''}</span>}<ChipsStockProceso e={est} /></div>
           <p className="font-bold text-[14px] leading-snug text-slate-800 line-clamp-2">{p.nombre}</p>
           <p className="text-[11px] text-slate-400 mono">{p.codigo} · {p.categoria}</p>
           <p className="text-[12px] text-slate-600 mt-1"><b>{p.stock}</b> u. · {money0(p.capitalPvp)} detenido{p.ultVenta ? ' · última venta ' + meses(p.diasSinVenta ?? 0) : ' · sin ventas registradas'}</p>
@@ -350,8 +380,8 @@ function Tarjeta({ p, sel, click }: { p: Prod; sel: boolean; click: () => void }
   )
 }
 
-type ProdPend = { id: string; codigo: string; nombre: string; imagen: string; categoria: string; pvp: number; costo: number | null }
-function PorAprobar({ campanas, prods, margenMinimo, aviso, recargar }: { campanas: CampanaPend[]; prods: Prod[]; margenMinimo: number; aviso: (t: string) => void; recargar: () => void }) {
+type ProdPend = { id: string; codigo: string; nombre: string; imagen: string; categoria: string; pvp: number; stock: number; costo: number | null }
+function PorAprobar({ campanas, prods, est, margenMinimo, aviso, recargar }: { campanas: CampanaPend[]; prods: Prod[]; est: Record<string, EstadoStock> | null; margenMinimo: number; aviso: (t: string) => void; recargar: () => void }) {
   const [extra, setExtra] = useState<Record<string, ProdPend>>({})
   const [ventasTot, setVentasTot] = useState<Record<string, number>>({})
   const [orden, setOrden] = useState('cat')
@@ -369,13 +399,13 @@ function PorAprobar({ campanas, prods, margenMinimo, aviso, recargar }: { campan
     if (!faltan.length) { setExtra({}); return }
     let vivo = true
     ;(async () => {
-      const { data: p } = await supabase.from('productos').select('id,codigo,nombre,imagen_url,pvp,categoria:categorias(nombre)').in('codigo', faltan).is('deleted_at', null)
+      const { data: p } = await supabase.from('productos').select('id,codigo,nombre,imagen_url,pvp,stock,categoria:categorias(nombre)').in('codigo', faltan).is('deleted_at', null)
       if (!vivo) return
-      const filas2 = (p ?? []) as unknown as { id: string; codigo: string; nombre: string; imagen_url: string | null; pvp: number | null; categoria: { nombre: string } | null }[]
+      const filas2 = (p ?? []) as unknown as { id: string; codigo: string; nombre: string; imagen_url: string | null; pvp: number | null; stock: number | null; categoria: { nombre: string } | null }[]
       const { data: co } = await supabase.from('productos_costos').select('producto_id,costo_importacion').in('producto_id', filas2.map((x) => x.id)).is('deleted_at', null)
       const costos = Object.fromEntries(((co ?? []) as { producto_id: string; costo_importacion: number | null }[]).map((x) => [x.producto_id, Number(x.costo_importacion) || 0]))
       const mapa: Record<string, ProdPend> = {}
-      filas2.forEach((x) => { mapa[x.codigo] = { id: x.id, codigo: x.codigo, nombre: x.nombre, imagen: x.imagen_url ?? '', categoria: x.categoria?.nombre ?? '—', pvp: Number(x.pvp) || 0, costo: costos[x.id] ?? 0 } })
+      filas2.forEach((x) => { mapa[x.codigo] = { id: x.id, codigo: x.codigo, nombre: x.nombre, imagen: x.imagen_url ?? '', categoria: x.categoria?.nombre ?? '—', pvp: Number(x.pvp) || 0, stock: Number(x.stock) || 0, costo: costos[x.id] ?? 0 } })
       setExtra(mapa)
     })()
     return () => { vivo = false }
@@ -410,7 +440,7 @@ function PorAprobar({ campanas, prods, margenMinimo, aviso, recargar }: { campan
     const x = extra[codigo]
     if (!x) return null
     return {
-      id: x.id, codigo: x.codigo, nombre: x.nombre, categoria: x.categoria, marca: '', img: x.imagen ? imgUrl(x.imagen, 300) : '', stock: 0, pvp: x.pvp, dis: 0, costo: x.costo ?? 0,
+      id: x.id, codigo: x.codigo, nombre: x.nombre, categoria: x.categoria, marca: '', img: x.imagen ? imgUrl(x.imagen, 300) : '', stock: x.stock, pvp: x.pvp, dis: 0, costo: x.costo ?? 0,
       obs: '', nc: 0, rep: 0, noRep: 0, motivosObs: [], conObs: false, oculto: false, dias: 0, grupo: '', lotes: [], ultVenta: '', diasSinVenta: null, v90: 0, v365: 0, nuncaVendido: false,
       interes: 0, capitalCosto: 0, capitalPvp: 0, ofertaId: '', urgencia: 0,
       estrategia: { tipo: 'Precio especial', descuento: 0, precio: x.pvp, porque: '', limitadoPorCosto: false, maxDesc: 90, piso: 0, margen: null, recupera: 0, dias: 30, comboCon: '', comboNombre: '', regalo: '' },
@@ -510,7 +540,7 @@ function PorAprobar({ campanas, prods, margenMinimo, aviso, recargar }: { campan
                 const valor = ediciones[clave] ?? String(item.desc ?? 0)
                 if (!p) return <article key={clave} className="pc pc-ap"><p className="text-[11px] text-amber-700 p-3">Cargando {item.id}…</p></article>
                 return (
-                  <TarjetaAprobar key={clave} p={p} conAnalitica={porCodigo.has(item.id)} ventasTotales={ventasTot[item.id]} maxDesc={maxDe(p)} valor={valor} setValor={(v) => setEdiciones((x) => ({ ...x, [clave]: v }))} nota={item.nota}
+                  <TarjetaAprobar key={clave} p={p} est={est?.[p.id]} conAnalitica={porCodigo.has(item.id)} ventasTotales={ventasTot[item.id]} maxDesc={maxDe(p)} valor={valor} setValor={(v) => setEdiciones((x) => ({ ...x, [clave]: v }))} nota={item.nota}
                     trabajando={ocupado === clave || enGrupo} onAprobar={(d) => decidir(campana.id, item.id, 'Aprobar', d)} onRechazar={() => decidir(campana.id, item.id, 'Rechazar')} />
                 )
               })}
@@ -522,8 +552,8 @@ function PorAprobar({ campanas, prods, margenMinimo, aviso, recargar }: { campan
   )
 }
 
-function TarjetaAprobar({ p, conAnalitica, ventasTotales, maxDesc, valor, setValor, nota, trabajando, onAprobar, onRechazar }: {
-  p: Prod; conAnalitica: boolean; ventasTotales?: number; maxDesc: number | null; valor: string; setValor: (v: string) => void; nota?: string; trabajando: boolean; onAprobar: (desc: number) => void; onRechazar: () => void
+function TarjetaAprobar({ p, est, conAnalitica, ventasTotales, maxDesc, valor, setValor, nota, trabajando, onAprobar, onRechazar }: {
+  p: Prod; est?: EstadoStock; conAnalitica: boolean; ventasTotales?: number; maxDesc: number | null; valor: string; setValor: (v: string) => void; nota?: string; trabajando: boolean; onAprobar: (desc: number) => void; onRechazar: () => void
 }) {
   const g = GRUPOS[p.grupo]
   const desc = Math.max(0, Math.min(90, Number(valor) || 0))
@@ -538,7 +568,7 @@ function TarjetaAprobar({ p, conAnalitica, ventasTotales, maxDesc, valor, setVal
         <div className="min-w-0 flex-1">
           <p className="font-bold text-[14px] leading-snug text-slate-800 line-clamp-2" style={{ minHeight: 39 }} title={p.nombre}>{p.nombre}</p>
           <p className="text-[11px] text-slate-400 mono truncate">{p.codigo} · {p.categoria}</p>
-          {conAnalitica && <p className="text-[12px] text-slate-600 mt-1"><b>{p.stock}</b> u. · {money0(p.capitalPvp)} detenido{p.ultVenta ? ' · última venta ' + meses(p.diasSinVenta ?? 0) : ' · sin ventas registradas'}</p>}
+          <p className="text-[12px] text-slate-600 mt-1"><b>{p.stock}</b> u.{conAnalitica && <> · {money0(p.capitalPvp)} detenido{p.ultVenta ? ' · última venta ' + meses(p.diasSinVenta ?? 0) : ' · sin ventas registradas'}</>}</p>
         </div>
       </div>
       <div className="pc-meta">
@@ -550,6 +580,7 @@ function TarjetaAprobar({ p, conAnalitica, ventasTotales, maxDesc, valor, setVal
             : <span className="pill" style={{ background: '#ecfdf5', color: '#047857' }}>{ventasTotales} venta{ventasTotales === 1 ? '' : 's'} registrada{ventasTotales === 1 ? '' : 's'}</span>)}
           {sobrestock && <span className="pill" style={{ background: '#fff1e6', color: '#c2410c' }}>Sobrestock · {p.stock} u.</span>}
           {p.interes > 0 && <span className="pill" style={{ background: '#fff7ed', color: '#c2410c' }}><Users style={{ width: 11, height: 11 }} />{p.interes} cotizaron sin comprar</span>}
+          <ChipsStockProceso e={est} />
         </div>
         {p.conObs && <p className="text-[11.5px] text-violet-700 font-semibold mt-1.5 line-clamp-2">{p.motivosObs.join(' · ')}</p>}
         {nota && <p className="text-[11.5px] text-slate-500 mt-1.5 italic">"{nota}"</p>}
@@ -849,15 +880,15 @@ function Papelera({ cerrar, aviso, restaurado }: { cerrar: () => void; aviso: (t
 /* ============================ Excel (SheetJS bajo demanda) y PDF con fotos ============================ */
 let sheetjs: Promise<any> | null = null // eslint-disable-line @typescript-eslint/no-explicit-any
 const libXlsx = () => (sheetjs ??= new Promise((ok, fail) => { const w = window as never as { XLSX?: unknown }; if (w.XLSX) return ok(w.XLSX); const s = document.createElement('script'); s.src = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js'; s.onload = () => (w.XLSX ? ok(w.XLSX) : fail(new Error('No se pudo cargar la descarga Excel.'))); s.onerror = () => { sheetjs = null; fail(new Error('No se pudo cargar la descarga Excel. Revisa tu conexión e intenta de nuevo.')) }; document.head.appendChild(s) }))
-async function descargarExcel(tab: string, productos: Prod[], ofertas: Oferta[], aviso: (m: string) => void) {
+async function descargarExcel(tab: string, productos: Prod[], ofertas: Oferta[], aviso: (m: string) => void, est: Record<string, EstadoStock> | null) {
   const filasO = (os: Oferta[]) => [['ID oferta', 'Código producto', 'Producto', 'Estado', 'Tipo', 'Descuento (%)', 'PVP (USD)', 'Precio oferta (USD)', 'Costo (USD)', 'Inicio', 'Fin', 'Meta unidades', 'Stock inicial', 'Unidades vendidas', 'Recuperado (USD)', 'Días activa', 'Creado por', 'Texto de oferta', 'Combo con', 'Regalo'],
     ...os.map((o) => [o.codigo, o.productoId, o.producto, o.estado, o.tipo, o.descuento, o.pvp, o.precio, o.costo, fechaC(o.inicio), fechaC(o.fin), o.objetivo || o.stockInicial || 1, o.stockInicial, o.vendidas, o.recuperado, o.diasActiva, o.creadoPor, o.texto, o.comboCon, o.regalo])]
   const hojas: [string, (string | number)[][]][] = []; let nombre = ''
   if (tab === 'opor') {
     if (!productos.length) return aviso('No hay productos para descargar con estos filtros.')
     nombre = 'Oportunidades'
-    hojas.push([nombre, [['Código', 'Producto', 'Categoría', 'Marca', 'Grupo', 'Stock', 'Antigüedad (días)', 'Vendidas en 12 meses', 'Última venta', 'PVP (USD)', 'Costo (USD)', 'Capital detenido PVP (USD)', 'Interesados', 'Observaciones', 'Estrategia sugerida', 'Descuento sugerido (%)', 'Precio sugerido (USD)', 'Recuperación sugerida (USD)', 'Vigencia sugerida (días)', 'Motivo de estrategia', 'Oferta vigente'],
-      ...productos.map((p) => [p.codigo, p.nombre, p.categoria, p.marca, p.conObs ? 'Con observaciones' : GRUPOS[p.grupo]?.t || (p.nuncaVendido ? 'Nunca vendidos' : ''), p.stock, p.dias, p.v365, p.ultVenta ? fechaC(p.ultVenta) : '', p.pvp, p.costo, p.capitalPvp, p.interes, p.motivosObs.join(' · '), p.estrategia.tipo, p.estrategia.descuento, p.estrategia.precio, p.estrategia.recupera, p.estrategia.dias, p.estrategia.porque, p.ofertaId])]])
+    hojas.push([nombre, [['Código', 'Producto', 'Categoría', 'Marca', 'Grupo', 'Stock', 'Antigüedad (días)', 'Vendidas en 12 meses', 'Última venta', 'PVP (USD)', 'Costo (USD)', 'Capital detenido PVP (USD)', 'Interesados', 'Observaciones', 'Estrategia sugerida', 'Descuento sugerido (%)', 'Precio sugerido (USD)', 'Recuperación sugerida (USD)', 'Vigencia sugerida (días)', 'Motivo de estrategia', 'Oferta vigente', 'Por revisar (u.)', 'En reparación (u.)', 'Por llegar (u.)'],
+      ...productos.map((p) => [p.codigo, p.nombre, p.categoria, p.marca, p.conObs ? 'Con observaciones' : GRUPOS[p.grupo]?.t || (p.nuncaVendido ? 'Nunca vendidos' : ''), p.stock, p.dias, p.v365, p.ultVenta ? fechaC(p.ultVenta) : '', p.pvp, p.costo, p.capitalPvp, p.interes, p.motivosObs.join(' · '), p.estrategia.tipo, p.estrategia.descuento, p.estrategia.precio, p.estrategia.recupera, p.estrategia.dias, p.estrategia.porque, p.ofertaId, est?.[p.id]?.revision ?? 0, est?.[p.id]?.reparacion ?? 0, est?.[p.id]?.porLlegar ?? 0])]])
   } else if (tab === 'ofertas') { if (!ofertas.length) return aviso('No hay ofertas para descargar.'); nombre = 'Ofertas'; hojas.push([nombre, filasO(ofertas)]) }
   else {
     const os = ofertas.filter((o) => o.estado !== 'Programada'); if (!os.length) return aviso('No hay resultados para descargar.'); nombre = 'Resultados'
