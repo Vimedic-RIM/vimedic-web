@@ -4,7 +4,8 @@ import {
   GalleryHorizontal as Gallery, Image as ImageIcon, Images, LayoutDashboard, Lightbulb, ListChecks, Megaphone, PenLine, PieChart, Receipt, RefreshCw, Search, Send, ShoppingBag, Smartphone, Palette,
   Target, TrendingUp, Trash2, UploadCloud, UserCheck, Users, Video, X, Settings, Copy,
 } from 'lucide-react'
-import { Configuracion, Biblioteca, Revision } from './MarketingIntegraciones'
+import { Configuracion, Biblioteca } from './MarketingIntegraciones'
+import { Revision } from './MarketingRevision'
 import { Planificador } from './MarketingPlanificador'
 import { Anuncios, Material, Promociones } from './MarketingExtra'
 import { SubirMaterial, PapeleraAv, BuscadorProducto, useEquipo, type ProdBusq } from './MarketingArchivos'
@@ -120,6 +121,13 @@ export default function Marketing({ perfil, aviso, accion, limpiarAccion }: { pe
   const [subir, setSubir] = useState(false)
   const [papelera, setPapelera] = useState(false)
   const [abrirPublicacion, setAbrirPublicacion] = useState(false)
+  // Contador de Revisión en la barra (mkfContador): por aprobar para Coordinación, por corregir para el resto.
+  const [porRevisar, setPorRevisar] = useState(0)
+  useEffect(() => {
+    const leer = () => { if (document.hidden) return; supabase.rpc('mkt_revision_contador').then(({ data }) => { const c = (data ?? {}) as { coord?: boolean; porAprobar?: number; conCambios?: number }; setPorRevisar((c.coord ? c.porAprobar : c.conCambios) ?? 0) }) }
+    leer(); const t = window.setInterval(leer, 120000)
+    return () => window.clearInterval(t)
+  }, [tab])
 
   // Acceso directo de la barra lateral: lleva a la pestaña correcta y abre el formulario de una vez.
   useEffect(() => {
@@ -286,7 +294,7 @@ export default function Marketing({ perfil, aviso, accion, limpiarAccion }: { pe
   return (
     <div className="vm-mkt">
       <nav id="sideNav" aria-label="Secciones de Marketing">
-        {NAV.filter(([k]) => k !== 'configuracion' || puedeAdmin).map(([k, t, I]) => <button key={k} type="button" className={'nav-btn' + (tab === k ? ' active' : '')} data-tip={t} aria-label={t} onClick={() => setTab(k)}><I /></button>)}
+        {NAV.filter(([k]) => k !== 'configuracion' || puedeAdmin).map(([k, t, I]) => <button key={k} type="button" className={'nav-btn' + (tab === k ? ' active' : '')} data-tip={t} aria-label={t} onClick={() => setTab(k)}><I />{k === 'revision' && porRevisar > 0 && <span className="mk-nav-badge">{porRevisar > 99 ? '99+' : porRevisar}</span>}</button>)}
         <div className="nav-sep" />
         {puedeCrear && <button type="button" className="nav-btn create" data-tip="Crear publicación" aria-label="Crear publicación" onClick={() => setTab('planificador')}><PenLine /></button>}
         <button type="button" className="nav-btn" data-tip="Actualizar" aria-label="Actualizar" onClick={cargarDatos}><RefreshCw /></button>
@@ -398,7 +406,7 @@ export default function Marketing({ perfil, aviso, accion, limpiarAccion }: { pe
 
         {tab === 'planificador' && <Planificador perfil={perfil} piezas={(av ?? []).map((a) => ({ id: a.id, titulo: a.titulo, tipo: a.tipo, estado: a.estado, url: a.url, producto: a.producto, mime: a.mime, notas: a.notas, productoId: a.productoId ?? undefined, enlace: enlaceZernio(a), mini: miniaturaAv(a, 480) }))} piezaInicial={piezaProgramar ? { id: piezaProgramar.id, titulo: piezaProgramar.titulo, tipo: piezaProgramar.tipo, estado: piezaProgramar.estado, url: piezaProgramar.url, producto: piezaProgramar.producto, mime: piezaProgramar.mime, notas: piezaProgramar.notas, productoId: piezaProgramar.productoId ?? undefined, enlace: enlaceZernio(piezaProgramar), mini: miniaturaAv(piezaProgramar, 480) } : null} limpiarPieza={() => setPiezaProgramar(null)} irConfig={() => setTab('configuracion')} aviso={aviso} alSincronizar={cargarDatos} abrirAlEntrar={abrirPublicacion} consumirAbrir={() => setAbrirPublicacion(false)} />}
         {tab === 'biblioteca' && <Biblioteca perfil={perfil} aviso={aviso} />}
-        {tab === 'revision' && <Revision perfil={perfil} aviso={aviso} />}
+        {tab === 'revision' && <Revision perfil={perfil} aviso={aviso} irA={setTab} />}
         {tab === 'configuracion' && puedeAdmin && <Configuracion aviso={aviso} alCambiar={() => undefined} />}
 
         {tab === 'anuncios' && <Anuncios perfil={perfil} desde={desde} hasta={hasta} aviso={aviso} />}

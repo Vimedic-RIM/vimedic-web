@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ArrowDown, ArrowUp, BookOpen, CalendarClock, Check, CircleCheck, ClipboardCheck, Copy, Eye, FileBadge, FileText, Film, Globe, ImagePlus, KeyRound, Link2, Plug, RefreshCw, Search, Send, Sparkles, Tag, Trash2, Upload, Video, X, XCircle,
+  ArrowDown, ArrowUp, Check, CircleCheck, Copy, Eye, FileBadge, FileText, Film, Globe, ImagePlus, KeyRound, Link2, Plug, RefreshCw, Search, Sparkles, Tag, Trash2, Upload, Video, X,
 } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
 import { imagen, Interruptor } from './Inventario'
+import { leerAjustesFicha, type AjustesFicha } from './MarketingRevision'
 
 /* Conexiones de Marketing: Zernio (redes) y Gemini (IA). Las claves viven en el servidor (Edge Function): el navegador nunca las ve. */
 export async function llamar<T = Record<string, unknown>>(accion: string, datos: Record<string, unknown> = {}, funcion = 'marketing-integraciones'): Promise<T> {
@@ -220,6 +221,7 @@ export function Biblioteca({ perfil, aviso }: { perfil: Perfil; aviso: (t: strin
         if (pagina.length < PAGE) break
       }
       setProductos(todos); setCargando(false)
+      try { const abrir = sessionStorage.getItem('vm_mk_abrir_prod'); if (abrir) { sessionStorage.removeItem('vm_mk_abrir_prod'); const p = todos.find((x) => x.id === abrir); if (p) setSel(p) } } catch { /* sin almacenamiento */ }
 
       const c: Record<string, number> = {}
       for (let desde = 0; ; desde += PAGE) {
@@ -355,10 +357,12 @@ const DOC_OBLIGATORIOS = ['Manual de usuario', 'Hoja de datos del fabricante', '
 type Ficha = { version: number; url: string; fecha: string }
 type Especificacion = { dato: string; valor: string }
 
-function construirFichaHtml(full: ProdFull, codigo: string, destacadosSel: string[], especs: Especificacion[]): string {
+function construirFichaHtml(full: ProdFull, codigo: string, destacadosSel: string[], especs: Especificacion[], aj?: AjustesFicha | null): string {
   const esc = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   const car = full.caracteristicas.split('\n').map((x) => x.trim()).filter(Boolean)
-  const certs = full.certificaciones.split(/[,;·\n]/).map((x) => x.trim()).filter(Boolean)
+  // Certificaciones del producto; si no tiene, las de los Ajustes de la ficha (Revisión › Ajustes).
+  const certs = (full.certificaciones.trim() ? full.certificaciones : aj?.certificaciones ?? '').split(/[,;·\n]/).map((x) => x.trim()).filter(Boolean)
+  const contacto = [aj?.web || 'vimedic.com.ec', aj?.telefono, aj?.correo].filter(Boolean).map((x) => esc(x)).join(' · ')
   const destacadosEsp = destacadosSel.length ? especs.filter((e) => destacadosSel.includes(e.dato)) : especs.slice(0, 3)
   return `<style>
     .ft-page{font-family:Arial,sans-serif;color:#0b2545;font-size:12px;width:210mm;min-height:297mm;box-sizing:border-box;padding:16mm;margin:0 auto;background:#fff}
@@ -387,7 +391,7 @@ function construirFichaHtml(full: ProdFull, codigo: string, destacadosSel: strin
     ${especs.length ? `<h3 style="font-size:12px;margin:14px 0 4px">Especificaciones técnicas</h3><table class="ft-tabla">${especs.map((e) => `<tr><td style="font-weight:bold;width:40%">${esc(e.dato)}</td><td>${esc(e.valor)}</td></tr>`).join('')}</table>` : ''}
     ${full.garantia ? `<p style="font-size:11px;margin-top:10px"><b>Garantía:</b> ${esc(full.garantia)}</p>` : ''}
     ${certs.length ? `<div style="margin-top:8px">${certs.map((c) => `<span class="ft-cert">${esc(c)}</span>`).join('')}</div>` : ''}
-    <p style="margin-top:24px;font-size:9px;color:#94a3b8;text-align:center">vimedic.com.ec · ${esc(codigo)}</p>
+    <p style="margin-top:24px;font-size:9px;color:#94a3b8;text-align:center">${contacto} · ${esc(codigo)}</p>
   </div>`
 }
 const WEB = 'vimedic.com.ec'
@@ -410,6 +414,8 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
   const [docTipo, setDocTipo] = useState(DOC_TIPOS[0])
   const [docSubiendo, setDocSubiendo] = useState(false)
   const [ficha, setFicha] = useState<Ficha | null>(null)
+  const [ajustes, setAjustes] = useState<AjustesFicha | null>(null)
+  useEffect(() => { leerAjustesFicha().then(setAjustes).catch(() => undefined) }, [])
   const [generando, setGenerando] = useState(false)
   const [optimizando, setOptimizando] = useState(false)
   const aprobar = puede(perfil, 'marketing', 'aprobar')
@@ -458,7 +464,7 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
 
   function fichaVistaPrevia() {
     if (!full) return
-    const html = construirFichaHtml(full, prod.codigo, destacadosSel, especs)
+    const html = construirFichaHtml(full, prod.codigo, destacadosSel, especs, ajustes)
     const blob = new Blob([`<!doctype html><html><head><meta charset="utf-8"><title>Ficha técnica</title></head><body style="margin:0;background:#e2e8f0">${html}</body></html>`], { type: 'text/html;charset=utf-8' })
     window.open(URL.createObjectURL(blob), '_blank', 'noopener')
   }
@@ -468,7 +474,7 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
     setGenerando(true)
     try {
       const html2pdf = (await import('html2pdf.js')).default
-      const htmlStr = construirFichaHtml(full, prod.codigo, destacadosSel, especs)
+      const htmlStr = construirFichaHtml(full, prod.codigo, destacadosSel, especs, ajustes)
       const blob = await html2pdf().set({
         margin: 0, image: { type: 'jpeg', quality: 0.96 },
         html2canvas: { scale: 2, useCORS: true, allowTaint: false, logging: false, windowWidth: 794 },
@@ -554,17 +560,25 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
     }
   }
 
+  const listaGal = (l: GalItem[]) => JSON.stringify(l.map((g) => ({ archivo: g.archivo_url, tipo: g.tipo, texto: g.descripcion ?? '' })))
+  function registrarGaleria(antes: GalItem[], despues: GalItem[]) {
+    supabase.rpc('mkt_registrar_directo', { p_producto: prod.id, p_campo: 'galeria', p_anterior: listaGal(antes), p_nuevo: listaGal(despues) }).then(() => undefined)
+  }
   async function galAgregar() {
     const url = nuevoUrl.trim()
     if (!url) return
     const orden = galeria.length ? Math.max(...galeria.map((g) => g.orden)) + 1 : 0
-    const { error } = await supabase.from('producto_galeria').insert({ id: crypto.randomUUID(), producto_id: prod.id, tipo: nuevoTipo, archivo_url: url, orden, descripcion: null })
+    const nuevo: GalItem = { id: crypto.randomUUID(), tipo: nuevoTipo as GalItem['tipo'], archivo_url: url, orden, descripcion: null }
+    const { error } = await supabase.from('producto_galeria').insert({ ...nuevo, producto_id: prod.id })
     if (error) { aviso('No se pudo agregar: ' + error.message); return }
+    registrarGaleria(galeria, [...galeria, nuevo])
     setNuevoUrl(''); cargarGaleria()
   }
   async function galQuitar(id: string) {
     const { error } = await supabase.from('producto_galeria').update({ deleted_at: new Date().toISOString() }).eq('id', id)
-    if (error) aviso('No se pudo quitar: ' + error.message); else cargarGaleria()
+    if (error) { aviso('No se pudo quitar: ' + error.message); return }
+    registrarGaleria(galeria, galeria.filter((g) => g.id !== id))
+    cargarGaleria()
   }
   async function galMover(idx: number, dir: -1 | 1) {
     const otro = idx + dir
@@ -574,10 +588,15 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
       supabase.from('producto_galeria').update({ orden: b.orden }).eq('id', a.id),
       supabase.from('producto_galeria').update({ orden: a.orden }).eq('id', b.id),
     ])
+    const despues = [...galeria]; despues[idx] = b; despues[otro] = a
+    registrarGaleria(galeria, despues)
     cargarGaleria()
   }
   async function galDescripcion(id: string, descripcion: string) {
+    const antes = galeria.find((g) => g.id === id)
+    if (!antes || (antes.descripcion ?? '') === descripcion.trim()) return
     await supabase.from('producto_galeria').update({ descripcion: descripcion.trim() || null }).eq('id', id)
+    registrarGaleria(galeria, galeria.map((g) => (g.id === id ? { ...g, descripcion: descripcion.trim() || null } : g)))
   }
   function abrirAvPicker() {
     setAvPicker(true)
@@ -586,29 +605,24 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
   }
   async function galDesdeAudiovisual(a: { archivo_url: string; tipo: string }) {
     const orden = galeria.length ? Math.max(...galeria.map((g) => g.orden)) + 1 : 0
-    const { error } = await supabase.from('producto_galeria').insert({ id: crypto.randomUUID(), producto_id: prod.id, tipo: a.tipo === 'Foto' ? 'imagen' : 'video', archivo_url: a.archivo_url, orden, descripcion: null })
-    if (error) aviso('No se pudo agregar: ' + error.message); else { cargarGaleria(); setAvPicker(false) }
+    const nuevo: GalItem = { id: crypto.randomUUID(), tipo: a.tipo === 'Foto' ? 'imagen' : 'video', archivo_url: a.archivo_url, orden, descripcion: null }
+    const { error } = await supabase.from('producto_galeria').insert({ ...nuevo, producto_id: prod.id })
+    if (error) { aviso('No se pudo agregar: ' + error.message); return }
+    registrarGaleria(galeria, [...galeria, nuevo])
+    cargarGaleria(); setAvPicker(false)
   }
 
   async function guardarCampo(campo: string, valorNuevo: string) {
     const valorAnterior = base[campo] ?? ''
     if (valorNuevo === valorAnterior) return
     setEstado((e) => ({ ...e, [campo]: 'guardando' }))
-    if (aprobar) {
-      const error = await aplicarCampoProducto(prod.id, campo, valorNuevo)
-      setEstado((e) => ({ ...e, [campo]: error ? 'error' : 'ok' }))
-      if (error) setMsg('No se pudo guardar ' + campo + ': ' + error)
-      else setBase((b) => ({ ...b, [campo]: valorNuevo }))
-      return
-    }
-    const { error } = await supabase.from('marketing_cambios').insert({
-      id: crypto.randomUUID(), codigo: 'MC-' + crypto.randomUUID().slice(0, 6).toUpperCase(), producto_id: prod.id,
-      producto_texto: `${prod.codigo} · ${prod.nombre}`, campo, nivel: 'Producto', valor_anterior: valorAnterior, valor_nuevo: valorNuevo,
-      estado: 'Pendiente', autor_id: perfil.id, autor_rol: perfil.rol ?? null,
-    })
-    setEstado((e) => ({ ...e, [campo]: error ? 'error' : 'revision' }))
-    if (error) setMsg('No se pudo enviar ' + campo + ' a revisión: ' + error.message)
-    else setBase((b) => ({ ...b, [campo]: valorNuevo }))
+    // Directo (Coordinación, publicación directa, fotos y etiquetas, correcciones pequeñas) o a Revisión.
+    const { data, error } = await supabase.rpc('mkt_cambiar_campo', { p_producto: prod.id, p_campo: campo, p_valor: valorNuevo })
+    if (error) { setEstado((e) => ({ ...e, [campo]: 'error' })); setMsg('No se pudo guardar ' + campo + ': ' + error.message); return }
+    const r = (data ?? {}) as { pendiente?: boolean; reenviado?: boolean }
+    setEstado((e) => ({ ...e, [campo]: r.pendiente ? 'revision' : 'ok' }))
+    setBase((b) => ({ ...b, [campo]: valorNuevo }))
+    if (r.reenviado) aviso('Corrección reenviada a Coordinación.')
   }
 
   function set<K extends keyof ProdFull>(k: K, v: ProdFull[K]) { setFull((x) => (x ? { ...x, [k]: v } : x)) }
@@ -638,21 +652,12 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
     const anterior = full.en_catalogo
     set('en_catalogo', nuevo)
     setEstado((e) => ({ ...e, publico: 'guardando' }))
-    if (aprobar) {
-      const error = await aplicarCampoProducto(prod.id, 'publico', nuevo ? 'SI' : 'NO')
-      setEstado((e) => ({ ...e, publico: error ? 'error' : 'ok' }))
-      if (error) { setMsg('No se pudo cambiar: ' + error); set('en_catalogo', anterior) }
-      else setBase((b) => ({ ...b, publico: nuevo ? 'SI' : 'NO' }))
-      return
-    }
-    const { error } = await supabase.from('marketing_cambios').insert({
-      id: crypto.randomUUID(), codigo: 'MC-' + crypto.randomUUID().slice(0, 6).toUpperCase(), producto_id: prod.id,
-      producto_texto: `${prod.codigo} · ${prod.nombre}`, campo: 'publico', nivel: 'Producto', valor_anterior: anterior ? 'SI' : 'NO', valor_nuevo: nuevo ? 'SI' : 'NO',
-      estado: 'Pendiente', autor_id: perfil.id, autor_rol: perfil.rol ?? null,
-    })
-    setEstado((e) => ({ ...e, publico: error ? 'error' : 'revision' }))
-    if (error) { setMsg('No se pudo enviar a revisión: ' + error.message); set('en_catalogo', anterior) }
-    else { setBase((b) => ({ ...b, publico: nuevo ? 'SI' : 'NO' })); aviso('Enviado a Revisión: ' + (nuevo ? 'mostrar' : 'ocultar') + ' en la web.') }
+    const { data, error } = await supabase.rpc('mkt_cambiar_campo', { p_producto: prod.id, p_campo: 'publico', p_valor: nuevo ? 'SI' : 'NO' })
+    if (error) { setEstado((e) => ({ ...e, publico: 'error' })); setMsg('No se pudo cambiar: ' + error.message); set('en_catalogo', anterior); return }
+    const r = (data ?? {}) as { pendiente?: boolean }
+    setEstado((e) => ({ ...e, publico: r.pendiente ? 'revision' : 'ok' }))
+    setBase((b) => ({ ...b, publico: nuevo ? 'SI' : 'NO' }))
+    if (r.pendiente) { set('en_catalogo', anterior); aviso('Enviado a Revisión: ' + (nuevo ? 'mostrar' : 'ocultar') + ' en la web.') }
   }
 
   function toggleNuevo() {
@@ -916,88 +921,7 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
 }
 
 /* ============================ Revisión (aprobaciones) ============================ */
-type Cambio = { id: string; codigo: string | null; fecha: string; producto_id: string | null; producto_texto: string | null; campo: string; valor_anterior: string | null; valor_nuevo: string | null; estado: string; comentario: string | null; autor: { nombre: string } | null }
-const CAMPOS_OK = CAMPOS_PRODUCTO
-const textoCambio = (campo: string, v: string | null) => (campo === 'publico' ? (v === 'SI' ? 'Visible al público' : 'Oculto') : v || '—')
-/* Publicaciones en redes que esperan a Coordinación (mkfDiferir_ del original). */
-const ACCIONES: Record<string, string> = { zernio_crear: 'Nueva publicación en redes', mkPublicar: 'Nueva publicación en redes', zernio_editar: 'Cambio en una publicación', mkEditarPublicacion: 'Cambio en una publicación', zernio_reprogramar: 'Cambio de fecha de una publicación', mkReprogramar: 'Cambio de fecha de una publicación' }
-const esAccion = (c: { campo: string }) => c.campo.startsWith('accion:')
-const nombreCampo = (campo: string) => (campo.startsWith('accion:') ? ACCIONES[campo.slice(7)] ?? 'Publicación en redes' : campo)
-function ResumenAccion({ c }: { c: Cambio }) {
-  let d: Record<string, unknown> = {}
-  try { const j = JSON.parse(c.valor_nuevo || '{}'); d = Array.isArray(j) ? (typeof j[0] === 'object' ? j[0] : { id: j[0], fechaISO: j[1] }) : j } catch { /* texto */ }
-  const fecha = String(d.fechaISO || d.fecha || '')
-  const media = d.media as { url?: string; type?: string } | null | undefined
-  const redes = Array.isArray(d.redesTexto) ? (d.redesTexto as string[]) : []
-  const fmt = ({ feed: 'Feed', story: 'Historia', reel: 'Reel' } as Record<string, string>)[String(d.formato || '')]
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3 text-xs">
-      <div className="rounded-xl bg-slate-50 p-3 space-y-1.5">
-        {redes.length > 0 && <p><b className="text-slate-500">Redes:</b> {redes.join(', ')}</p>}
-        {fmt && <p><b className="text-slate-500">Formato:</b> {fmt}</p>}
-        <p><b className="text-slate-500">Fecha:</b> {fecha ? new Date(fecha).toLocaleString('es-EC', { timeZone: 'America/Guayaquil', dateStyle: 'full', timeStyle: 'short' }) : 'Publicar al aprobar'}</p>
-        {media?.url && (media.type === 'video' ? <video src={media.url} className="rounded-lg max-h-40" controls preload="metadata" /> : <img src={media.url} alt="" className="rounded-lg max-h-40 object-contain" />)}
-      </div>
-      <div className="rounded-xl bg-emerald-50 p-3"><p className="text-[10px] font-bold uppercase text-emerald-700 mb-1">Texto</p><p className="whitespace-pre-line text-slate-800">{String(d.contenido ?? c.valor_anterior ?? '') || '—'}</p></div>
-    </div>
-  )
-}
-export function Revision({ perfil, aviso }: { perfil: Perfil; aviso: (t: string) => void }) {
-  const [lista, setLista] = useState<Cambio[] | null>(null)
-  const [error, setError] = useState('')
-  const [com, setCom] = useState<Record<string, string>>({})
-  const [coord, setCoord] = useState(false)
-  useEffect(() => { supabase.rpc('marketing_mi_rol').then(({ data }) => setCoord(!!(data as { coord?: boolean } | null)?.coord)) }, [])
-  const aprobar = puede(perfil, 'marketing', 'aprobar') || coord
-  const cargar = useCallback(() => {
-    supabase.from('marketing_cambios').select('id,codigo,fecha,producto_id,producto_texto,campo,valor_anterior,valor_nuevo,estado,comentario,autor:empleados!autor_id(nombre)').is('deleted_at', null).order('fecha', { ascending: false }).limit(80)
-      .then(({ data, error }) => { if (error) setError(error.message); else setLista((data as unknown as Cambio[]) ?? []) })
-  }, [])
-  useEffect(() => {
-    cargar()
-    const recargar = agrupar(() => cargar())
-    const c = supabase.channel('mk-cambios').on('postgres_changes', { event: '*', schema: 'public', table: 'marketing_cambios' }, recargar).subscribe()
-    return () => { recargar.cancelar(); supabase.removeChannel(c) }
-  }, [cargar])
-  async function decidir(c: Cambio, ok: boolean) {
-    if (ok && esAccion(c)) {
-      // La publicación se ejecuta en Zernio tal como se pidió y queda Aprobada.
-      try { await llamar('zernio_aplicar', { cambioId: c.id, comentario: com[c.id]?.trim() || '' }); aviso('Publicación aprobada y enviada a Zernio.'); cargar() }
-      catch (e) { aviso('No se pudo publicar: ' + (e as Error).message) }
-      return
-    }
-    if (ok) {
-      if (!c.producto_id || !CAMPOS_OK.includes(c.campo)) { aviso('Este tipo de cambio todavía se aplica a mano en el Inventario.'); return }
-      const error = await aplicarCampoProducto(c.producto_id, c.campo, c.valor_nuevo ?? '')
-      if (error) { aviso('No se pudo aplicar: ' + error); return }
-    }
-    const { error } = await supabase.from('marketing_cambios').update({ estado: ok ? 'Aprobado' : 'Rechazado', revisado_por: perfil.id, fecha_revision: new Date().toISOString(), comentario: com[c.id]?.trim() || null }).eq('id', c.id)
-    if (error) aviso('No se pudo guardar: ' + error.message); else { aviso(ok ? 'Cambio aprobado y aplicado.' : 'Cambio rechazado.'); cargar() }
-  }
-  if (error) return <div className="card p-6 text-sm text-amber-800 bg-amber-50 border-amber-200">{error}</div>
-  if (!lista) return <p className="text-xs text-slate-400">Cargando…</p>
-  const pend = lista.filter((c) => c.estado === 'Pendiente'), hist = lista.filter((c) => c.estado !== 'Pendiente')
-  return (
-    <section className="space-y-5">
-      <div><h3 className="font-display font-bold text-sm text-slate-800 flex items-center gap-2 mb-2"><ClipboardCheck className="w-4 h-4 text-[var(--primary)]" />Pendientes de aprobación ({pend.length})</h3>
-        {!pend.length && <div className="card p-8 text-center text-xs text-slate-400">No hay cambios por revisar. Los que se envíen desde la Biblioteca aparecerán aquí.</div>}
-        <div className="space-y-3">{pend.map((c) => (
-          <article key={c.id} className="card p-4">
-            <div className="flex items-center gap-2 flex-wrap"><b className="text-sm text-slate-800">{c.producto_texto}</b><span className="pill" style={{ background: '#fff8eb', color: '#a16207' }}>{nombreCampo(c.campo)}</span><span className="text-[10px] text-slate-400 ml-auto">{c.autor?.nombre ?? '—'} · {new Date(c.fecha).toLocaleDateString('es-EC')}</span></div>
-            {esAccion(c) ? <ResumenAccion c={c} /> : <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3 text-xs">
-              <div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] font-bold uppercase text-slate-400 mb-1">Antes</p><p className="whitespace-pre-line text-slate-600">{textoCambio(c.campo, c.valor_anterior)}</p></div>
-              <div className="rounded-xl bg-emerald-50 p-3"><p className="text-[10px] font-bold uppercase text-emerald-700 mb-1">Propuesto</p><p className="whitespace-pre-line text-slate-800">{textoCambio(c.campo, c.valor_nuevo)}</p></div>
-            </div>}
-            {aprobar && <div className="flex gap-2 mt-3 flex-wrap"><input className="inp flex-1 min-w-[200px]" placeholder="Comentario (opcional)" value={com[c.id] ?? ''} onChange={(e) => setCom((o) => ({ ...o, [c.id]: e.target.value }))} />
-              <button className="btn" style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => decidir(c, false)}><XCircle />Rechazar</button><button className="btn btn-primary" onClick={() => decidir(c, true)}><Check />{esAccion(c) ? 'Aprobar y publicar' : 'Aprobar y aplicar'}</button></div>}
-          </article>))}</div></div>
-      {hist.length > 0 && <div><h3 className="font-display font-bold text-sm text-slate-800 flex items-center gap-2 mb-2"><BookOpen className="w-4 h-4 text-slate-400" />Historial</h3>
-        <div className="card overflow-hidden"><table className="tbl"><thead><tr><th>Fecha</th><th>Producto</th><th>Campo</th><th>Autor</th><th>Estado</th></tr></thead><tbody>{hist.map((c) => (
-          <tr key={c.id}><td className="whitespace-nowrap">{new Date(c.fecha).toLocaleDateString('es-EC')}</td><td className="max-w-[300px] truncate">{c.producto_texto ?? (esAccion(c) ? (c.valor_anterior ?? '').slice(0, 60) : '')}</td><td>{nombreCampo(c.campo)}</td><td>{c.autor?.nombre ?? '—'}</td>
-            <td><span className="pill" style={c.estado === 'Aprobado' ? { background: '#ecfaf5', color: '#04896f' } : { background: '#fdecea', color: '#c0392b' }}>{c.estado}</span></td></tr>))}</tbody></table></div></div>}
-    </section>
-  )
-}
+/* La Revisión del equipo está en MarketingRevision.tsx. */
 
 /* ============================ Google Drive (cuenta de servicio) ============================ */
 const idUnidad = (v: string) => { const m = v.match(/folders\/([\w-]+)/) || v.match(/[?&]id=([\w-]+)/); return (m ? m[1] : v).trim() }
