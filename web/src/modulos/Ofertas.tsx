@@ -138,7 +138,7 @@ export function ChipsStockProceso({ e }: { e?: EstadoStock }) {
 }
 
 /* ============================ Por aprobar (campañas de Promociones) ============================ */
-type ItemCampana = { id: string; desc?: number | null; descPropuesto?: number | null; nota?: string; estadoAprobacion?: string; descAprobado?: number; ofertaId?: string }
+type ItemCampana = { id: string; desc?: number | null; descPropuesto?: number | null; unidades?: number | null; nota?: string; estadoAprobacion?: string; descAprobado?: number; ofertaId?: string }
 type CampanaPend = { id: string; codigo: string | null; nombre: string; inicio: string | null; fin: string | null; items: ItemCampana[] }
 const itemsPendientes = (c: CampanaPend) => (c.items ?? []).filter((i) => Number(i.desc) > 0 && (!i.estadoAprobacion || i.estadoAprobacion === 'Pendiente'))
 const contarPendientes = (campanas: CampanaPend[]) => campanas.reduce((n, c) => n + itemsPendientes(c).length, 0)
@@ -496,20 +496,34 @@ function PorAprobar({ campanas, prods, est, margenMinimo, aviso, recargar }: { c
   const visibles = filas.filter((f) => (!filtroCamp || f.campana.id === filtroCamp)
     && (!palabras.length || palabras.every((w) => norm([f.item.id, prodDe(f.item.id)?.nombre, prodDe(f.item.id)?.categoria].join(' ')).includes(w))))
   const grupos = campanas.map((c) => ({ c, filas: visibles.filter((f) => f.campana.id === c.id).sort(cmp) })).filter((g) => g.filas.length)
-  const resumen = visibles.reduce((a, f) => {
+  // Lo que se espera ganar, con el % que tiene hoy cada tarjeta (se actualiza al editarlo). Las unidades son las
+  // que pidió Marketing para ese producto o, si no puso, todo el stock disponible.
+  const agregar = (lista: { campana: CampanaPend; item: ItemCampana }[]) => lista.reduce((a, f) => {
     const p = prodDe(f.item.id), d = descDe(f.campana.id, f.item)
-    a.desc += d; if (p && p.pvp > 0) a.ahorro += R2(p.pvp * d / 100)
+    a.n++; a.sumaDesc += d
+    if (!p) return a
+    const u = Number(f.item.unidades) > 0 ? Number(f.item.unidades) : p.stock
+    const precio = p.pvp > 0 ? R2(p.pvp * (1 - d / 100)) : 0
+    a.u += u; a.venta += precio * u; a.pvpTotal += p.pvp * u; a.ahorroU += p.pvp - precio
+    if (p.costo > 0) { a.ventaConCosto += precio * u; a.utilidad += (precio - p.costo) * u } else if (u > 0) a.sinCosto++
+    const mx = maxDe(p); if (mx != null && d > mx) a.pasan++
     return a
-  }, { desc: 0, ahorro: 0 })
+  }, { n: 0, sumaDesc: 0, u: 0, venta: 0, pvpTotal: 0, ahorroU: 0, ventaConCosto: 0, utilidad: 0, sinCosto: 0, pasan: 0 })
+  const total = agregar(visibles)
+  const descOtorgado = total.pvpTotal - total.venta
+  const margenTot = total.ventaConCosto > 0 ? Math.round(total.utilidad / total.ventaConCosto * 1000) / 10 : null
 
   if (!filas.length) return <div className="vacio"><BadgePercent className="mx-auto mb-2" style={{ width: 34, height: 34 }} /><p className="font-semibold">No hay productos por aprobar.</p><p className="text-sm">Cuando Marketing envíe una campaña de Promociones a aprobación, sus productos aparecen aquí.</p></div>
   return (
     <section className="space-y-4">
       <div className="pa-kpis">
-        <div className="pa-kpi"><small>Productos por aprobar</small><b>{visibles.length}</b></div>
-        <div className="pa-kpi"><small>Campañas</small><b>{grupos.length}</b></div>
-        <div className="pa-kpi"><small>Descuento promedio</small><b>{visibles.length ? Math.round(resumen.desc / visibles.length * 10) / 10 : 0}%</b></div>
-        <div className="pa-kpi"><small>Ahorro total para clientes</small><b>{money0(resumen.ahorro)}</b><span>por unidad, con los % actuales</span></div>
+        <div className="pa-kpi"><small>Por aprobar</small><b>{total.n}</b><span>producto{total.n === 1 ? '' : 's'} · {grupos.length} campaña{grupos.length === 1 ? '' : 's'}</span></div>
+        <div className="pa-kpi"><small>Venta potencial</small><b>{money0(total.venta)}</b><span>{total.u} u. a precio de campaña · PVP normal {money0(total.pvpTotal)}</span></div>
+        <div className={'pa-kpi ' + (margenTot == null ? '' : 'ok')}><small>Utilidad estimada</small><b>{margenTot == null ? '—' : money0(total.utilidad)}</b>
+          <span>{margenTot == null ? 'sin costos cargados' : 'margen ' + margenTot + '%'}{total.sinCosto > 0 && margenTot != null ? ' · ' + total.sinCosto + ' sin costo' : ''}</span></div>
+        <div className="pa-kpi warn"><small>Descuento que se otorga</small><b>{money0(descOtorgado)}</b><span>{total.pvpTotal > 0 ? Math.round(descOtorgado / total.pvpTotal * 1000) / 10 : 0}% menos que el PVP</span></div>
+        <div className="pa-kpi"><small>Descuento promedio</small><b>{total.n ? Math.round(total.sumaDesc / total.n * 10) / 10 : 0}%</b><span>el cliente ahorra {money(total.n ? total.ahorroU / total.n : 0)} por unidad</span></div>
+        <div className={'pa-kpi ' + (total.pasan ? 'mal' : 'ok')}><small>Margen mínimo</small><b>{total.pasan ? total.pasan : 'OK'}</b><span>{total.pasan ? 'pasan el máximo permitido' : 'todos dentro del margen'}</span></div>
       </div>
       <div className="flex gap-2 flex-wrap items-center">
         <div className="relative flex-1 min-w-[220px]"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input className="inp" style={{ paddingLeft: 36 }} placeholder="Buscar producto, código o categoría…" value={busca} onChange={(e) => setBusca(e.target.value)} /></div>
@@ -528,6 +542,15 @@ function PorAprobar({ campanas, prods, est, margenMinimo, aviso, recargar }: { c
                 <p className="font-bold text-[15px] text-slate-800">{c.nombre}</p>
                 <p className="text-[12px] text-slate-500">{c.codigo ? c.codigo + ' · ' : ''}{(c.inicio || c.fin) ? `vigente ${fechaC(c.inicio ?? '')} → ${fechaC(c.fin ?? '')} · ` : ''}{fs.length} producto{fs.length === 1 ? '' : 's'} por revisar</p>
               </div>
+              <div className="pa-stats">{(() => {
+                const a = agregar(fs), mg = a.ventaConCosto > 0 ? Math.round(a.utilidad / a.ventaConCosto * 1000) / 10 : null
+                return <>
+                  <span><small>Venta potencial</small><b>{money0(a.venta)}</b></span>
+                  <span><small>Utilidad estimada</small><b className="ok">{mg == null ? '—' : money0(a.utilidad)}</b>{mg != null && <em>margen {mg}%</em>}</span>
+                  <span><small>Descuento que se otorga</small><b className="warn">{money0(a.pvpTotal - a.venta)}</b></span>
+                  <span><small>Unidades en stock</small><b>{a.u}</b></span>
+                </>
+              })()}</div>
               <div className="pa-cab-btns">
                 <button className="btn" disabled={enGrupo} style={{ color: '#c0392b', borderColor: '#fecaca' }} onClick={() => decidirTodos(c, fs.map((f) => f.item), 'Rechazar')}><XCircle style={{ width: 16, height: 16 }} />Rechazar todos</button>
                 <button className="btn" disabled={enGrupo} style={{ background: '#04896f', borderColor: '#04896f', color: '#fff' }} onClick={() => decidirTodos(c, fs.map((f) => f.item), 'Aprobar')}><Check style={{ width: 16, height: 16 }} />{enGrupo ? 'Procesando…' : `Aprobar todos (${fs.length})`}</button>

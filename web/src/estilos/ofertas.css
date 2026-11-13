@@ -300,3 +300,14 @@ body.vm-con-rail .vm-of .planbar{left:var(--vr-w);z-index:130}
 .vm-of .pc-ap .pa-botones{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 12px 12px}
 .vm-of .pa-cab-btns{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
 @media(min-width:1200px){.vm-of .kpis.k7{grid-template-columns:repeat(7,1fr)}}
+/* Por aprobar: indicadores de lo que se espera ganar */
+@media(min-width:760px){.vm-of .pa-kpis{grid-template-columns:repeat(3,1fr)}}
+@media(min-width:1300px){.vm-of .pa-kpis{grid-template-columns:repeat(6,1fr)}}
+.vm-of .pa-kpi.ok b,.vm-of .pa-stats b.ok{color:#04896f}
+.vm-of .pa-kpi.warn b,.vm-of .pa-stats b.warn{color:#c2410c}
+.vm-of .pa-kpi.mal b{color:#c0392b}
+.vm-of .pa-stats{flex-basis:100%;order:3;display:flex;flex-wrap:wrap;gap:8px}
+.vm-of .pa-stats>span{background:#f8fafc;border:1px solid #eef2f6;border-radius:12px;padding:6px 12px;min-width:130px}
+.vm-of .pa-stats small{display:block;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.vm-of .pa-stats b{font-family:"Space Grotesk",sans-serif;font-size:17px;color:var(--navy)}
+.vm-of .pa-stats em{font-style:normal;font-size:11px;color:#64748b;margin-left:6px}
