@@ -19,8 +19,8 @@ Estados: ✅ existe en la app nueva · 🆕 recuperado en esta auditoría · ⚠
 9. ✅ Servicio Técnico
 10. ✅ Importaciones, Artículos, Adquisiciones y Recepción
 11. ✅ Empleados y Solicitudes del personal
-12. ⏭️ **Talento Humano y Financiero** (siguiente)
-13. Catálogos, Ofertas y Promociones
+12. ✅ Talento Humano y Financiero
+13. ⏭️ **Catálogos, Ofertas y Promociones** (siguiente)
 14. Dashboard Ejecutivo
 15. Seguridad, Base de Datos y Mi Espacio
 16. Rendimiento, diseño y uso en el teléfono
@@ -511,3 +511,18 @@ En QA la subida de archivos necesita que Google Drive esté conectado; el enlace
 Seguridad: antes la tabla `th_solicitudes` permitía que un jefe cambiara el estado directamente (aprobar sin TTHH y sin
 descontar saldo) y le mostraba el motivo de permisos confidenciales. Ahora la tabla solo se lee (el empleado lo suyo,
 Talento Humano todo) y todo cambio pasa por las funciones, que validan cada paso.
+
+## 12. Talento Humano y Financiero — Issue #33
+En el original los dos módulos son el tablero común de registros (`ModulosBase.gs`). Las hojas `TalentoHumano` y
+`Financiero` del Excel nuevo están vacías (solo encabezados): no hay datos que pasar.
+
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `vmModuloDatos` | Registros con indicadores (abiertos, pendientes, en proceso, completados, cancelados), búsqueda, filtros por prioridad y responsable, vencidos | ✅ | `Tablero.tsx` (tabla `tareas_modulo`, tiempo real) |
+| `vmModuloGuardar` | Crear / editar (título, detalle, estado, prioridad, responsable, fecha compromiso) | ✅ | `Tablero.tsx` |
+| `vmModuloEliminar` | Eliminar con motivo (queda en la Papelera) | ✅ | `Tablero.tsx` |
+| `vmPapeleraListar`, `vmPapeleraRestaurar` | Papelera del módulo | ✅ | `Tablero.tsx` |
+| `vmAccExigir_(modulo, 'eliminar')` | Eliminar y restaurar exigen el permiso "eliminar" | ✅ corregido | Antes bastaba con editar o ser el responsable: `app.tg_tareas_modulo_eliminar` |
+| `vmModulosBaseLista`, `vmModulosBaseAccesos_` | Tarjetas en Mi Espacio y permisos por módulo | ✅ | `modulos.ts` + permisos `talento_humano` / `financiero` |
+
+Las solicitudes del personal de Talento Humano están en el módulo 11 (Mi Perfil y Solicitudes).
