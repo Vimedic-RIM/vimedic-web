@@ -11,6 +11,11 @@ import { imagenWebp, subirCatalogo } from './audiovisualMedios'
 import { PorCompletar, VideosPendientes, type DatosPendientes } from './MarketingPendientes'
 
 /* Conexiones de Marketing: Zernio (redes) y Gemini (IA). Las claves viven en el servidor (Edge Function): el navegador nunca las ve. */
+/** Llama a la función de Drive y devuelve el motivo real si falla (no el genérico "non-2xx status code"). */
+async function drive(body: Record<string, unknown>): Promise<{ resp: { id?: string; enlace?: string; error?: string } | null; error: { message: string } | null }> {
+  try { return { resp: await llamar<{ id?: string; enlace?: string }>(String(body.accion), body, 'drive'), error: null } }
+  catch (e) { return { resp: null, error: { message: (e as Error).message } } }
+}
 export async function llamar<T = Record<string, unknown>>(accion: string, datos: Record<string, unknown> = {}, funcion = 'marketing-integraciones'): Promise<T> {
   const { data, error } = await supabase.functions.invoke(funcion, { body: { accion, ...datos } })
   if (error) {
@@ -517,7 +522,7 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
         r.onload = () => ok(String(r.result).split(',')[1] || '')
         r.readAsDataURL(blob)
       })
-      const { data, error } = await supabase.functions.invoke('drive', { body: { accion: 'subir', modulo: 'marketing', carpeta: 'fichas_tecnicas/' + prod.codigo, nombre: 'Ficha tecnica ' + prod.codigo + '.pdf', mime: 'application/pdf', base64 } })
+      const { resp: data, error } = await drive({ accion: 'subir', modulo: 'marketing', carpeta: 'fichas_tecnicas/' + prod.codigo, nombre: 'Ficha tecnica ' + prod.codigo + '.pdf', mime: 'application/pdf', base64 })
       const resp = data as { id?: string; enlace?: string; error?: string } | null
       if (error || resp?.error || !resp?.enlace) { aviso('No se pudo subir la ficha: ' + (resp?.error || error?.message)); return }
       const nuevaVersion = (ficha?.version ?? 0) + 1
@@ -543,7 +548,7 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
       r.onload = () => ok(String(r.result).split(',')[1] || '')
       r.readAsDataURL(file)
     })
-    const { data, error } = await supabase.functions.invoke('drive', { body: { accion: 'subir', modulo: 'marketing', carpeta: 'fichas_tecnicas/' + prod.codigo, nombre: file.name, mime: file.type || 'application/pdf', base64 } })
+    const { resp: data, error } = await drive({ accion: 'subir', modulo: 'marketing', carpeta: 'fichas_tecnicas/' + prod.codigo, nombre: file.name, mime: file.type || 'application/pdf', base64 })
     const resp = data as { id?: string; enlace?: string; error?: string } | null
     if (error || resp?.error || !resp?.enlace) { aviso('No se pudo subir: ' + (resp?.error || error?.message)); return }
     await guardarCampo('ficha', resp.enlace)
@@ -580,7 +585,7 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
           r.onload = () => ok(String(r.result).split(',')[1] || '')
           r.readAsDataURL(f)
         })
-        const { data, error } = await supabase.functions.invoke('drive', { body: { accion: 'subir', modulo: 'documentos_tecnicos', carpeta: 'documentos_tecnicos/' + prod.codigo, nombre: f.name, mime: f.type || 'application/octet-stream', base64 } })
+        const { resp: data, error } = await drive({ accion: 'subir', modulo: 'documentos_tecnicos', carpeta: 'documentos_tecnicos/' + prod.codigo, nombre: f.name, mime: f.type || 'application/octet-stream', base64 })
         const resp = data as { id?: string; enlace?: string; error?: string } | null
         if (error || resp?.error) { aviso('No se pudo subir ' + f.name + ': ' + (resp?.error || error?.message)); continue }
         await supabase.from('documentos_tecnicos').insert({ id: crypto.randomUUID(), producto_id: prod.id, tipo: docTipo, nombre: f.name, drive_id: resp?.id, url: resp?.enlace, subido_por: perfil.id })
