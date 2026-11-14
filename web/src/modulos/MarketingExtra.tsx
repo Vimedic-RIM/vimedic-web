@@ -298,7 +298,14 @@ export function Promociones({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
       aviso(`Campaña aprobada: ${r?.creadas ?? 0} oferta(s) nueva(s)${r?.actualizadas ? ', ' + r.actualizadas + ' actualizada(s)' : ''} en Ofertas y Liquidación.`)
       setAbierta(null); cargar(); return
     }
-    const h: Hist = { fecha: new Date().toISOString(), por: perfil.nombre, accion: estado, ...(comentario ? { comentario } : {}) }
+    if (estado === 'Cancelada') {
+      // Si estaba aprobada, sus ofertas también se cancelan (prCancelar).
+      const { data, error } = await supabase.rpc('cancelar_campana_promocion', { p_campana_id: c.id, p_comentario: comentario ?? null })
+      if (error) { aviso('No se pudo cancelar: ' + error.message); return }
+      const n = (data as { canceladas?: number } | null)?.canceladas ?? 0
+      aviso('Campaña cancelada.' + (n ? ` ${n} oferta(s) cancelada(s) en Ofertas y Liquidación.` : '')); setAbierta(null); cargar(); return
+    }
+    const h: Hist ={ fecha: new Date().toISOString(), por: perfil.nombre, accion: estado, ...(comentario ? { comentario } : {}) }
     const cambios: Record<string, unknown> = { estado, historial: [...(c.historial ?? []), h], comentario: comentario ?? null }
     if (estado === 'En aprobación') cambios.enviado = new Date().toISOString()
     if (estado === 'Rechazada') {
@@ -366,6 +373,8 @@ function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mov
   actualizarCampo: (c: Camp, campos: Partial<Pick<Camp, 'nombre' | 'inicio' | 'fin' | 'items' | 'estado' | 'descripcion'>>) => Promise<void> | void
 }) {
   const [com, setCom] = useState('')
+  const [verTablero, setVerTablero] = useState(false)
+  const [verInteresados, setVerInteresados] = useState(false)
   const [nombreEd, setNombreEd] = useState(c.nombre)
   const [inicioEd, setInicioEd] = useState(c.inicio ?? '')
   const [finEd, setFinEd] = useState(c.fin ?? '')
@@ -543,13 +552,15 @@ function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mov
           <p className="font-bold text-[15px] text-slate-800 truncate">{c.nombre}</p>
         </div>
         <span className="pill" style={{ background: bg, color: col }}>{c.estado}</span>
+        {c.estado === 'Aprobada' && <button className="btn" onClick={() => setVerTablero(true)} title="Ventas de la campaña en vivo (prTablero)"><Sparkles className="w-4 h-4" />Tablero en vivo</button>}
+        <button className="btn" onClick={() => setVerInteresados(true)} title="Clientes que cotizaron estos equipos y no compraron"><Users className="w-4 h-4" />Interesados</button>
         {editar && ['Borrador', 'Devuelta'].includes(c.estado) && <button className="btn btn-primary" onClick={() => mover(c, 'En aprobación')}><Send className="w-4 h-4" />Enviar a aprobación</button>}
         {aprobar && c.estado === 'En aprobación' && <>
           <button className="btn" style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => mover(c, 'Rechazada', com.trim())}>Rechazar campaña</button>
           <button className="btn" onClick={() => { if (!com.trim()) { alert('Escribe en el panel lateral qué se debe corregir.'); return } mover(c, 'Devuelta', com.trim()) }}>Devolver</button>
           {conDesc.length === 0 && <button className="btn btn-primary" onClick={() => mover(c, 'Aprobada', com.trim())}><Check className="w-4 h-4" />Aprobar</button>}
         </>}
-        {editar && ['Aprobada', 'Borrador'].includes(c.estado) && <button className="btn" style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => { if (confirm('¿Cancelar esta campaña?')) mover(c, 'Cancelada') }}><X className="w-4 h-4" />Cancelar</button>}
+        {((c.estado === 'Aprobada' && aprobar) || (c.estado === 'Borrador' && editar)) && <button className="btn" style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => { if (confirm(c.estado === 'Aprobada' ? '¿Cancelar esta campaña? Sus ofertas en Ofertas y Liquidación también se cancelan.' : '¿Cancelar esta campaña?')) mover(c, 'Cancelada') }}><X className="w-4 h-4" />Cancelar</button>}
         {puedeEliminar && <button className="btn" title="Eliminar campaña" style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => eliminar(c)}><Trash2 className="w-4 h-4" /></button>}
       </div>
 
@@ -638,7 +649,124 @@ function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mov
           )}
         </div>
       </div>
+      {verTablero && <TableroCampana id={c.id} cerrar={() => setVerTablero(false)} />}
+      {verInteresados && <InteresadosCampana id={c.id} cerrar={() => setVerInteresados(false)} />}
     </section>
+  )
+}
+
+/* ============================ Tablero en vivo e interesados de una campaña (prTablero / prInteresados / prInformeFinal) ============================ */
+type TabCamp = {
+  codigo: string | null; nombre: string; inicio: string; fin: string; preventa: boolean; estado: string; generado: string
+  totales: { unidades: number; monto: number; hoyU: number; hoyM: number; ventas: number | null; capitalInicial: number; equipos: number; movidos: number; descPromedio: number | null }
+  productos: { id: string; nombre: string; img: string; web: boolean; desc: number; pvp: number; precio: number; stockInicial: number | null; stock: number | null; vendidas: number; monto: number; quedan: number | null }[]
+  dias: { dia: string; u: number; m: number }[]
+  asesores: { asesor: string; u: number; m: number; ventas: number | null }[]
+}
+const usd = (n: number | null | undefined) => '$' + Number(n || 0).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+function TableroCampana({ id, cerrar }: { id: string; cerrar: () => void }) {
+  const [t, setT] = useState<TabCamp | null>(null)
+  const [error, setError] = useState('')
+  const [pdf, setPdf] = useState(false)
+  const cargar = useCallback(() => { supabase.rpc('promo_tablero', { p_campana_id: id }).then(({ data, error: e }) => { if (e) setError(e.message); else { setError(''); setT(data as TabCamp) } }) }, [id])
+  useEffect(() => { cargar() }, [cargar])
+  async function informe() {
+    if (!t) return
+    setPdf(true)
+    try {
+      const { jsPDF } = await import('jspdf')
+      const d = new jsPDF({ unit: 'mm', format: 'a4' }), W = 210
+      let y = 16
+      const linea = (txt: string, tam = 10, negrita = false, color: [number, number, number] = [29, 35, 68]) => { if (y > 280) { d.addPage(); y = 16 } d.setFont('helvetica', negrita ? 'bold' : 'normal'); d.setFontSize(tam); d.setTextColor(...color); d.text(txt, 14, y); y += tam * 0.5 + 2 }
+      d.setFillColor(29, 35, 68); d.rect(0, 0, W, 30, 'F'); d.setTextColor(255, 255, 255); d.setFont('helvetica', 'bold'); d.setFontSize(15)
+      d.text('VIMEDIC · Informe final de campaña', 14, 13); d.setFontSize(10); d.setFont('helvetica', 'normal')
+      d.text(`${t.nombre}${t.codigo ? ' · ' + t.codigo : ''} · ${fecha(t.inicio)} → ${fecha(t.fin)}${t.preventa ? ' · con preventa' : ''}`, 14, 21); y = 40
+      const T = t.totales
+      linea('Resumen', 12, true)
+      linea(`Ventas: ${usd(T.monto)} · ${T.unidades} unidad(es)${T.ventas ? ' · ' + T.ventas + ' operación(es)' : ''}`)
+      linea(`Equipos en oferta: ${T.equipos} · con ventas: ${T.movidos} · descuento promedio: ${T.descPromedio ?? 0}%`)
+      linea(`Capital inicial en oferta (stock × PVP): ${usd(T.capitalInicial)}`)
+      y += 3; linea('Por producto', 12, true)
+      for (const p of t.productos) linea(`${p.id} · ${p.nombre.slice(0, 60)} — -${p.desc}% ${usd(p.precio)} · vendidas ${p.vendidas} · ${usd(p.monto)}${p.quedan != null ? ' · quedan ' + p.quedan : ''}`, 9)
+      y += 3; linea('Por asesor', 12, true)
+      for (const a of t.asesores) linea(`${a.asesor}: ${a.u} unidad(es) · ${usd(a.m)}${a.ventas ? ' · ' + a.ventas + ' venta(s)' : ''}`, 9)
+      if (!t.asesores.length) linea('Sin ventas registradas.', 9)
+      y += 3; linea('Por día', 12, true)
+      for (const x of t.dias) linea(`${fecha(x.dia)}: ${x.u} unidad(es) · ${usd(x.m)}`, 9)
+      y += 4; linea('Generado ' + new Date().toLocaleString('es-EC') + ' · ventas tomadas de los movimientos de inventario del período de la campaña.', 8, false, [138, 149, 179])
+      d.save('Informe campaña ' + (t.codigo || t.nombre).replace(/[^\w-]+/g, '_') + '.pdf')
+    } catch (e) { alert('No se pudo generar el informe: ' + (e as Error).message) }
+    setPdf(false)
+  }
+  const maxDia = Math.max(1, ...(t?.dias ?? []).map((x) => x.m))
+  return (
+    <Ventana titulo={'Tablero en vivo' + (t ? ' · ' + t.nombre : '')} cerrar={cerrar} ancha pie={<><button className="btn" onClick={cargar}>Actualizar</button><span style={{ flex: 1 }} /><button className="btn btn-primary" disabled={!t || pdf} onClick={informe}><FileDown className="w-4 h-4" />{pdf ? 'Generando…' : 'Informe final (PDF)'}</button></>}>
+      {error && <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-3">{error}</div>}
+      {!t && !error && <p className="text-xs text-slate-400">Cargando…</p>}
+      {t && <>
+        <p className="text-[11px] text-slate-500">{fecha(t.inicio)} → {fecha(t.fin)} · <b>{t.estado}</b>{t.preventa ? ' · con preventa' : ''} · actualizado {new Date(t.generado).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' })}</p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {([['Ventas', usd(t.totales.monto)], ['Unidades', String(t.totales.unidades)], ['Hoy', usd(t.totales.hoyM) + ' · ' + t.totales.hoyU + ' u'], ['Equipos con ventas', t.totales.movidos + ' de ' + t.totales.equipos]] as const).map(([k, v]) =>
+            <div key={k} className="rounded-xl border border-slate-200 p-3"><p className="text-[10px] font-bold uppercase text-slate-400">{k}</p><p className="text-base font-bold text-slate-800">{v}</p></div>)}
+        </div>
+        <p className="text-[11px] text-slate-500">Capital inicial en oferta: <b>{usd(t.totales.capitalInicial)}</b> · descuento promedio {t.totales.descPromedio ?? 0}%{t.totales.ventas ? ' · ' + t.totales.ventas + ' operación(es)' : ''}</p>
+        <p className="text-xs font-bold text-slate-700">Por producto</p>
+        <div className="space-y-1.5">{t.productos.map((p) => (
+          <div key={p.id} className="flex items-center gap-2 rounded-lg border border-slate-100 p-2 text-xs">
+            {p.img ? <img src={imgUrl(p.img, 80)} alt="" className="w-9 h-9 rounded-lg object-contain bg-slate-50" loading="lazy" /> : <span className="w-9 h-9 rounded-lg bg-slate-100" />}
+            <div style={{ flex: 1, minWidth: 0 }}><p className="font-bold text-slate-800 truncate">{p.nombre}</p><p className="text-[11px] text-slate-500">{p.id} · -{p.desc}% · {usd(p.precio)}{p.quedan != null ? ' · quedan ' + p.quedan : ''}</p></div>
+            <div className="text-right"><p className="font-bold text-slate-800">{usd(p.monto)}</p><p className="text-[11px] text-slate-500">{p.vendidas} u</p></div>
+          </div>))}
+          {!t.productos.length && <p className="text-xs text-slate-400">La campaña no tiene productos con descuento.</p>}</div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div><p className="text-xs font-bold text-slate-700 mb-1.5">Por asesor</p>
+            {t.asesores.map((a) => <div key={a.asesor} className="flex justify-between text-xs border-b border-slate-100 py-1.5"><span>{a.asesor}</span><span className="font-bold">{usd(a.m)} <span className="font-normal text-slate-500">· {a.u} u</span></span></div>)}
+            {!t.asesores.length && <p className="text-xs text-slate-400">Sin ventas todavía.</p>}</div>
+          <div><p className="text-xs font-bold text-slate-700 mb-1.5">Por día</p>
+            {t.dias.slice(-31).map((x) => <div key={x.dia} className="flex items-center gap-2 text-[11px] py-0.5"><span className="text-slate-500" style={{ width: 74 }}>{fecha(x.dia)}</span>
+              <span style={{ flex: 1, height: 8, background: '#f1f5f9', borderRadius: 999, overflow: 'hidden' }}><span style={{ display: 'block', height: '100%', width: Math.round((x.m / maxDia) * 100) + '%', background: '#04896f' }} /></span>
+              <span className="font-bold" style={{ width: 86, textAlign: 'right' }}>{usd(x.m)}</span></div>)}
+            {!t.dias.length && <p className="text-xs text-slate-400">Sin ventas todavía.</p>}</div>
+        </div>
+      </>}
+    </Ventana>
+  )
+}
+
+type IntCamp = { campana: string; fin: string | null; preventa: boolean; total: number
+  asesores: { asesor: string; contactos: { nombre: string; telefono: string; email: string; fecha: string; estado: string; empresa: string | null; productoId: string; producto: string; precioCotizado: number | null; oferta: { desc: number; precio: number; pvp: number } | null }[] }[] }
+
+function InteresadosCampana({ id, cerrar }: { id: string; cerrar: () => void }) {
+  const [d, setD] = useState<IntCamp | null>(null)
+  const [error, setError] = useState('')
+  const [abierto, setAbierto] = useState<string | null>(null)
+  useEffect(() => { supabase.rpc('promo_interesados', { p_campana_id: id }).then(({ data, error: e }) => { if (e) setError(e.message); else setD(data as IntCamp) }) }, [id])
+  const wa = (tel: string, c: IntCamp['asesores'][number]['contactos'][number]) => {
+    const n = tel.replace(/\D/g, ''), num = n.startsWith('0') ? '593' + n.slice(1) : n
+    const txt = `Hola ${c.nombre.split(' ')[0] || ''}, le escribe VIMEDIC. Usted cotizó ${c.producto}` + (c.oferta ? ` y ahora está en promoción a ${usd(c.oferta.precio)} (-${c.oferta.desc}%)` : '') + (d?.fin ? ` hasta el ${fecha(d.fin)}` : '') + '. ¿Le preparo la proforma?'
+    return 'https://wa.me/' + num + '?text=' + encodeURIComponent(txt)
+  }
+  return (
+    <Ventana titulo={'Clientes interesados' + (d ? ' · ' + d.campana : '')} cerrar={cerrar} ancha pie={<button className="btn" onClick={cerrar}>Cerrar</button>}>
+      {error && <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-3">{error}</div>}
+      {!d && !error && <p className="text-xs text-slate-400">Buscando…</p>}
+      {d && <>
+        <p className="text-[11px] text-slate-500">Clientes que cotizaron los equipos de la campaña y no compraron (últimos 18 meses), agrupados por asesor: <b>{d.total}</b> contacto(s).</p>
+        {!d.asesores.length && <p className="text-xs text-slate-400">Nadie ha cotizado estos equipos recientemente.</p>}
+        {d.asesores.map((a) => (
+          <div key={a.asesor} className="rounded-xl border border-slate-200">
+            <button type="button" className="w-full flex items-center gap-2 p-3 text-left" onClick={() => setAbierto(abierto === a.asesor ? null : a.asesor)}>
+              <Users className="w-4 h-4 text-slate-400" /><b className="text-sm text-slate-800" style={{ flex: 1 }}>{a.asesor}</b><span className="pill" style={{ background: '#eff6ff', color: '#055c9d' }}>{a.contactos.length}</span></button>
+            {abierto === a.asesor && <div className="border-t border-slate-100 p-2 space-y-1.5">{a.contactos.map((c, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs rounded-lg bg-slate-50 p-2">
+                <div style={{ flex: 1, minWidth: 0 }}><p className="font-bold text-slate-800 truncate">{c.nombre || 'Sin nombre'}{c.empresa ? <span className="font-normal text-slate-400"> · {c.empresa}</span> : null}</p>
+                  <p className="text-[11px] text-slate-500 truncate">{c.producto} · cotizó {fecha(c.fecha)}{c.precioCotizado ? ' a ' + usd(c.precioCotizado) : ''}{c.oferta ? ' · ahora ' + usd(c.oferta.precio) : ''} · {c.estado}</p></div>
+                {c.telefono && <a className="btn" href={wa(c.telefono, c)} target="_blank" rel="noopener noreferrer">WhatsApp</a>}
+              </div>))}</div>}
+          </div>))}
+      </>}
+    </Ventana>
   )
 }
 

@@ -20,8 +20,8 @@ Estados: ✅ existe en la app nueva · 🆕 recuperado en esta auditoría · ⚠
 10. ✅ Importaciones, Artículos, Adquisiciones y Recepción
 11. ✅ Empleados y Solicitudes del personal
 12. ✅ Talento Humano y Financiero
-13. ⏭️ **Catálogos, Ofertas y Promociones** (siguiente)
-14. Dashboard Ejecutivo
+13. ✅ Catálogos, Ofertas y Promociones
+14. ⏭️ **Dashboard Ejecutivo** (siguiente)
 15. Seguridad, Base de Datos y Mi Espacio
 16. Rendimiento, diseño y uso en el teléfono
 
@@ -526,3 +526,18 @@ En el original los dos módulos son el tablero común de registros (`ModulosBase
 | `vmModulosBaseLista`, `vmModulosBaseAccesos_` | Tarjetas en Mi Espacio y permisos por módulo | ✅ | `modulos.ts` + permisos `talento_humano` / `financiero` |
 
 Las solicitudes del personal de Talento Humano están en el módulo 11 (Mi Perfil y Solicitudes).
+
+## 13. Catálogos, Ofertas y Promociones — Issue #34
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `getCatalogoDatos`, `getCatalogoImagenes`, `vmCatalogoRegistrar` | Catálogo PDF por segmento con asesor, portada y sala de exhibición; registro de catálogos generados | ✅ | `Catalogos.tsx` + `catalogoHtml.ts` (`catalogos_generados`) |
+| `vmOfertasDatos`, `vmOfertasGuardar`, `vmOfertasEstado`, `vmOfertasCrearPlan`, `vmOfertasConfig` | Análisis de stock detenido, ofertas, pausar/reanudar/finalizar/cancelar, plan de liquidación, ajustes | ✅ | `Ofertas.tsx` (`of_analisis`, `ofertas`, `ofertas_config`) |
+| `vmOfertasInteresados`, `vmOfertasImagen`, `vmOfertasLogos`, `vmOfertasTextosIA`, `vmOfertasObservacion*` | Interesados, arte, textos con IA, observaciones | ✅ | `Ofertas.tsx` (Kit, Interesados) |
+| `prContexto`, `prSugerencias`, `prBuscarProductos`, `prGuardarCampana`, `prDetalle`, `prEnviar`, `prDevolver`, `prRechazar`, `prAprobar` | Campañas con aprobación | ✅ | Promociones nuevas (aprobación por producto, vista a pantalla completa) — no se tocaron |
+| `prCancelar` | Cancelar; si estaba aprobada, sus ofertas se cancelan (solo quien aprueba) | ✅ corregido | RPC `cancelar_campana_promocion` (antes las ofertas seguían activas) |
+| `prTablero` | Tablero en vivo: ventas por producto, día y asesor, hoy, capital inicial | ✅ nuevo | Botón "Tablero en vivo" + RPC `promo_tablero` |
+| `prInteresados` | Clientes que cotizaron y no compraron, por asesor | ✅ nuevo | Botón "Interesados" + RPC `promo_interesados` (con WhatsApp) |
+| `prInformeFinal` | Informe final en PDF | ✅ nuevo | "Informe final (PDF)" en el tablero (se descarga; el original lo guardaba en Drive) |
+| `prImagen`, `prLogos` | Arte de la campaña | ➖ | El arte por producto está en Ofertas (Kit) |
+| `prGuardarConfig` | Margen verde, antigüedad, sobrestock, días de preventa | ⚠️ | La campaña nueva usa los criterios por defecto de Ofertas (anotado en #34) |
+| `prOfertasVigentes` | Ofertas activas y programadas | ✅ | `Ofertas.tsx` |
