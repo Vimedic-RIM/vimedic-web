@@ -356,3 +356,14 @@
 .pr-2\.5{padding-right:.625rem}
 .text-\[10\.5px\]{font-size:10.5px}
 @media (min-width:640px){.sm\:w-\[280px\]{width:280px}.sm\:max-w-6xl{max-width:72rem}}
+/* Barra superior en el celular: buscador a la izquierda y el resto en el menú ☰ */
+.inv-head .inv-solo-movil{display:block}
+.inv-head .inv-solo-pc{display:none}
+@media(min-width:640px){.inv-head .inv-solo-movil{display:none}.inv-head .inv-solo-pc{display:flex}}
+.inv-mas button{width:100%;display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:12px;text-align:left;background:none;border:0;cursor:pointer;color:#334155}
+.inv-mas button:hover{background:#f8fafc}
+.inv-mas button:disabled{opacity:.5}
+.inv-mas button>svg{width:16px;height:16px;flex:0 0 auto;color:#64748b}
+.inv-mas button>svg.ok{color:var(--primary)}
+.inv-mas span{flex:1;min-width:0;font-size:12.5px;font-weight:700}
+.inv-mas small{display:block;font-size:10px;font-weight:500;color:#94a3b8}

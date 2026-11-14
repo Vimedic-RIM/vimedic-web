@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
   GripVertical, Move, RotateCcw, Ship, ArrowDownAZ, ArrowRight, BadgeCheck, CircleCheck, ClipboardList, PlusCircle, ShoppingCart, BadgeDollarSign, Barcode, Boxes, Check, ChevronDown, ChevronUp,
-  ChevronsUpDown, ClipboardCopy, Download, Eraser, Eye, EyeOff, FileText, Hash, ImagePlus, Images, LayoutGrid,
+  ChevronsUpDown, ClipboardCopy, Download, Eraser, Eye, EyeOff, FileText, Hash, ImagePlus, Images, LayoutGrid, Menu,
   Package, PackagePlus, PackageX, PanelsTopLeft, Pencil, Plus, RefreshCw, Search, SlidersHorizontal, Table2, Tag,
   Trash2, TriangleAlert, Video, X,
 } from 'lucide-react'
@@ -412,7 +412,7 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
   const [vista, setVista] = useState<'tarjetas' | 'tabla'>(() => {
     try { return localStorage.getItem('vimedic_inventario_vista') === 'tabla' ? 'tabla' : 'tarjetas' } catch { return 'tarjetas' }
   })
-  const [menu, setMenu] = useState<'filtros' | 'vista' | null>(null)
+  const [menu, setMenu] = useState<'filtros' | 'vista' | 'mas' | null>(null)
   const [pos, setPos] = useState<{ left: number; top: number }>({ left: 12, top: 56 })
   const [selId, setSelId] = useState<string | null>(null)
   const [cajon, setCajon] = useState<string | null>(null)
@@ -508,7 +508,7 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
   const consulta = useCallback(() => {
     let q = supabase.from('productos').select(COLUMNAS, { count: 'exact' }).is('deleted_at', null)
     if (idsImp) q = q.in('id', idsImp.length ? idsImp : ['00000000-0000-0000-0000-000000000000'])
-    // Cada palabra debe aparecer en nombre, código, código único o marca — sin importar tildes ni mayúsculas.
+    // Cada palabra (en cualquier orden) debe aparecer en nombre, código, código interno, modelo, marca o categoría — sin importar tildes, mayúsculas ni guiones.
     for (const palabra of sinTildes(busqueda).split(/\s+/).filter(Boolean)) {
       q = q.ilike('busqueda_normalizada', `%${palabra}%`)
     }
@@ -577,11 +577,11 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
   const categoriasLista = useMemo(() => categorias, [categorias])
   const hayFiltros = !!categoria || !!orden || !!impFiltro
 
-  function abrirMenu(e: React.MouseEvent<HTMLButtonElement>, cual: 'filtros' | 'vista') {
+  function abrirMenu(e: React.MouseEvent<HTMLButtonElement>, cual: 'filtros' | 'vista' | 'mas') {
     e.stopPropagation()
     if (menu === cual) { setMenu(null); return }
     const r = e.currentTarget.getBoundingClientRect()
-    const ancho = cual === 'filtros' ? 300 : 240
+    const ancho = cual === 'filtros' ? 300 : cual === 'mas' ? 270 : 240
     let left = r.left
     if (left + ancho > window.innerWidth - 12) left = window.innerWidth - ancho - 12
     setPos({ left: Math.max(12, left), top: r.bottom + 8 })
@@ -677,13 +677,13 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
 
           <div className="flex items-center gap-2 min-w-0 flex-1 lg:flex-none">
             <div className="relative flex-1 min-w-0 lg:flex-none">
-              <input type="text" value={texto} disabled={reordenando} onChange={(e) => setTexto(e.target.value)} placeholder="Buscar por código, nombre, marca o categoría…"
+              <input type="text" value={texto} disabled={reordenando} onChange={(e) => setTexto(e.target.value)} placeholder="Buscar por código, nombre, marca, modelo o categoría…"
                 className="w-full lg:w-64 xl:w-80 pl-8 pr-3 py-2 rounded-lg bg-white/10 text-white placeholder:text-white/55 text-xs focus:outline-none focus:ring-2 focus:ring-white/40" />
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-white/60" />
             </div>
 
             <div className="relative shrink-0" data-menu>
-              <button type="button" onClick={(e) => abrirMenu(e, 'filtros')} className={'w-9 h-9 rounded-lg hover:bg-white/20 text-white flex items-center justify-center transition-colors ' + (hayFiltros ? 'bg-white/30' : 'bg-white/10')} title="Filtros y orden"><SlidersHorizontal className="w-4 h-4" /></button>
+              <button type="button" onClick={(e) => abrirMenu(e, 'filtros')} className={'inv-solo-pc w-9 h-9 rounded-lg hover:bg-white/20 text-white flex items-center justify-center transition-colors ' + (hayFiltros ? 'bg-white/30' : 'bg-white/10')} title="Filtros y orden"><SlidersHorizontal className="w-4 h-4" /></button>
               {menu === 'filtros' && (
                 <div data-menu className="fixed z-[90] w-[300px] max-w-[calc(100vw-24px)] bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden" style={{ left: pos.left, top: pos.top }}>
                   <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
@@ -746,7 +746,27 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
             <span className="hidden md:inline-block shrink-0 whitespace-nowrap text-[11px] font-semibold text-white/75 bg-white/10 rounded-lg px-2.5 py-2" title="Productos encontrados"><b className="text-white">{total}</b> productos</span>
           </div>
 
-          <div className="flex items-center gap-1 shrink-0 ml-auto">
+          {/* Celular: todas las funciones (menos buscar) en el menú ☰ */}
+          <div className="relative shrink-0 inv-solo-movil" data-menu>
+            <button type="button" onClick={(e) => abrirMenu(e, 'mas')} className={'w-9 h-9 rounded-lg hover:bg-white/20 text-white flex items-center justify-center transition-colors ' + (hayFiltros || mostrarInactivos ? 'bg-white/30' : 'bg-white/10')} title="Más opciones" aria-label="Más opciones"><Menu className="w-5 h-5" /></button>
+            {menu === 'mas' && (
+              <div data-menu className="fixed z-[90] w-[270px] max-w-[calc(100vw-24px)] bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden" style={{ left: pos.left, top: pos.top }}>
+                <div className="px-4 py-3 border-b border-slate-100"><p className="text-xs font-bold text-slate-800">Inventario</p><p className="text-[10px] text-slate-400 mt-0.5"><b className="text-slate-700">{total}</b> productos encontrados</p></div>
+                <div className="p-2 inv-mas">
+                  <button type="button" onClick={() => { setPos({ left: Math.max(12, window.innerWidth - 312), top: pos.top }); setMenu('filtros') }}><SlidersHorizontal /><span>Filtros y orden<small>Categoría, importación y orden</small></span>{hayFiltros && <Check className="ok" />}</button>
+                  <button type="button" onClick={() => cambiarVista(vista === 'tabla' ? 'tarjetas' : 'tabla')}>{vista === 'tabla' ? <LayoutGrid /> : <Table2 />}<span>{vista === 'tabla' ? 'Ver en tarjetas' : 'Ver en tabla'}<small>Ahora: {vista === 'tabla' ? 'tabla' : 'tarjetas'}</small></span></button>
+                  {crear && <button type="button" onClick={() => { setMenu(null); setForm('nuevo') }}><Plus /><span>Agregar producto</span></button>}
+                  {editar && <button type="button" onClick={() => { setMenu(null); setMostrarInactivos((v) => !v) }}><EyeOff /><span>Mostrar productos inactivos</span>{mostrarInactivos && <Check className="ok" />}</button>}
+                  {editar && <button type="button" disabled={reordenando} onClick={() => { setMenu(null); iniciarOrden() }}><Move /><span>Reordenar productos</span></button>}
+                  {editar && <button type="button" onClick={() => { setMenu(null); setGestionCat(true) }}><Tag /><span>Categorías del catálogo</span></button>}
+                  {puede(perfil, 'inventario', 'eliminar') && <button type="button" onClick={() => { setMenu(null); setPapelera(true) }}><Trash2 /><span>Papelera</span></button>}
+                  <button type="button" onClick={() => { setMenu(null); cargarEstado(); cargar(Math.max(LOTE, items.length)) }}><RefreshCw /><span>Actualizar inventario</span></button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0 ml-auto inv-solo-pc">
             <div className="relative" data-menu>
               <button type="button" onClick={(e) => abrirMenu(e, 'vista')} className="w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors" title="Cambiar vista">
                 {vista === 'tabla' ? <Table2 className="w-4 h-4" /> : <LayoutGrid className="w-4 h-4" />}
