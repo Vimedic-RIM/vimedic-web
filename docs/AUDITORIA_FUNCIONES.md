@@ -22,8 +22,8 @@ Estados: ✅ existe en la app nueva · 🆕 recuperado en esta auditoría · ⚠
 12. ✅ Talento Humano y Financiero
 13. ✅ Catálogos, Ofertas y Promociones
 14. ✅ Dashboard Ejecutivo
-15. ⏭️ **Seguridad, Base de Datos y Mi Espacio** (siguiente)
-16. Rendimiento, diseño y uso en el teléfono
+15. ✅ Seguridad, Base de Datos y Mi Espacio (pregunta abierta en #36)
+16. ⏭️ **Rendimiento, diseño y uso en el teléfono** (siguiente)
 
 Regla: lo construido en la app nueva no se reemplaza (Promociones con aprobación por producto, Por
 aprobar, vista de campaña, integraciones de Marketing, Rutas y Viáticos, Adquisiciones, etc.); solo se
@@ -553,3 +553,22 @@ Las solicitudes del personal de Talento Humano están en el módulo 11 (Mi Perfi
 | `getExtendedDashboardStats` + `CHART_CATALOG` del CRM | 10 gráficos configurables del CRM: estado, asesor, tipo, cotizaciones 6 meses, ventas por mes, visitas, clientes nuevos, más cotizados, más vendidos, rendimiento por asesor | ✅ nuevo | Botón "Gráficos" del CRM (`CrmGraficos.tsx` + `crm_graficos`); agregar/quitar se recuerda en el equipo; alcance del asesor |
 
 Nota: "Equipos más vendidos" no descuenta las notas de crédito como hacía el original (`ncApplied_`).
+
+## 15. Seguridad, Base de Datos y Mi Espacio — Issue #36
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `vmSegInicial`, `vmSegRoles`, `vmSegGuardarRol`, `vmSegMatriz` | Usuarios, roles y matriz de permisos | ✅ | `Seguridad.tsx` (`seg_guardar_rol`, `seg_asignar_rol`) |
+| `vmSegSesiones`, `vmSegCerrarSesion`, `vmSegCerrarSesionesDe`, `vmSegBloquear` | Sesiones activas, cerrar y bloquear | ✅ | `Seguridad.tsx` (`seg_cerrar_sesion`, `seg_cerrar_sesiones_de`, `seg_bloquear`) |
+| `vmSegBitacora`, `vmSegBitacoraCsv` | Bitácora y exportación | ✅ | `Seguridad.tsx` (`bitacora`) |
+| `vmSegRevision`, `vmSegMarcarRevision` | Revisión de privilegios | ✅ | `Seguridad.tsx` (`seg_revisiones`) |
+| `vmSegConfirmarClave` | Confirmar contraseña antes de acciones delicadas | ✅ | `Seguridad.tsx`, `BaseDatos.tsx` (reautenticación) |
+| `vmBdPanel`, `vmBdTabla`, `vmBdCrearTabla`, `vmBdEditarEsquema`, `vmBdGuardarRegistro`, `vmBdDesactivarRegistro` | Tablas propias | ✅ | `BaseDatos.tsx` |
+| `vmBdImportarCsv`, `vmBdExportar`, `vmBdDuplicados`, `vmBdIntegridad`, `vmBdPermisos` | Herramientas de datos | ✅ | `BaseDatos.tsx` |
+| `vmBdRespaldar`, `vmBdRespaldos`, `vmBdVerificarRespaldo`, `vmBdDescargarRespaldo`, `vmBdVistaRestauracion`, `vmBdRestaurar` | Respaldos y restauración | ✅ | `BaseDatos.tsx` (`respaldos`, `bd_registrar_respaldo`, `bd_marcar_verificado`) |
+| `vmBdProgramar` | Respaldos automáticos diarios / semanales / mensuales | ⚠️ | Pregunta en #36 (Supabase ya guarda copias diarias del proyecto) |
+| `vmBdGuardarModoDrive` | Compartir archivos de Drive público o solo dominio | ➖ | La app comparte con enlace (catálogo y clientes); anotado en #36 |
+| `MiEspacio.html` (`cerrarSesionEmpleado`, personalizar, favoritos, acciones rápidas, barra fija) | Inicio y barra lateral | ✅ | `MiEspacio.tsx`, `Rail.tsx` |
+| `Index.html` (`loginSoloCorreo`, `registrarUsuario`, `validarSesion`) | Inicio de sesión | ✅ | `Login.tsx` + Supabase Auth (con MFA) |
+| `Index.html` (`getProducts`, `getCategories`, `getAllies`, `processQuote`, `processAppointment`, `processWhatsappLead`, `solicitarCambioAsesor`, `getMyAccessAndPricing`) | Catálogo público y formularios de la web | ➖ | Sitio público: Issue #2 |
+| `getPermissionsMatrix`, `savePermissionsMatrix` | Matriz de permisos | ✅ | `Seguridad.tsx` |
+| `ComercialMovil.html` | Cotizar desde el celular (Datos / Inventario / Carrito) | ✅ | `CrmDocumento.tsx` (responsive) |
