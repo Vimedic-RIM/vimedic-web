@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Activity, AlarmClock, Bell, BellRing, BadgeDollarSign, CalendarClock, CalendarPlus, Calendar, CircleDot, CirclePlus,
+  Activity, AlarmClock, BarChart3, Bell, BellRing, BadgeDollarSign, CalendarClock, CalendarPlus, Calendar, CircleDot, CirclePlus,
   ClipboardPlus, Contact, Copy, FilePlus2, FileText, Handshake, Hourglass, IdCard, ImagePlus, KanbanSquare, Lock,
   Magnet, Mail, MapPin, Menu, MessageCircle, MessageSquareText, Phone, PhoneCall, PhoneMissed, Plus, Receipt, RefreshCw,
   Repeat, Search, Settings, Settings2, SlidersHorizontal, Sparkles, Trash2, Trophy, TriangleAlert, User, UserPlus, UserRound,
@@ -21,6 +21,8 @@ import { FichaCliente } from './Clientes'
 import { EditorDatosEmpresa, RepartoMeta } from './CrmMeta'
 import CrmMensajes from './CrmMensajes'
 import '../estilos/crm-original.css'
+// Gráficos del CRM: se descargan solo cuando se abren (chart.js es pesado).
+const CrmGraficos = lazy(() => import('./CrmGraficos'))
 import '../estilos/clientes.css'
 
 /* ============================ Tipos y datos ============================ */
@@ -106,6 +108,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
   const [hasta, setHasta] = useState('')
   const [panelFiltros, setPanelFiltros] = useState(false)
   const [menuMovil, setMenuMovil] = useState(false)
+  const [graficos, setGraficos] = useState(false)
   const [panelAlertas, setPanelAlertas] = useState(false)
   const [soloAlertas, setSoloAlertas] = useState<Set<string>>(new Set())
   const [limites, setLimites] = useState<Record<string, number>>({})
@@ -428,6 +431,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
               <AlarmClock className="w-4 h-4" />
               {pendientes.length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center">{pendientes.length}</span>}
             </button>
+            <button type="button" onClick={() => setGraficos(true)} className="bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg transition-colors" title="Gráficos del CRM"><BarChart3 className="w-4 h-4" /></button>
             <button onClick={() => cargar()} className="bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg transition-colors" title="Sincronizar"><RefreshCw className={'w-4 h-4 ' + (cargando ? 'animate-spin' : '')} /></button>
           </div>
         </div>
@@ -445,6 +449,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
               {crear && <button onClick={() => { setMenuMovil(false); setNueva(true) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><CirclePlus className="w-4 h-4" style={{ color: 'var(--primary)' }} /> Nueva Gestión</button>}
               {crear && <button onClick={() => { setMenuMovil(false); setDocumento({ modo: 'Cotización', origen: null }) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><FilePlus2 className="w-4 h-4" style={{ color: 'var(--teal)' }} /> Nueva Cotización</button>}
               {crear && <button onClick={() => { setMenuMovil(false); setDocumento({ modo: 'Venta', origen: null }) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><Receipt className="w-4 h-4" style={{ color: '#04896f' }} /> Nueva Venta</button>}
+              <button onClick={() => { setMenuMovil(false); setGraficos(true) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><BarChart3 className="w-4 h-4 text-slate-400" />Gráficos</button>
               <button onClick={() => { setMenuMovil(false); setClientes(true) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><Users className="w-4 h-4 text-slate-500"  /> Clientes</button>
               <button onClick={() => { setMenuMovil(false); setRutasViaticos(true) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><MapPin className="w-4 h-4 text-slate-500"  /> Rutas y viáticos</button>
               <button onClick={() => { setMenuMovil(false); setMensajes({ conversacion: null }) }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 text-left"><MessageCircle className="w-4 h-4 text-slate-500"  /> Mensajes</button>
@@ -614,6 +619,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
       {fichaCliente && <div className="vm-cli"><FichaCliente id={fichaCliente} perfil={perfil} asesores={asesores} cerrar={() => setFichaCliente(null)} aviso={aviso} cambio={cargar} /></div>}
       {papelera && <Papelera empresa={empresa} cerrar={() => setPapelera(false)} alRestaurar={cargar} aviso={aviso} />}
       {rutasViaticos && <RutasViaticos perfil={perfil} cerrar={() => setRutasViaticos(false)} aviso={aviso} />}
+      {graficos && <Suspense fallback={null}><CrmGraficos gestiones={filtradas} asesores={asesores} empresa={empresa} colores={COLOR_ESTADO} cerrar={() => setGraficos(false)} /></Suspense>}
       {documento && <CrmDocumento empresa={empresa} editar={documento.editar} itemsIniciales={documento.items} modo={documento.modo} perfil={perfil} asesores={asesores} origen={documento.origen} cerrar={() => setDocumento(null)}
         guardado={(m, doc, info?: InfoGuardado) => {
           setDocumento(null); aviso(m); cargar(); setProforma(doc)

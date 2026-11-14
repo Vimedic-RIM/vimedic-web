@@ -21,8 +21,8 @@ Estados: ✅ existe en la app nueva · 🆕 recuperado en esta auditoría · ⚠
 11. ✅ Empleados y Solicitudes del personal
 12. ✅ Talento Humano y Financiero
 13. ✅ Catálogos, Ofertas y Promociones
-14. ⏭️ **Dashboard Ejecutivo** (siguiente)
-15. Seguridad, Base de Datos y Mi Espacio
+14. ✅ Dashboard Ejecutivo
+15. ⏭️ **Seguridad, Base de Datos y Mi Espacio** (siguiente)
 16. Rendimiento, diseño y uso en el teléfono
 
 Regla: lo construido en la app nueva no se reemplaza (Promociones con aprobación por producto, Por
@@ -66,7 +66,7 @@ Commits: 1dd60b5, d3df08d, 8c42d3d.
 | Mensajería: `getEstadoInicialMensajesCRM`, `getHistorialConversacionCRM`, `enviarMensajeFacebook`, `obtenerUrlAdjuntoZernio`, `marcarConversacionLeidaCRM`, `reasignarConversacionCRM`, `getPerfil*ZernioCRM`, `getCambiosMensajesCRM` | Mensajes | 🆕 | Edge Function `crm-mensajes` + `CrmMensajes.tsx` (cierra #1) |
 | `generarRespuestaIA` | Redactar respuesta con IA | 🆕 | `crm-mensajes` (Gemini). En el original faltaba la función de servidor |
 | `createRoute`, `createViatico`, `getRoutesList`, `getViaticosList`, `updateViaticoStatus` | Rutas y viáticos | ✅ | #17 |
-| `getExtendedDashboardStats` | Gráficos ampliados de FEMEDICS | ❌ | Pasa a la vuelta del Dashboard |
+| `getExtendedDashboardStats` | Gráficos ampliados del CRM (VIMEDIC y FEMEDICS) | ✅ | Panel "Gráficos" del CRM (`CrmGraficos.tsx` + `crm_graficos`), módulo 14 · #35 |
 | `getClientAccessStatus`, `setClientAccess` | Acceso de clientes al catálogo | ❌ | Depende del catálogo público (#2) |
 | `getMyRoleInfo`, `vmMisPermisosAcciones`, `vmEmpresaCall`, `vmRpc` | Infraestructura | ➖ | `mi_perfil`, RLS y parámetro `empresa` |
 
@@ -541,3 +541,15 @@ Las solicitudes del personal de Talento Humano están en el módulo 11 (Mi Perfi
 | `prImagen`, `prLogos` | Arte de la campaña | ➖ | El arte por producto está en Ofertas (Kit) |
 | `prGuardarConfig` | Margen verde, antigüedad, sobrestock, días de preventa | ⚠️ | La campaña nueva usa los criterios por defecto de Ofertas (anotado en #34) |
 | `prOfertasVigentes` | Ofertas activas y programadas | ✅ | `Ofertas.tsx` |
+
+## 14. Dashboard Ejecutivo — Issue #35
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `dashEjecutivo` | Ventana de 12 meses + período (Mes / 3 meses / Año / fechas): línea de tiempo, composición, actividad, embudo, proformas vs ventas, lectura ejecutiva, matriz de valor, 80/20, categorías, valor proformado vs vendido, asesores, efectividad, mapa y regiones, top clientes, clientes nuevos, canales, ventas del período | ✅ | `Dashboard.tsx` |
+| `dashEjecutivoMarketing` | Lectura de marketing, contenido vs ventas, campañas y anuncios, próximos 14 días, ritmo, flujo y producción por responsable | ✅ | `Dashboard.tsx` |
+| `dashEjecutivoPipeline` | Pipeline del CRM y salud comercial | ✅ | `Dashboard.tsx` |
+| `dashGetSnapshot`, `dashGetVentasRapidas`, `dashGetClientesRapidos`, `dashGetPipelineRapido`, `dashForzarActualizacion` | Panel anterior | ➖ | Ninguna pantalla los llama |
+| `mkfInformeDesempeno` (InformesDesempeno.gs) | Informe semanal / mensual en PDF | ✅ | Módulo 2 (`mkt_informe_comercial`) |
+| `getExtendedDashboardStats` + `CHART_CATALOG` del CRM | 10 gráficos configurables del CRM: estado, asesor, tipo, cotizaciones 6 meses, ventas por mes, visitas, clientes nuevos, más cotizados, más vendidos, rendimiento por asesor | ✅ nuevo | Botón "Gráficos" del CRM (`CrmGraficos.tsx` + `crm_graficos`); agregar/quitar se recuerda en el equipo; alcance del asesor |
+
+Nota: "Equipos más vendidos" no descuenta las notas de crédito como hacía el original (`ncApplied_`).
