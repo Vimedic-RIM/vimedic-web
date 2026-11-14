@@ -6,7 +6,7 @@ import {
 import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
 import { FormularioCliente, type Cliente as ClienteFicha } from './CrmClientes'
-import { imagen } from './Inventario'
+import { imagen } from './inventarioUtil'
 import type { DatosDoc } from '../proforma'
 import { EtiquetasStockCotizacion, FranjaStock, marcoStock, useEstadoStock } from '../estadoStock'
 import { leerDatosEmpresa } from './CrmMeta'

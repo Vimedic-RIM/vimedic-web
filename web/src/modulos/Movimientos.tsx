@@ -3,7 +3,7 @@ import { AlertTriangle, Calculator, Download, ExternalLink, FileText, Layers, Li
 import { supabase, type Perfil } from '../supabase'
 import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
-import { imagen } from './Inventario'
+import { imagen } from './inventarioUtil'
 import '../estilos/movimientos.css'
 
 /* ============================ Tipos y utilidades ============================ */
@@ -116,7 +116,7 @@ export default function Movimientos({ perfil, aviso, productoInicial, limpiarPro
       <header className="hdr text-white">
         <div className="max-w-[1500px] mx-auto px-4 py-3 flex items-center gap-3 flex-wrap vm-head-pad">
           <div className="min-w-0"><h1 className="font-display font-bold text-lg leading-tight">Movimientos de inventario</h1><p className="text-[11px] text-white/70">Ingresos y salidas de todos los productos · {perfil.nombre}{puedeEditar ? ' · puedes modificar' : ' · solo lectura'}</p></div>
-          <div className="ml-auto flex gap-2">
+          <div className="ml-auto flex gap-2 flex-wrap">
             <button className="btn !bg-white/10 !border-white/20 !text-white" onClick={exportarCsv}><Download />CSV</button>
             {puedeEditar && <button className="btn !bg-amber-400 !border-amber-400 !text-slate-900" title="Recalcula el stock de los productos que tienen movimientos" onClick={() => setStockModal('confirmar')}><Calculator />Actualizar stock</button>}
             <button className="btn !bg-white/10 !border-white/20 !text-white" onClick={cargar}><RefreshCw className={cargando ? 'animate-spin' : ''} />Actualizar</button>

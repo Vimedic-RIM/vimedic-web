@@ -225,7 +225,7 @@ export default function Agenda({ perfil, aviso, accion, limpiarAccion }: { perfi
           <button className="tool" title="Cambiar vista" onClick={() => setMenu(menu === 'vista' ? '' : 'vista')}><LayoutGrid /></button>
           {menu === 'vista' && <div className="pop" style={{ left: 0, right: 'auto' }}><h4>Cambiar vista</h4>{([['kanban', 'Kanban', 'Por columnas', Columns3], ['tarjetas', 'Tarjetas', 'Vista visual compacta', LayoutGrid], ['tabla', 'Tabla', 'Información en filas', Table2], ['gantt', 'Gantt', 'Planificación en el tiempo', GanttChartSquare], ['calendario', 'Calendario', 'Organización por fecha', CalendarDays]] as const).map(([k, t, s, I]) => <button key={k} className={'opt' + (vista === k ? ' on' : '')} onClick={() => { setVista(k); setMenu('') }}><I /><span><b>{t}</b><small>{s}</small></span></button>)}</div>}
         </div>
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <div style={{ position: 'relative' }} onClick={(e) => e.stopPropagation()}>
             <button className="coin" title="Mis monedas y nivel" onClick={() => setMenu(menu === 'wallet' ? '' : 'wallet')}>🪙 {eco?.total ?? 0}<span className="lvl">Nv {eco?.nivel.numero ?? 1}</span></button>
             {menu === 'wallet' && eco && <div className="pop"><div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><span style={{ fontSize: 30 }}>🪙</span><div><strong style={{ fontSize: 20 }}>{eco.total}</strong><small style={{ display: 'block', color: '#64748b' }}>monedas disponibles</small></div></div>

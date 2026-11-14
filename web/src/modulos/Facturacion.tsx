@@ -6,7 +6,7 @@ import {
 import { supabase, type Perfil } from '../supabase'
 import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
-import { imagen } from './Inventario'
+import { imagen } from './inventarioUtil'
 import '../estilos/facturacion.css'
 
 /* ============================ Tipos y utilidades ============================ */

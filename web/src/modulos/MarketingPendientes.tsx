@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { ImageOff, Search } from 'lucide-react'
-import { imagen } from './Inventario'
+import { imagen } from './inventarioUtil'
 
 /* Biblioteca › "Por completar" y "Videos pendientes" (mkfPendientes del original): primero los equipos
    de la web y los más cotizados; se trabaja por partes y todo se guarda solo en el formulario. */

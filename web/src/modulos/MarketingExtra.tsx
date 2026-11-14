@@ -3,7 +3,7 @@ import { AlertTriangle, ArrowLeft, BadgePercent, Check, FileDown, FolderUp, Mega
 import { InversionAnuncios } from './MarketingAnuncios'
 import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
-import { imagen as imgUrl } from './Inventario'
+import { imagen as imgUrl } from './inventarioUtil'
 import { armarProductos, CFG_DEF, ChipsStockProceso, GRUPOS, meses, useEstadoStock, type EstadoStock, type Prod } from './Ofertas'
 import '../estilos/ofertas.css'
 

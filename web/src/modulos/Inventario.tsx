@@ -57,20 +57,9 @@ const dinero = (v: number | null | undefined) =>
   '$' + (Number(v) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const num2 = (v: number | null | undefined) => (Number(v) || 0).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-// Igual que la app original: los enlaces de Drive se piden como miniatura del ancho necesario.
-// Cuando las imágenes pasen a R2 (media.vimedic.com.ec) esta función devuelve la URL tal cual.
-export function imagen(url: string | null | undefined, ancho: number): string {
-  const v = String(url || '').trim()
-  if (!v) return ''
-  try {
-    const u = new URL(v)
-    if (u.hostname !== 'drive.google.com' && !/^lh[0-9]+\.googleusercontent\.com$/.test(u.hostname)) return v
-    const m = u.pathname.match(/\/d\/([a-zA-Z0-9_-]+)/)
-    const id = m ? m[1] : u.searchParams.get('id')
-    if (!id || !/^[a-zA-Z0-9_-]+$/.test(id)) return v
-    return `https://lh3.googleusercontent.com/d/${id}=w${ancho}`
-  } catch { return v }
-}
+// imagen() e Interruptor viven en inventarioUtil (otros módulos los usan sin cargar todo Inventario).
+export { imagen, Interruptor } from './inventarioUtil'
+import { imagen, Interruptor } from './inventarioUtil'
 
 type Linea = { id: string; codigo: string; nombre: string; imagen: string; precio: number; cantidad: number; descuento: number; iva: boolean; categoria: string; ficha: string; carpeta: string }
 type Carrito = { cant: (id: string) => number; agregar: (p: Fila, e?: HTMLElement | null) => void }
@@ -1310,14 +1299,6 @@ function nombreTitulo(txt: string): string {
     if (i > 0 && MENORES.includes(limpio.toLowerCase())) return low
     return low.replace(/(^|[-/(])([a-záéíóúüñ])/g, (_m, a, b) => a + b.toUpperCase())
   }).join(' ')
-}
-
-export function Interruptor({ activo, cambiar }: { activo: boolean; cambiar: () => void }) {
-  return (
-    <button type="button" onClick={cambiar} className="relative w-11 h-6 rounded-full transition-colors shrink-0" style={{ background: activo ? 'var(--teal)' : '#cbd5e1' }}>
-      <span className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform" style={{ transform: activo ? 'translateX(20px)' : 'translateX(0)' }} />
-    </button>
-  )
 }
 
 type PrecioPromo = { clave: string; valor: string }

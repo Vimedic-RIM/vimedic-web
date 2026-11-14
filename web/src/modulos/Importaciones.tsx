@@ -6,7 +6,7 @@ import { imagenWebp, subirCatalogo } from './audiovisualMedios'
 import { supabase, type Perfil } from '../supabase'
 import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
-import { imagen } from './Inventario'
+import { imagen } from './inventarioUtil'
 import { ConfirmarEliminar } from './CrmClientes'
 import '../estilos/importaciones.css'
 // Recepción por línea (RecepcionImportacion.gs): se carga solo al abrirla

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Download, Printer, X } from 'lucide-react'
-import { imagen } from './modulos/Inventario'
+import { imagen } from './modulos/inventarioUtil'
 import { supabase } from './supabase'
 
 /* Proforma / comprobante de venta en HTML listo para imprimir o guardar como PDF en A4.

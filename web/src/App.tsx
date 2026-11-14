@@ -7,7 +7,9 @@ import MfaChallenge from './MfaChallenge'
 import MiEspacio from './MiEspacio'
 import Rail from './Rail'
 import { MODULOS } from './modulos'
-import Inventario from './modulos/Inventario'
+// Inventario también se descarga al abrirlo; su hoja de estilos se queda aquí porque otras pantallas usan sus clases.
+import './estilos/inventario-original.css'
+const Inventario = lazy(() => import('./modulos/Inventario'))
 // CRM, Empleados y Facturación se descargan solo cuando se abren (la entrada a la app es más rápida).
 const Crm = lazy(() => import('./modulos/Crm'))
 const Empleados = lazy(() => import('./modulos/Empleados'))

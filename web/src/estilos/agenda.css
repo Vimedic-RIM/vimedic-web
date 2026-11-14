@@ -67,3 +67,5 @@ body.vm-con-rail .vm-ag .timerbar{left:var(--vr-w);z-index:130}
 @media (hover:none){.vm-ag .kp-x{opacity:.7}}
 .vm-ag .kp-add{display:grid;place-items:center;min-width:40px;height:100%;cursor:pointer;color:var(--muted)}
 .vm-ag .kp-add svg{width:16px;height:16px}
+/* Celular: el selector Mi agenda / Me asignaron / Delegadas no se sale de la pantalla ni parte las palabras */
+@media(max-width:640px){.vm-ag .scope{display:flex;max-width:100%;overflow-x:auto;scrollbar-width:none}.vm-ag .scope::-webkit-scrollbar{display:none}.vm-ag .scope button{flex:0 0 auto;white-space:nowrap;padding:7px 10px}}

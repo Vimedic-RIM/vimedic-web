@@ -5,7 +5,7 @@ import {
 import { supabase, type Perfil } from '../supabase'
 import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
-import { imagen, Interruptor } from './Inventario'
+import { imagen, Interruptor } from './inventarioUtil'
 import { leerAjustesFicha, type AjustesFicha } from './MarketingRevision'
 import { imagenWebp, subirCatalogo } from './audiovisualMedios'
 import { PorCompletar, VideosPendientes, type DatosPendientes } from './MarketingPendientes'

@@ -23,7 +23,7 @@ Estados: ✅ existe en la app nueva · 🆕 recuperado en esta auditoría · ⚠
 13. ✅ Catálogos, Ofertas y Promociones
 14. ✅ Dashboard Ejecutivo
 15. ✅ Seguridad, Base de Datos y Mi Espacio (pregunta abierta en #36)
-16. ⏭️ **Rendimiento, diseño y uso en el teléfono** (siguiente)
+16. ✅ Rendimiento, diseño y uso en el teléfono
 
 Regla: lo construido en la app nueva no se reemplaza (Promociones con aprobación por producto, Por
 aprobar, vista de campaña, integraciones de Marketing, Rutas y Viáticos, Adquisiciones, etc.); solo se
@@ -572,3 +572,11 @@ Nota: "Equipos más vendidos" no descuenta las notas de crédito como hacía el 
 | `Index.html` (`getProducts`, `getCategories`, `getAllies`, `processQuote`, `processAppointment`, `processWhatsappLead`, `solicitarCambioAsesor`, `getMyAccessAndPricing`) | Catálogo público y formularios de la web | ➖ | Sitio público: Issue #2 |
 | `getPermissionsMatrix`, `savePermissionsMatrix` | Matriz de permisos | ✅ | `Seguridad.tsx` |
 | `ComercialMovil.html` | Cotizar desde el celular (Datos / Inventario / Carrito) | ✅ | `CrmDocumento.tsx` (responsive) |
+
+## 16. Rendimiento, diseño y uso en el teléfono — Issue #37
+| Revisión | Resultado | Dónde quedó |
+|---|---|---|
+| Carga por módulo | Todos los módulos se descargan al abrirlos; Inventario entraba en el archivo principal y 10 módulos lo arrastraban por la miniatura de imágenes | `inventarioUtil.tsx` + Inventario diferido: archivo principal de 563 KB a 455 KB (129 KB comprimido) |
+| Consultas | Columnas específicas y límites en los listados; `select('*')` solo en dos lecturas de una fila | Sin cambios |
+| Celular (390 px y 360 px) | 27 pantallas sin desplazamiento horizontal | Agenda (selector y barra) y Movimientos (barra) corregidos |
+| Inventario en el celular | Buscador a la izquierda y menú ☰; buscador sin tildes ni mayúsculas | #32 |

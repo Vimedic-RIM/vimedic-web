@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronRight, ChevronUp, Download, FileText, Monitor, Palette, Plus, Printer, Search, SlidersHorizontal, Smartphone, Undo2, X } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
-import { imagen } from './Inventario'
+import { imagen } from './inventarioUtil'
 import { htmlCatalogo, type CfgH, type Tam, type Tema } from '../catalogoHtml'
 import '../estilos/catalogos.css'
 
