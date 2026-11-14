@@ -18,8 +18,8 @@ Estados: ✅ existe en la app nueva · 🆕 recuperado en esta auditoría · ⚠
 8. ✅ Bodega y Logística
 9. ✅ Servicio Técnico
 10. ✅ Importaciones, Artículos, Adquisiciones y Recepción
-11. ⏭️ **Empleados y Solicitudes del personal** (siguiente; módulo nuevo de la versión 4)
-12. Talento Humano y Financiero
+11. ✅ Empleados y Solicitudes del personal
+12. ⏭️ **Talento Humano y Financiero** (siguiente)
 13. Catálogos, Ofertas y Promociones
 14. Dashboard Ejecutivo
 15. Seguridad, Base de Datos y Mi Espacio
@@ -404,7 +404,7 @@ Probado en la base de pruebas, dentro de una transacción que se deshace al fina
 
 ---
 
-## 10. Importaciones, Artículos, Adquisiciones y Recepción — Issue #30 (en curso)
+## 10. Importaciones, Artículos, Adquisiciones y Recepción — Issue #30
 
 Pantallas: `ImportacionesVista.html` (tablero `vmTab*`), `ArticulosImportarVista.html` (`vmArt*`), y la bandeja de recepción
 `vmRec*` dentro de Bodega, Servicio Técnico y Marketing. Los `vmImp*` de `Importaciones.gs` (flujo anterior con aprobación,
@@ -475,3 +475,39 @@ con ceros; además un código liberado ahora se puede volver a reservar.
 
 Nota: la página pública ahora vive en la app (`/material/?c=`) en lugar de pasar por el proxy de Apps Script del sitio.
 En QA la subida de archivos necesita que Google Drive esté conectado; el enlace de descarga funciona sin Drive.
+
+## 11. Empleados y Solicitudes del personal — Issue #31
+
+### Empleados (`Empleados.html`, `Data Empleados.gs`)
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `getEmpleadosList`, `getEmpleadosListCompleta`, `guardarEmpleado`, `vmEmpleadoEliminar` | Directorio, ficha, alta, edición y papelera | ✅ | `Empleados.tsx` (ya existía) |
+| `getAccesoEmpleado`, `guardarAccesoEmpleado`, `guardarAccesosModulos`, `vmAccDeEmpleado`, `vmAccGuardar`, `getRolesCRM`, `generarPasswordEmpleado` | Accesos, roles, permisos por acción y contraseña | ✅ | `Empleados.tsx` + función `empleados-cuenta` (no se tocó) |
+| `mkfRolEmpleado`, `mkfGuardarRolEmpleado` | Rol en Marketing (directa / aprueba) | ✅ | `Empleados.tsx` (preferencias.marketing) |
+| `vmPapeleraListar`, `vmPapeleraRestaurar` | Papelera de empleados | ✅ | `PapeleraEmp` |
+| `vmEmpDatosLaborales_` (v4) | Fecha de ingreso, departamento, jornada, estado laboral, horario, saldo inicial y fecha de corte | ✅ nuevo | Sección "Datos laborales" + validación en la base (`app.tg_empleado_laboral`) con auditoría |
+| Jefe inmediato por lista sin ciclos (v4) | Solo activos, no uno mismo, sin ciclos | ✅ nuevo | Lista filtrada en la ficha + bloqueo en la base |
+| `subirFotoEmpleado` | Subir la foto desde un archivo | ✅ nuevo | Botón "Subir foto" (WebP, carpeta `empleados/` del almacenamiento de avatares) |
+
+### Solicitudes del personal (`SolicitudesPersonal.gs`, `SolicitudesVista.html`) — módulo nuevo
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `vmSolMiPerfil` | Mi Perfil: datos laborales, saldo, movimientos, mis solicitudes | ✅ | Vista `miperfil` (`SolicitudesPersonal.tsx`) + RPC `th_mi_perfil` |
+| `vmSolCrear` | Vacaciones / Permiso / Horas con validaciones (saldo, solapes, máximo por tipo, 30 días de atraso, documento, excepción de saldo, envío sin duplicar) | ✅ | Formularios + RPC `th_sol_crear` |
+| `vmSolDecidirJefe` | Jefe aprueba o rechaza (solo sus subordinados) | ✅ | RPC `th_sol_decidir_jefe` |
+| `vmSolDecidirTTHH` | Validación final, excepción de saldo, horas autorizadas, validar sin jefe (excepcional) | ✅ | RPC `th_sol_decidir_tthh` |
+| `solDescontar_` | Descuento único del saldo al aprobar | ✅ | `app.th_descontar` |
+| `vmSolCancelar` | Cancelar (empleado/TTHH) y anular aprobada con reverso del saldo | ✅ | RPC `th_sol_cancelar` |
+| `vmSolObservar`, `vmSolRegistrarHoras` | Observaciones; horas trabajadas / compensadas / verificadas para pago | ✅ | RPC `th_sol_observar`, `th_sol_registrar_horas` |
+| `vmSolAjustarSaldo` | Ajuste justificado del saldo | ✅ | Pestaña Saldos + RPC `th_ajustar_saldo` |
+| `vmSolTipoGuardar` | Tipos de permiso (no se borran, se desactivan) | ✅ | Pestaña Tipos + RPC `th_tipo_guardar` |
+| `vmSolConfigGuardar` | Reglas de vacaciones (Art. 69, calendario/laborables, feriados, anticipación) | ✅ | Pestaña Configuración + `th_configuracion` |
+| `vmSolBandeja`, `vmSolDetalle` | Bandeja jefe / TTHH con filtros, CSV y saldos; detalle con control de acceso | ✅ | Vista `solicitudes` + RPC `th_bandeja`, `th_sol_detalle` |
+| `vmSolDocumento`, `solCarpeta_` | Documento de respaldo privado; el jefe no ve lo confidencial | ✅ | Almacenamiento privado `talento-humano` + RPC `th_sol_documento` |
+| `solAuditar_` | Auditoría de cada acción | ✅ | Tabla `th_auditoria` + bitácora; pestaña Auditoría (administrador) |
+| `solNotificar_`, `vmSolNotifLeidas` | Avisos internos en cada paso | ✅ | Campana de avisos (`notificaciones`) |
+| `solNotificar_` (correo) | Copia por correo | ⚠️ | Falta un servicio de correo (pregunta en #23) |
+
+Seguridad: antes la tabla `th_solicitudes` permitía que un jefe cambiara el estado directamente (aprobar sin TTHH y sin
+descontar saldo) y le mostraba el motivo de permisos confidenciales. Ahora la tabla solo se lee (el empleado lo suyo,
+Talento Humano todo) y todo cambio pasa por las funciones, que validan cada paso.

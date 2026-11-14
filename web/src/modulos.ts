@@ -1,6 +1,6 @@
 import {
   BookOpen, CalendarCheck, ChartNoAxesCombined, Contact, Database, Kanban, Landmark, Megaphone, Package,
-  PackagePlus, ReceiptText, Ship, ShieldCheck, Tag, Truck, UsersRound, Users, Warehouse, Wrench,
+  Inbox, PackagePlus, ReceiptText, UserRound, Ship, ShieldCheck, Tag, Truck, UsersRound, Users, Warehouse, Wrench,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -10,6 +10,7 @@ import {
 export type Modulo = { id: string; label: string; desc: string; icono: LucideIcon; permiso: string; c: string; listo: boolean }
 
 export const MODULOS: Record<string, Modulo> = {
+  miperfil: { id: 'miperfil', label: 'Mi Perfil', desc: 'Tus datos laborales, vacaciones disponibles y solicitudes de vacaciones, permisos y horas.', icono: UserRound, permiso: 'miperfil', c: '#be185d', listo: true },
   crm: { id: 'crm', label: 'CRM Vimedic', desc: 'Pipeline, cotizaciones, ventas, seguimiento y mensajes.', icono: Kanban, permiso: 'crm', c: '#055c9d', listo: true },
   marketing: { id: 'marketing', label: 'Marketing', desc: 'Resultados, planificador, audiovisual y biblioteca.', icono: Megaphone, permiso: 'marketing', c: '#e1306c', listo: true },
   inventario: { id: 'inventario', label: 'Inventario', desc: 'Productos, stock, precios y fichas técnicas.', icono: Package, permiso: 'inventario', c: '#04896f', listo: true },
@@ -31,6 +32,7 @@ export const MODULOS: Record<string, Modulo> = {
   catalogos: { id: 'catalogos', label: 'Catálogos personalizados', desc: 'Catálogos PDF por segmento con tu WhatsApp de asesor.', icono: BookOpen, permiso: 'catalogos', c: '#1d2344', listo: true },
   ofertas: { id: 'ofertas', label: 'Ofertas y Liquidación', desc: 'Stock dormido y con observaciones: estrategias, ofertas y resultados.', icono: Tag, permiso: 'ofertas', c: '#c2410c', listo: true },
   clientes: { id: 'clientes', label: 'Clientes', desc: 'Ficha completa de cada cliente: datos, cotizaciones, facturas y productos.', icono: Users, permiso: 'clientes', c: '#0e7490', listo: true },
+  solicitudes: { id: 'solicitudes', label: 'Solicitudes', desc: 'Aprobación de vacaciones, permisos y horas de tu equipo y validación de Talento Humano.', icono: Inbox, permiso: 'solicitudes', c: '#9d174d', listo: true },
   seguridad: { id: 'seguridad', label: 'Seguridad y Auditoría', desc: 'Usuarios, roles, sesiones activas y bitácora de actividad.', icono: ShieldCheck, permiso: 'seguridad', c: '#334155', listo: true },
   // En la base nueva "bases de datos" cuelga del módulo seguridad.
   basedatos: { id: 'basedatos', label: 'Bases de Datos', desc: 'Tablas, registros, exportaciones, respaldos y restauración.', icono: Database, permiso: 'basedatos', c: '#0f172a', listo: true },
@@ -38,7 +40,7 @@ export const MODULOS: Record<string, Modulo> = {
 
 // Orden por defecto de Mi Espacio (igual que la app original).
 export const ORDEN_MODULOS = [
-  'crm', 'clientes', 'marketing', 'inventario', 'agenda', 'facturacion', 'dashboard', 'movimientos', 'femedics', 'bodega',
+  'miperfil', 'crm', 'clientes', 'marketing', 'inventario', 'agenda', 'facturacion', 'dashboard', 'movimientos', 'femedics', 'bodega',
   'logistica', 'serviciotecnico', 'talentohumano', 'importaciones', 'articulos', 'adquisiciones', 'financiero', 'catalogos',
-  'ofertas', 'empleados', 'seguridad', 'basedatos',
+  'ofertas', 'empleados', 'solicitudes', 'seguridad', 'basedatos',
 ]

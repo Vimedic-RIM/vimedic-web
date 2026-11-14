@@ -4,6 +4,7 @@ import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
 import { imagen } from './Inventario'
 import { ConfirmarEliminar } from './CrmClientes'
+import { imagenWebp } from './audiovisualMedios'
 import '../estilos/empleados.css'
 
 type Emp = {
@@ -11,9 +12,12 @@ type Emp = {
   foto_url: string | null; empresa: 'VIMEDIC' | 'FEMEDICS'; local: string | null; cargo: string | null; jefe_id: string | null; rol_id: string | null
   permisos_extra: Record<string, string[]> | null; recibe_leads: boolean; recibe_leads_mensajes: boolean; recibe_clientes_meta: boolean
   auth_user_id: string | null; estado: 'activo' | 'inactivo'; preferencias: Record<string, any> | null // eslint-disable-line @typescript-eslint/no-explicit-any
+  // Datos laborales (Mi Perfil, vacaciones, permisos y horas)
+  departamento: string | null; fecha_ingreso: string | null; jornada_laboral: string | null; hora_entrada: string | null; hora_salida: string | null
+  estado_laboral: string | null; saldo_inicial_vacaciones: number | null; fecha_corte_vacaciones: string | null
 }
 type Rol = { id: string; nombre: string; rol_crm: string | null; permisos: Record<string, string[]> }
-const COLS = 'id,email,nombre,cedula,telefono,correo_personal,cumpleanos,foto_url,empresa,local,cargo,jefe_id,rol_id,permisos_extra,recibe_leads,recibe_leads_mensajes,recibe_clientes_meta,auth_user_id,estado,preferencias'
+const COLS = 'id,email,nombre,cedula,telefono,correo_personal,cumpleanos,foto_url,empresa,local,cargo,jefe_id,rol_id,permisos_extra,recibe_leads,recibe_leads_mensajes,recibe_clientes_meta,auth_user_id,estado,preferencias,departamento,fecha_ingreso,jornada_laboral,hora_entrada,hora_salida,estado_laboral,saldo_inicial_vacaciones,fecha_corte_vacaciones'
 
 /* Interruptores del original → módulo / acción de la base nueva */
 type Tog = { k: string; t: string; d?: string; fondo?: string; mod?: string; acc?: string; flag?: string; col?: 'recibe_leads' | 'recibe_leads_mensajes' | 'recibe_clientes_meta' }
@@ -224,7 +228,34 @@ function Ficha({ perfil, emp, lista, roles, cerrar, guardado, aviso }: { perfil:
     email: v(emp?.email), nombre: v(emp?.nombre), cedula: v(emp?.cedula), telefono: v(emp?.telefono), cargo: v(emp?.cargo), local: v(emp?.local), jefe: v(emp?.jefe_id),
     empresa: emp?.preferencias?.ambasEmpresas ? 'AMBAS' : (emp?.empresa ?? 'VIMEDIC'), correoPersonal: v(emp?.correo_personal), cumpleanos: v(emp?.cumpleanos), foto: v(emp?.foto_url),
     estado: emp?.estado ?? 'activo', rolId: v(emp?.rol_id),
+    departamento: v(emp?.departamento), fechaIngreso: v(emp?.fecha_ingreso), jornada: v(emp?.jornada_laboral), estadoLaboral: v(emp?.estado_laboral),
+    horaEntrada: v(emp?.hora_entrada).slice(0, 5), horaSalida: v(emp?.hora_salida).slice(0, 5),
+    saldoInicial: emp?.saldo_inicial_vacaciones == null ? '' : String(emp.saldo_inicial_vacaciones), fechaCorte: v(emp?.fecha_corte_vacaciones),
   })
+  const [subiendoFoto, setSubiendoFoto] = useState(false)
+  // Jefe inmediato: solo empleados activos, sin el propio empleado ni quienes dependen de él (evita ciclos, como vmEmpDatosLaborales_).
+  const jefesPosibles = useMemo(() => {
+    const debajo = new Set<string>()
+    if (emp) {
+      debajo.add(emp.id)
+      let cambio = true
+      while (cambio) { cambio = false; for (const x of lista) if (x.jefe_id && debajo.has(x.jefe_id) && !debajo.has(x.id)) { debajo.add(x.id); cambio = true } }
+    }
+    return lista.filter((x) => !debajo.has(x.id) && ((x.estado === 'activo' && x.estado_laboral !== 'Retirado') || x.id === emp?.jefe_id))
+  }, [lista, emp])
+  const departamentos = useMemo(() => [...new Set(lista.map((x) => x.departamento).filter(Boolean) as string[])].sort(), [lista])
+  async function subirFoto(file: File) {
+    setSubiendoFoto(true)
+    try {
+      if (file.size > 8 * 1024 * 1024) throw new Error('La imagen supera 8 MB.')
+      const b = await imagenWebp(file, 600)
+      const ruta = 'empleados/' + (emp?.id ?? crypto.randomUUID()) + '-' + Date.now().toString(36) + '.webp'
+      const up = await supabase.storage.from('avatares').upload(ruta, b, { contentType: 'image/webp', cacheControl: '31536000' })
+      if (up.error) throw new Error(up.error.message)
+      setF((a) => ({ ...a, foto: supabase.storage.from('avatares').getPublicUrl(ruta).data.publicUrl })); setFotoFalla(false)
+    } catch (e) { aviso('No se pudo subir la foto: ' + (e as Error).message) }
+    setSubiendoFoto(false)
+  }
   const [extra, setExtra] = useState<Record<string, string[]>>(() => JSON.parse(JSON.stringify(emp?.permisos_extra ?? {})))
   const [flags, setFlags] = useState<Record<string, boolean>>(() => ({ ...(emp?.preferencias?.permisosFlags ?? {}) }))
   const [cols, setCols] = useState({ recibe_leads: !!emp?.recibe_leads, recibe_leads_mensajes: !!emp?.recibe_leads_mensajes, recibe_clientes_meta: !!emp?.recibe_clientes_meta })
@@ -303,6 +334,9 @@ function Ficha({ perfil, emp, lista, roles, cerrar, guardado, aviso }: { perfil:
     if (!email) { setError('El correo institucional es obligatorio.'); return }
     if (!f.nombre.trim()) { setError('El nombre es obligatorio.'); return }
     if (!/^\S+@\S+\.\S+$/.test(email)) { setError('El correo no es válido.'); return }
+    if (f.fechaIngreso && f.fechaIngreso > new Date().toISOString().slice(0, 10)) { setError('La fecha de ingreso no puede estar en el futuro.'); return }
+    const saldo = f.saldoInicial.trim() === '' ? null : Number(f.saldoInicial)
+    if (saldo != null && (!isFinite(saldo) || saldo < 0 || saldo > 400)) { setError('El saldo inicial de vacaciones no es válido.'); return }
     setGuardando(true)
     const fila = {
       email, nombre: f.nombre.trim(), cedula: f.cedula || null, telefono: f.telefono || null, cargo: f.cargo.trim() || null, local: f.local.trim() || null,
@@ -310,6 +344,8 @@ function Ficha({ perfil, emp, lista, roles, cerrar, guardado, aviso }: { perfil:
       foto_url: f.foto.trim() || null, estado: f.estado, rol_id: accesoCrm ? f.rolId || null : null, permisos_extra: extra,
       recibe_leads: cols.recibe_leads, recibe_leads_mensajes: cols.recibe_leads_mensajes, recibe_clientes_meta: cols.recibe_clientes_meta,
       preferencias: { ...(emp?.preferencias ?? {}), ambasEmpresas: f.empresa === 'AMBAS', permisosFlags: flags, marketing: mk },
+      departamento: f.departamento.trim() || null, fecha_ingreso: f.fechaIngreso || null, jornada_laboral: f.jornada.trim() || null, estado_laboral: f.estadoLaboral || null,
+      hora_entrada: f.horaEntrada || null, hora_salida: f.horaSalida || null, saldo_inicial_vacaciones: saldo, fecha_corte_vacaciones: saldo == null ? null : f.fechaCorte || null,
     }
     const r = emp
       ? await supabase.from('empleados').update(fila).eq('id', emp.id)
@@ -354,8 +390,12 @@ function Ficha({ perfil, emp, lista, roles, cerrar, guardado, aviso }: { perfil:
               : <div className="w-16 h-16 rounded-full flex items-center justify-center text-white font-display font-bold text-lg shrink-0" style={{ background: 'var(--primary)' }}>{f.nombre ? iniciales(f.nombre) : '?'}</div>}
             <div className="flex-grow">
               <label className="block text-xs font-bold mb-1">Foto del empleado</label>
-              <input type="text" value={f.foto} onChange={(e) => { set('foto', e.target.value); setFotoFalla(false) }} placeholder="Enlace de la imagen (la carga de archivos se activa con el almacenamiento)" className="w-full border border-slate-200 rounded-lg p-2 text-xs" />
-              <p className="text-xs text-slate-500 mt-1">JPG, PNG, WEBP o GIF · Máximo 8 MB</p>
+              <div className="flex gap-2 items-center">
+                <input type="text" value={f.foto} onChange={(e) => { set('foto', e.target.value); setFotoFalla(false) }} placeholder="Enlace de la imagen o sube un archivo" className="w-full border border-slate-200 rounded-lg p-2 text-xs" />
+                <label className="shrink-0 text-xs font-bold px-3 py-2 rounded-lg border border-slate-200 cursor-pointer bg-white">{subiendoFoto ? 'Subiendo…' : 'Subir foto'}
+                  <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden disabled={subiendoFoto} onChange={(e) => { const x = e.target.files?.[0]; e.target.value = ''; if (x) subirFoto(x) }} /></label>
+              </div>
+              <p className="text-xs text-slate-500 mt-1">JPG, PNG, WEBP o GIF · Máximo 8 MB · se reduce y se guarda en WebP</p>
             </div>
           </div>
 
@@ -368,7 +408,7 @@ function Ficha({ perfil, emp, lista, roles, cerrar, guardado, aviso }: { perfil:
             <input type="text" value={f.local} onChange={(e) => set('local', titulo(e.target.value))} placeholder="Local (ej. Matriz)" className={campo} style={ring} />
             <select value={f.jefe} onChange={(e) => set('jefe', e.target.value)} className={campo + ' bg-white'} style={ring} title="Jefe inmediato">
               <option value="">Jefe inmediato</option>
-              {lista.filter((x) => x.id !== emp?.id).map((x) => <option key={x.id} value={x.id}>{x.nombre}</option>)}
+              {jefesPosibles.map((x) => <option key={x.id} value={x.id}>{x.nombre}</option>)}
             </select>
             <select value={f.empresa} onChange={(e) => set('empresa', e.target.value)} className={campo + ' bg-white'} style={ring} title="Empresa del empleado">
               <option value="VIMEDIC">Empresa: Importaciones Médicas Richard</option>
@@ -388,6 +428,34 @@ function Ficha({ perfil, emp, lista, roles, cerrar, guardado, aviso }: { perfil:
                 ))}
               </div>
             </div>
+          </div>
+
+          {/* Datos laborales (vmEmpDatosLaborales_): Mi Perfil, vacaciones, permisos y horas */}
+          <div className="mt-4 pt-3 border-t border-slate-100">
+            <p className="text-xs font-bold mb-2">Datos laborales <span className="text-[10px] text-slate-500 font-normal">· para Mi Perfil, vacaciones, permisos y horas</span></p>
+            <div className={'grid grid-cols-1 sm:grid-cols-2 gap-2.5 ' + (emp ? 'lg:grid-cols-4' : '')}>
+              <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Fecha de ingreso</label>
+                <input type="date" max={new Date().toISOString().slice(0, 10)} value={f.fechaIngreso} onChange={(e) => set('fechaIngreso', e.target.value)} className={campo} style={ring} /></div>
+              <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Departamento</label>
+                <input type="text" list="empDepLista" placeholder="Ej. Comercial" value={f.departamento} onChange={(e) => set('departamento', titulo(e.target.value))} className={campo} style={ring} />
+                <datalist id="empDepLista">{departamentos.map((d) => <option key={d} value={d} />)}</datalist></div>
+              <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Jornada laboral</label>
+                <input type="text" list="empJornadaLista" placeholder="Ej. Tiempo completo" value={f.jornada} onChange={(e) => set('jornada', e.target.value)} className={campo} style={ring} />
+                <datalist id="empJornadaLista"><option value="Tiempo completo" /><option value="Medio tiempo" /><option value="Por horas" /><option value="Jornada especial" /></datalist></div>
+              <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Estado laboral</label>
+                <select value={f.estadoLaboral} onChange={(e) => set('estadoLaboral', e.target.value)} className={campo + ' bg-white'} style={ring}>
+                  <option value="">(Activo)</option>{['Activo', 'En vacaciones', 'Licencia', 'Suspendido', 'Retirado'].map((x) => <option key={x}>{x}</option>)}
+                </select></div>
+              <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Hora de entrada</label>
+                <input type="time" value={f.horaEntrada} onChange={(e) => set('horaEntrada', e.target.value)} className={campo} style={ring} /></div>
+              <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Hora de salida</label>
+                <input type="time" value={f.horaSalida} onChange={(e) => set('horaSalida', e.target.value)} className={campo} style={ring} /></div>
+              <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Saldo inicial de vacaciones (días)</label>
+                <input type="number" min={0} max={400} step={0.5} placeholder="Solo si corresponde" value={f.saldoInicial} onChange={(e) => set('saldoInicial', e.target.value)} className={campo} style={ring} /></div>
+              <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Fecha de corte del saldo</label>
+                <input type="date" value={f.fechaCorte} disabled={f.saldoInicial.trim() === ''} onChange={(e) => set('fechaCorte', e.target.value)} className={campo} style={ring} /></div>
+            </div>
+            <p className="text-[10px] text-slate-500 mt-2">El saldo inicial es lo que el empleado tenía disponible a la fecha de corte (si no la pones, se usa la de hoy); desde ahí el sistema suma los días que genera por antigüedad (Código del Trabajo, Art. 69). El jefe inmediato solo puede ser un empleado activo que no dependa de este empleado.</p>
           </div>
 
           {emp && (

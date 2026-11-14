@@ -16,7 +16,8 @@ import './estilos/rail.css'
 const GRUPOS: [string, string[]][] = [
   ['Comercial', ['crm', 'clientes', 'femedics', 'marketing', 'catalogos', 'ofertas', 'agenda', 'dashboard']],
   ['Operaciones', ['inventario', 'movimientos', 'adquisiciones', 'bodega', 'logistica', 'serviciotecnico', 'importaciones', 'articulos']],
-  ['Administración', ['facturacion', 'financiero', 'empleados', 'talentohumano', 'seguridad', 'basedatos']],
+  ['Administración', ['facturacion', 'financiero', 'empleados', 'talentohumano', 'solicitudes', 'seguridad', 'basedatos']],
+  ['Personal', ['miperfil']],
 ]
 const MAX_ACC = 6
 

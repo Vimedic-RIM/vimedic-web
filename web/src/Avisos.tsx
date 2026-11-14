@@ -7,7 +7,7 @@ import { supabase, type Perfil } from './supabase'
    verlos. Llegan en tiempo real y se marcan como leídos al abrir el panel. */
 type Aviso = { id: string; created_at: string; modulo: string | null; evento: string | null; texto: string; entidad: string | null; entidad_id: string | null; leida_en: string | null }
 
-const DESTINO: Record<string, string> = { crm: 'crm', femedics: 'femedics', logistica: 'logistica', agenda: 'agenda', bodega: 'bodega', facturacion: 'facturacion', serviciotecnico: 'serviciotecnico', servicio_tecnico: 'serviciotecnico', importaciones: 'importaciones', marketing: 'marketing', talento_humano: 'talentohumano' }
+const DESTINO: Record<string, string> = { crm: 'crm', femedics: 'femedics', logistica: 'logistica', agenda: 'agenda', bodega: 'bodega', facturacion: 'facturacion', serviciotecnico: 'serviciotecnico', servicio_tecnico: 'serviciotecnico', importaciones: 'importaciones', marketing: 'marketing', talento_humano: 'talentohumano', miperfil: 'miperfil', solicitudes: 'solicitudes' }
 
 export function useAvisos(perfil: Perfil) {
   const [lista, setLista] = useState<Aviso[] | null>(null)

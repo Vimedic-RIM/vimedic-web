@@ -20,4 +20,6 @@ export type Perfil = {
   rol: string | null
   es_superadmin: boolean
   permisos: Record<string, string[]>
+  /** Tiene personal a su cargo (ve la bandeja de Solicitudes del personal). */
+  es_jefe?: boolean
 }
