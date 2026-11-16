@@ -174,3 +174,9 @@
 .io-aviso svg{width:16px;height:16px;flex:0 0 auto;margin-top:1px}
 .io-hoja-acc{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 .io-hoja-acc .io-b{flex:1 1 140px}
+
+
+/* Copia rápida con promoción (Black): el botón se pone negro */
+.inv-qc.black,.inv-cpy.black{border-color:#111827;background:#111827;color:#fff}
+.inv-qc.black.dis,.inv-cpy.black.dis{border-color:#7c3aed}
+.inv-act.black{color:#111827}

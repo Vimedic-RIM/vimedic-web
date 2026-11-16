@@ -95,3 +95,7 @@ export const sumarDias = (ymd: string, n: number): string => { const [y, m, d] =
 
 export const fechaCorta = (s: string | null | undefined) => (s ? s.slice(8, 10) + '/' + s.slice(5, 7) + '/' + s.slice(0, 4) : '')
 export const dineroUsd = (v: number) => '$' + (Number(v) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+
+/** Cómo se llama la promoción al publicarla en un texto: "BLACK" si es de la campaña Black (lo que pidió Ventas); si no, "PROMOCIÓN" ("PROMO" en un botón). */
+export const etiquetaOferta = (o: Pick<OfertaInv, 'campana'>, corta = false): string => (/black/i.test(o.campana || '') ? 'BLACK' : corta ? 'PROMO' : 'PROMOCIÓN')

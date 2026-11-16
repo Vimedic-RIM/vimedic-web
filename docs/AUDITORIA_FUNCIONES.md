@@ -132,6 +132,12 @@ Pedido del usuario: actualizar CRM y Facturación y depurar lo que no exista (pr
   actualización volvieron a su estado real.
 - El stock de los productos se vuelve a tomar del Excel en la vuelta de Inventario.
 
+Agregado el 16-nov-2026 (urgente): copia rápida del Inventario con la promoción (Black) para WhatsApp.
+
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `copiarProducto` de Inventario.html (botones PVP / DIS) | Si el producto tiene una promoción vigente para ese tipo de cliente, el botón dice **BLACK** (PROMO si la campaña no es Black; **BLACK DIS** en el de distribuidores) y el texto para WhatsApp lleva la etiqueta y el descuento en negrita (`*BLACK -20%*`), el precio anterior tachado (`~`) y el precio nuevo en negrita. En DIS solo si la promoción le da un precio menor al suyo (el % es el ahorro real frente a su precio DIS). Sin promoción el texto sigue igual | ✅ agregado | `Inventario.tsx` (`copiarTexto`, `ofertaParaCopia`, `useOfertaDis`; tarjeta, panel de la lista y ficha), `ofertasInv.ts` (`etiquetaOferta`), `inventario-ofertas.css`. No se muestra si la oferta está apagada, es próxima o es un Combo |
+
 Agregado el 16-nov-2026 (urgente): ofertas por tipo de cliente (PVP, DIS o ambos), puestas solas en cotización y venta.
 
 | Función original | Qué hace | Estado | Dónde quedó |
