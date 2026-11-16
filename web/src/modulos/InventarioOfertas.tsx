@@ -1,9 +1,9 @@
-/* Inventario › Ofertas vigentes (Issue #39): elegir categorías y productos y descargar el PDF para el cliente. */
+/* Inventario › Ofertas vigentes (Issues #39 y #40): elegir categorías y productos y descargar el PDF para el cliente. */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BadgePercent, Check, ChevronDown, Download, FileDown, Images, List, Package, Search, Share2, Square, SquareCheck, SquareMinus, TriangleAlert, X } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { imagen } from './inventarioUtil'
-import { agruparOfertas, cargarOfertasInv, dineroUsd, fechaCorta, normalizar, preciosOferta, textoVigencia, type OfertaInv } from './ofertasInv'
+import { agruparOfertas, campanasDe, cargarOfertasInv, dineroUsd, fechaCorta, normalizar, preciosOferta, slugArchivo, sumarDias, textoVigencia, type LimiteFecha, type OfertaInv } from './ofertasInv'
 import { generarPdfOfertas, type OpcionesPdf } from './ofertasPdf'
 
 type Empresa = 'VIMEDIC' | 'FEMEDICS'
@@ -43,7 +43,10 @@ export default function OfertasVigentes({ perfil, femedics, ambas, cerrar }: { p
     return () => window.removeEventListener('keydown', f)
   }, [hoja, cerrar])
 
-  const base = useMemo(() => (lista ?? []).filter((o) => sinStock || o.stock > 0), [lista, sinStock])
+  // Una oferta de campaña (o con límite) sin unidades se "apaga sola" (regla del original): no se publica salvo que se pida incluirlas.
+  const disponible = (o: OfertaInv) => o.stock > 0 && !o.apagada
+  const base = useMemo(() => (lista ?? []).filter((o) => sinStock || disponible(o)), [lista, sinStock])
+  const campanas = useMemo(() => campanasDe(base), [base])
   const visibles = useMemo(() => {
     const w = normalizar(q).split(/\s+/).filter(Boolean)
     return w.length ? base.filter((o) => { const t = normalizar(`${o.codigo} ${o.nombre} ${o.marca} ${o.categoria} ${o.campana}`); return w.every((x) => t.includes(x)) }) : base
@@ -51,7 +54,7 @@ export default function OfertasVigentes({ perfil, femedics, ambas, cerrar }: { p
   const grupos = useMemo(() => agruparOfertas(visibles), [visibles])
   const elegidos = useMemo(() => base.filter((o) => sel.has(o.productoId)), [base, sel])
   const nCats = useMemo(() => new Set(elegidos.map((o) => o.categoria)).size, [elegidos])
-  const ocultosSinStock = (lista ?? []).length - (lista ?? []).filter((o) => o.stock > 0).length
+  const ocultosSinStock = (lista ?? []).length - (lista ?? []).filter(disponible).length
 
   const alternar = useCallback((id: string) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n }), [])
   const alternarGrupo = (items: OfertaInv[]) => setSel((s) => {
@@ -68,7 +71,7 @@ export default function OfertasVigentes({ perfil, femedics, ambas, cerrar }: { p
         <header className="io-head">
           <span className="io-ico"><BadgePercent /></span>
           <div className="io-tit">
-            <h2>Ofertas vigentes</h2>
+            <h2>Ofertas vigentes{campanas.length > 0 && <span className="io-camp" title={campanas.join(', ')}>{campanas.length === 1 ? campanas[0] : `${campanas.length} campañas`}</span>}</h2>
             <p>{lista ? `${base.length} producto${base.length === 1 ? '' : 's'} en oferta · ${agruparOfertas(base).length} categorías${textoVigencia(base) ? ' · ' + textoVigencia(base).toLowerCase() : ''}` : 'Cargando…'}</p>
           </div>
           <button type="button" className="io-x" onClick={cerrar} aria-label="Cerrar ofertas"><X /></button>
@@ -82,7 +85,7 @@ export default function OfertasVigentes({ perfil, femedics, ambas, cerrar }: { p
           </label>
           <div className="io-chips">
             <button type="button" className={'io-chip' + (proximas ? ' on' : '')} onClick={() => setProximas((v) => !v)} aria-pressed={proximas}>{proximas && <Check />}Incluir próximas</button>
-            <button type="button" className={'io-chip' + (sinStock ? ' on' : '')} onClick={() => setSinStock((v) => !v)} aria-pressed={sinStock} title={ocultosSinStock ? `${ocultosSinStock} sin stock` : undefined}>{sinStock && <Check />}Incluir sin stock{ocultosSinStock ? ` (${ocultosSinStock})` : ''}</button>
+            <button type="button" className={'io-chip' + (sinStock ? ' on' : '')} onClick={() => setSinStock((v) => !v)} aria-pressed={sinStock} title={ocultosSinStock ? `${ocultosSinStock} sin stock o agotadas` : undefined}>{sinStock && <Check />}Incluir sin stock{ocultosSinStock ? ` (${ocultosSinStock})` : ''}</button>
           </div>
         </div>
 
@@ -122,7 +125,7 @@ export default function OfertasVigentes({ perfil, femedics, ambas, cerrar }: { p
                   </div>
                   {!cerrada && (
                     <div className="io-items">
-                      {g.items.map((o) => <Item key={o.productoId} o={o} on={sel.has(o.productoId)} alternar={alternar} femedics={empresa === 'FEMEDICS'} />)}
+                      {g.items.map((o) => <Item key={o.productoId} o={o} on={sel.has(o.productoId)} alternar={alternar} femedics={empresa === 'FEMEDICS'} multi={campanas.length > 1} />)}
                     </div>
                   )}
                 </section>
@@ -149,7 +152,7 @@ export default function OfertasVigentes({ perfil, femedics, ambas, cerrar }: { p
   )
 }
 
-function Item({ o, on, alternar, femedics }: { o: OfertaInv; on: boolean; alternar: (id: string) => void; femedics: boolean }) {
+function Item({ o, on, alternar, femedics, multi }: { o: OfertaInv; on: boolean; alternar: (id: string) => void; femedics: boolean; multi: boolean }) {
   const { antes, ahora, ahorro } = preciosOferta(o, { femedics })
   return (
     <button type="button" className={'io-item' + (on ? ' on' : '')} onClick={() => alternar(o.productoId)} aria-pressed={on}>
@@ -163,6 +166,7 @@ function Item({ o, on, alternar, femedics }: { o: OfertaInv; on: boolean; altern
         <small className="io-cod">{o.codigo}{o.marca ? ' · ' + o.marca : ''}</small>
         <span className="io-precios"><s>{dineroUsd(antes)}</s><b>{dineroUsd(ahora)}</b><small>{o.iva ? '+ IVA' : 'IVA 0%'}</small></span>
         <span className="io-meta">
+          {multi && o.campana && <span className="io-tag camp">{o.campana}</span>}
           {o.proxima && <span className="io-tag prox">Empieza el {fechaCorta(o.inicio).slice(0, 5)}</span>}
           {o.fin && <span>Hasta el {fechaCorta(o.fin)}</span>}
           <span className={o.stock > 0 ? 'st' : 'st0'}>{o.stock > 0 ? `${o.stock} en stock` : 'Sin stock'}</span>
@@ -179,7 +183,15 @@ function HojaPdf({ elegidos, perfil, empresa, setEmpresa, soloFemedics, cerrar }
   const [formato, setFormato] = useState<OpcionesPdf['formato']>(() => (leer('vm_of_pdf_formato') === 'lista' ? 'lista' : 'fotos'))
   const [conIva, setConIva] = useState(() => leer('vm_of_pdf_iva') !== 'no')
   const [interna, setInterna] = useState(false)
-  const [titulo, setTitulo] = useState('Ofertas vigentes')
+  // El título es el nombre de la campaña (ej. "Black Sales 2026"); si se mezclan varias, "Ofertas vigentes". Se puede cambiar.
+  const camps = useMemo(() => campanasDe(elegidos), [elegidos])
+  const [titulo, setTitulo] = useState(() => (camps.length === 1 ? camps[0] : 'Ofertas vigentes'))
+  // Fecha límite que ve el cliente: la real, otra elegida a mano o ninguna. Solo cambia el PDF; la oferta en el sistema no se toca.
+  const hoy = hoyYmd()
+  const finDefecto = useMemo(() => { const f = elegidos.map((o) => o.fin).filter((x): x is string => !!x && x >= hoy).sort(); return f.length ? f[f.length - 1] : sumarDias(hoy, 7) }, [elegidos, hoy])
+  const [limMod, setLimMod] = useState<LimiteFecha['modo']>(() => (leer('vm_of_pdf_limite') === 'ocultar' ? 'ocultar' : 'real'))
+  const [limFecha, setLimFecha] = useState(finDefecto)
+  const fechaOk = limMod !== 'otra' || (/^\d{4}-\d{2}-\d{2}$/.test(limFecha) && limFecha >= hoy)
   const [nombre, setNombre] = useState(perfil.nombre || '')
   const [telefono, setTelefono] = useState(() => leer('vm_of_pdf_tel') ?? '')
   const [prog, setProg] = useState('')
@@ -197,15 +209,17 @@ function HojaPdf({ elegidos, perfil, empresa, setEmpresa, soloFemedics, cerrar }
   // Si cambia algo, el PDF anterior ya no sirve. El archivo temporal se libera al cambiar o al cerrar.
   const urlRef = useRef('')
   const soltarUrl = () => { if (urlRef.current) URL.revokeObjectURL(urlRef.current); urlRef.current = '' }
-  useEffect(() => { soltarUrl(); setRes(null) }, [formato, conIva, interna, titulo, nombre, telefono, empresa, elegidos])
+  useEffect(() => { soltarUrl(); setRes(null) }, [formato, conIva, interna, titulo, nombre, telefono, empresa, elegidos, limMod, limFecha])
   useEffect(() => soltarUrl, [])
 
   async function generar() {
     setGen(true); setProg('Preparando…')
     guardar('vm_of_pdf_formato', formato); guardar('vm_of_pdf_iva', conIva ? 'si' : 'no'); if (telefono.trim()) guardar('vm_of_pdf_tel', telefono.trim())
+    guardar('vm_of_pdf_limite', limMod === 'ocultar' ? 'ocultar' : 'real')   // "otra fecha" no se recuerda: caduca
     try {
-      const r = await generarPdfOfertas(elegidos, { formato, empresa, conIva, interna, titulo, nombre: nombre.trim(), telefono: telefono.trim() }, setProg)
-      const archivo = new File([r.blob], `${empresa}-Ofertas${interna ? '-INTERNO' : ''}-${hoyYmd()}.pdf`, { type: 'application/pdf' })
+      const r = await generarPdfOfertas(elegidos, { formato, empresa, conIva, interna, titulo, nombre: nombre.trim(), telefono: telefono.trim(), limite: { modo: limMod, fecha: limFecha } }, setProg)
+      // El nombre del archivo lleva el de la campaña: así se ve al compartirlo por WhatsApp o correo.
+      const archivo = new File([r.blob], `${slugArchivo(titulo)}-${empresa}${interna ? '-INTERNO' : ''}-${hoyYmd()}.pdf`, { type: 'application/pdf' })
       soltarUrl(); urlRef.current = URL.createObjectURL(r.blob)
       setRes({ url: urlRef.current, archivo, paginas: r.paginas, sinFoto: r.sinFoto, fallidas: r.fallidas })
       setProg('')
@@ -229,10 +243,10 @@ function HojaPdf({ elegidos, perfil, empresa, setEmpresa, soloFemedics, cerrar }
         <p className="io-lbl">Formato</p>
         <div className="io-formatos">
           <button type="button" className={'io-fmt' + (formato === 'fotos' ? ' on' : '')} onClick={() => setFormato('fotos')} aria-pressed={formato === 'fotos'}>
-            <Images /><b>Catálogo con fotos</b><small>6 por hoja, por categoría. Para enviar al cliente.</small>
+            <Images /><b>Catálogo con fotos</b><small>Fotos grandes, por categoría. Para enviar al cliente.</small>
           </button>
           <button type="button" className={'io-fmt' + (formato === 'lista' ? ' on' : '')} onClick={() => setFormato('lista')} aria-pressed={formato === 'lista'}>
-            <List /><b>Lista compacta</b><small>Tabla sin fotos. Liviana para WhatsApp.</small>
+            <List /><b>Lista compacta</b><small>Tabla con la foto pequeña de cada producto. Más corta que el catálogo.</small>
           </button>
         </div>
 
@@ -253,6 +267,20 @@ function HojaPdf({ elegidos, perfil, empresa, setEmpresa, soloFemedics, cerrar }
             </div>
           </div>
         </div>
+
+        <p className="io-lbl">Fecha límite que verá el cliente</p>
+        <div className="io-seg" role="group" aria-label="Fecha límite de la oferta en el PDF">
+          <button type="button" className={limMod === 'real' ? 'on' : ''} aria-pressed={limMod === 'real'} onClick={() => setLimMod('real')}>La real</button>
+          <button type="button" className={limMod === 'otra' ? 'on' : ''} aria-pressed={limMod === 'otra'} onClick={() => setLimMod('otra')}>Otra fecha</button>
+          <button type="button" className={limMod === 'ocultar' ? 'on' : ''} aria-pressed={limMod === 'ocultar'} onClick={() => setLimMod('ocultar')}>No mostrar</button>
+        </div>
+        {limMod === 'otra' && (
+          <div className="io-fecha">
+            <input type="date" value={limFecha} min={hoy} onChange={(e) => setLimFecha(e.target.value)} aria-label="Fecha límite que se imprime en el PDF" aria-invalid={!fechaOk} />
+            {!fechaOk && <small className="io-mal">Elige una fecha de hoy en adelante.</small>}
+          </div>
+        )}
+        <small className="io-nota">{limMod === 'real' ? 'Cada producto muestra la fecha en que termina su oferta.' : limMod === 'otra' ? 'Todos los productos muestran esta fecha. La fecha real de la oferta en el sistema no cambia.' : 'El PDF no muestra ninguna fecha límite. La oferta en el sistema no cambia.'}</small>
 
         <label className="io-sw">
           <input type="checkbox" checked={interna} onChange={(e) => setInterna(e.target.checked)} />
@@ -280,7 +308,7 @@ function HojaPdf({ elegidos, perfil, empresa, setEmpresa, soloFemedics, cerrar }
               <a className="io-b" href={res.url} target="_blank" rel="noopener noreferrer">Ver</a>
             </>
           ) : (
-            <button type="button" className="io-b io-b-p" disabled={gen || !elegidos.length} onClick={generar}>{gen ? <span className="io-spin blanco" /> : <FileDown />}{gen ? 'Generando…' : 'Generar PDF'}</button>
+            <button type="button" className="io-b io-b-p" disabled={gen || !elegidos.length || !fechaOk} onClick={generar}>{gen ? <span className="io-spin blanco" /> : <FileDown />}{gen ? 'Generando…' : 'Generar PDF'}</button>
           )}
         </div>
       </div>

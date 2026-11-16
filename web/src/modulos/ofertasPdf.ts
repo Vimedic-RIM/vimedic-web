@@ -1,12 +1,15 @@
-/* PDF de ofertas vigentes para el cliente (Issue #39). Se arma en el navegador con jsPDF (se descarga al usarlo).
-   Dos formatos: catálogo con fotos (2 columnas, por categoría) y lista compacta (tabla). */
+/* PDF de ofertas vigentes para el cliente (Issues #39 y #40). Se arma en el navegador con jsPDF (se descarga al usarlo).
+   Dos formatos: catálogo con fotos (2 columnas, por categoría) y lista compacta (tabla con una foto pequeña por producto). */
 import { LOGO_BLANCO, LOGO_RATIO } from '../catalogoAssets'
 import { imagen } from './inventarioUtil'
-import { agruparOfertas, fechaCorta, preciosOferta, textoVigencia, type OfertaInv } from './ofertasInv'
+import { agruparOfertas, campanasDe, fechaCorta, LIMITE_REAL, limiteDe, normalizar, preciosOferta, textoVigencia, type LimiteFecha, type OfertaInv } from './ofertasInv'
 
 export type OpcionesPdf = {
   formato: 'fotos' | 'lista'; empresa: 'VIMEDIC' | 'FEMEDICS'; conIva: boolean; interna: boolean
+  /** Título de la portada: por defecto el nombre de la campaña (ej. "Black Sales 2026"). */
   titulo: string; nombre: string; telefono: string
+  /** Fecha límite que ve el cliente: la real de cada oferta, otra elegida a mano u oculta. Solo cambia el PDF, no la oferta. */
+  limite?: LimiteFecha
 }
 /** sinFoto: productos que salieron sin foto (sin imagen en el inventario + fallidas). fallidas: tenían imagen pero no se pudo descargar. */
 export type ResultadoPdf = { blob: Blob; paginas: number; sinFoto: number; fallidas: number }
@@ -21,12 +24,13 @@ export const limpiarPdf = (v: unknown) => String(v ?? '').normalize('NFC')
   .replace(/[^\x20-\x7E\xA0-\xFF\n]/g, '').replace(/[ \t]+/g, ' ').trim()
 const usd = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
+type Foto = { data: string; w: number; h: number }
 /** Carga la foto y la deja en JPEG liviano con fondo blanco (sirve para WebP/PNG con transparencia).
  *  Se carga COMO IMAGEN y no con fetch: la política de seguridad del sitio (web/public/_headers) permite mostrar imágenes de
  *  Google (img-src) pero no descargarlas por código (connect-src), así que con fetch el navegador las bloqueaba y todas
  *  salían "Imagen no disponible". crossOrigin = 'anonymous': Google responde con permiso CORS, el canvas no queda
  *  "contaminado" y se puede exportar. Un reintento por si la red falla un momento (el celular, sobre todo). */
-async function fotoJpeg(src: string, max = 520): Promise<{ data: string; w: number; h: number } | null> {
+async function fotoJpeg(src: string, max = 520, calidad = 0.82): Promise<Foto | null> {
   const cargar = () => new Promise<HTMLImageElement>((ok, mal) => {
     const i = new Image()
     i.crossOrigin = 'anonymous'
@@ -45,7 +49,7 @@ async function fotoJpeg(src: string, max = 520): Promise<{ data: string; w: numb
       const g = c.getContext('2d')
       if (!g) return null
       g.fillStyle = '#fff'; g.fillRect(0, 0, w, h); g.drawImage(img, 0, 0, w, h)
-      return { data: c.toDataURL('image/jpeg', 0.82), w, h }
+      return { data: c.toDataURL('image/jpeg', calidad), w, h }
     } catch { if (!intento) await new Promise((r) => setTimeout(r, 800)) }
   }
   return null
@@ -64,6 +68,8 @@ async function logoPng(): Promise<string | null> {
   } catch { return null }
 }
 
+type Col = { k: 'hasta' | 'ahorro' | 'oferta' | 'antes' | 'stock'; w: number; al: 'right' | 'center' }
+
 export async function generarPdfOfertas(items: OfertaInv[], op: OpcionesPdf, prog: (t: string) => void): Promise<ResultadoPdf> {
   if (!items.length) throw new Error('No hay productos seleccionados.')
   prog('Preparando el PDF…')
@@ -71,11 +77,20 @@ export async function generarPdfOfertas(items: OfertaInv[], op: OpcionesPdf, pro
   const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true })
   const fem = op.empresa === 'FEMEDICS'
   const grupos = agruparOfertas(items)
+  const camps = campanasDe(items), multiCamp = camps.length > 1
+  const lim = op.limite ?? LIMITE_REAL, sinFecha = lim.modo === 'ocultar'
   const titulo = limpiarPdf(op.titulo) || 'Ofertas vigentes'
   const precios = (o: OfertaInv) => preciosOferta(o, { femedics: fem, conIva: op.conIva })
   const ivaTxt = (o: OfertaInv) => (!o.iva ? 'IVA 0%' : op.conIva ? 'IVA incluido' : '+ IVA')
-  const vigencia = (o: OfertaInv) => (o.proxima ? `Desde el ${fechaCorta(o.inicio)} hasta el ${fechaCorta(o.fin)}` : o.fin ? `Válido hasta el ${fechaCorta(o.fin)}` : 'Hasta agotar stock')
-  const LIM = 279
+  /** La fecha límite que se imprime para esta oferta (la real, la elegida a mano o ninguna). Una fecha anterior al inicio de una oferta próxima no se imprime. */
+  const finDe = (o: OfertaInv): string | null => { const f = limiteDe(o.fin, lim); return f && o.inicio && f < o.inicio ? null : f }
+  const vigencia = (o: OfertaInv): string => {
+    const fin = finDe(o)
+    if (o.proxima) return fin ? `Desde el ${fechaCorta(o.inicio)} hasta el ${fechaCorta(fin)}` : `Desde el ${fechaCorta(o.inicio)}`
+    if (fin) return `Válido hasta el ${fechaCorta(fin)}`
+    return sinFecha ? '' : 'Hasta agotar stock'
+  }
+  const LIM = 279, BANDA = 54
 
   /* ---------- Cabeceras ---------- */
   const marca = (x: number, y: number, alto: number) => {
@@ -83,8 +98,8 @@ export async function generarPdfOfertas(items: OfertaInv[], op: OpcionesPdf, pro
     doc.setFont('helvetica', 'bold'); doc.setFontSize(alto * 2.2); doc.setTextColor(255, 255, 255); doc.text(fem ? 'FEMEDICS' : 'VIMEDIC', x, y + alto * 0.82)
   }
   const portada = () => {
-    doc.setFillColor(...NAVY); doc.rect(0, 0, 210, 50, 'F')
-    doc.setFillColor(...NARANJA); doc.rect(0, 50, 210, 1.4, 'F')
+    doc.setFillColor(...NAVY); doc.rect(0, 0, 210, BANDA, 'F')
+    doc.setFillColor(...NARANJA); doc.rect(0, BANDA, 210, 1.4, 'F')
     marca(14, 11, 9)
     if (fem) { doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...CLARO); doc.text('Distribuidor autorizado de la marca VIMEDIC', 14, 25) }
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...CLARO)
@@ -94,10 +109,19 @@ export async function generarPdfOfertas(items: OfertaInv[], op: OpcionesPdf, pro
       doc.setFont('helvetica', 'bold'); doc.setFontSize(7); const w = doc.getTextWidth(t) + 6
       doc.setFillColor(...NARANJA); doc.roundedRect(196 - w, 19, w, 6, 1.5, 1.5, 'F'); doc.setTextColor(255, 255, 255); doc.text(t, 196 - w / 2, 23.1, { align: 'center' })
     }
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(21); doc.setTextColor(255, 255, 255); doc.text(titulo, 14, 37)
+    // El nombre de la campaña es el título; "OFERTAS VIGENTES" va como rótulo encima (salvo que el título ya sea ese texto).
+    if (normalizar(titulo) !== 'ofertas vigentes') {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(...CLARO); doc.setCharSpace(0.8); doc.text('OFERTAS VIGENTES', 14, 31.5); doc.setCharSpace(0)
+    }
+    let fs = 21
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(fs)
+    while (fs > 12 && doc.getTextWidth(titulo) > 182) { fs -= 1; doc.setFontSize(fs) }   // un título largo se reduce para que quepa
+    doc.setTextColor(255, 255, 255); doc.text(titulo, 14, 41)
     const n = items.length, c = grupos.length
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...CLARO)
-    doc.text(limpiarPdf([`${n} producto${n === 1 ? '' : 's'} en oferta`, `${c} categoría${c === 1 ? '' : 's'}`, textoVigencia(items)].filter(Boolean).join('  ·  ')), 14, 44.5)
+    const sub = doc.splitTextToSize(limpiarPdf([`${n} producto${n === 1 ? '' : 's'} en oferta`, `${c} categoría${c === 1 ? '' : 's'}`, multiCamp ? 'Campañas: ' + camps.join(', ') : '', textoVigencia(items, lim)].filter(Boolean).join('  ·  ')), 182) as string[]
+    const subL = sub.slice(0, 2)
+    doc.text(subL, 14, subL.length > 1 ? 47 : 48.5)
   }
   const cabecera = () => {
     doc.setFillColor(...NAVY); doc.rect(0, 0, 210, 14, 'F')
@@ -107,11 +131,12 @@ export async function generarPdfOfertas(items: OfertaInv[], op: OpcionesPdf, pro
   const pies = () => {
     const total = doc.getNumberOfPages()
     const contacto = limpiarPdf([op.nombre && 'Atiende: ' + op.nombre, op.telefono && 'WhatsApp ' + op.telefono, fem ? '' : 'www.vimedic.com.ec'].filter(Boolean).join('   ·   '))
+    const vigPie = sinFecha ? 'Sujetos a disponibilidad de stock.' : 'Válidos hasta la fecha indicada o hasta agotar stock.'
     for (let i = 1; i <= total; i++) {
       doc.setPage(i)
       doc.setDrawColor(...LINEA); doc.setLineWidth(0.3); doc.line(12, 283, 198, 283)
       doc.setFont('helvetica', 'normal'); doc.setFontSize(6.6); doc.setTextColor(...GRIS)
-      doc.text(`Precios en dólares ${op.conIva ? 'con IVA incluido' : 'más IVA'}. Válidos hasta la fecha indicada o hasta agotar stock.${op.formato === 'fotos' ? ' Imágenes referenciales.' : ''}`, 12, 287)
+      doc.text(`Precios en dólares ${op.conIva ? 'con IVA incluido' : 'más IVA'}. ${vigPie} Imágenes referenciales.`, 12, 287)
       if (contacto) { doc.setFont('helvetica', 'bold'); doc.setFontSize(7.4); doc.setTextColor(...TINTA); doc.text(contacto, 12, 291.6) }
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...GRIS); doc.text(`Página ${i} de ${total}`, 198, 291.6, { align: 'right' })
     }
@@ -122,25 +147,27 @@ export async function generarPdfOfertas(items: OfertaInv[], op: OpcionesPdf, pro
     doc.text(t, x0, y); doc.setDrawColor(...GRIS); doc.setLineWidth(0.25); doc.line(x0 - 0.3, y - 1.05, x0 + w + 0.3, y - 1.05)
   }
 
+  /* ---------- Fotos: de 4 en 4 (grandes en el catálogo, miniaturas en la lista) ---------- */
   let sinFoto = 0, fallidas = 0
-  if (op.formato === 'fotos') {
-    /* ---------- Fotos: de 4 en 4 ---------- */
-    const fotos = new Map<string, { data: string; w: number; h: number } | null>()
-    const pend = items.filter((o) => o.img)
-    let k = 0, hechas = 0
-    const tarea = async () => {
-      while (k < pend.length) {
-        const o = pend[k++]
-        fotos.set(o.productoId, await fotoJpeg(imagen(o.img, 600)))
-        hechas++; prog(`Preparando fotos: ${hechas} de ${pend.length}…`)
-      }
+  const fotos = new Map<string, Foto | null>()
+  const pend = items.filter((o) => o.img)
+  let k = 0, hechas = 0
+  const tarea = async () => {
+    while (k < pend.length) {
+      const o = pend[k++]
+      fotos.set(o.productoId, op.formato === 'fotos' ? await fotoJpeg(imagen(o.img, 600)) : await fotoJpeg(imagen(o.img, 200), 160, 0.74))
+      hechas++; prog(`Preparando fotos: ${hechas} de ${pend.length}…`)
     }
-    await Promise.all([tarea(), tarea(), tarea(), tarea()])
-    fallidas = pend.filter((o) => !fotos.get(o.productoId)).length
-    prog('Armando las páginas…')
+  }
+  await Promise.all([tarea(), tarea(), tarea(), tarea()])
+  fallidas = pend.filter((o) => !fotos.get(o.productoId)).length
+  prog('Armando las páginas…')
 
-    const X0 = 12, CW = 90, GAP = 6, CH = 59
-    let y = 60
+  if (op.formato === 'fotos') {
+    /* ---------- Catálogo con fotos ---------- */
+    // Sin fecha ni stock no hay línea al pie de la tarjeta: se acorta para que no quede un hueco.
+    const X0 = 12, CW = 90, GAP = 6, CH = !sinFecha || op.interna ? 59 : 55
+    let y = BANDA + 1.4 + 8.6
     const nueva = () => { doc.addPage(); cabecera(); y = 22 }
     const tituloCat = (nombre: string, n: number, sigue: boolean) => {
       doc.setFont('helvetica', 'bold'); doc.setFontSize(11.5); doc.setTextColor(...NAVY)
@@ -177,6 +204,11 @@ export async function generarPdfOfertas(items: OfertaInv[], op: OpcionesPdf, pro
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...GRIS)
       doc.text((doc.splitTextToSize(limpiarPdf([o.codigo, o.marca].filter(Boolean).join(' · ')), tw) as string[]).slice(0, 1), tx, ty)
       ty += 4
+      // Si se mezclan varias campañas, cada producto dice la suya.
+      if (multiCamp && o.campana) {
+        doc.setFontSize(6.8); doc.setTextColor(...AZUL)
+        doc.text((doc.splitTextToSize(limpiarPdf(o.campana), tw) as string[]).slice(0, 1), tx, ty); ty += 3.6
+      }
       const extra = limpiarPdf([o.regalo && 'Incluye: ' + o.regalo, o.combo && 'Combo con: ' + o.combo, o.texto].filter(Boolean).join('. '))
       if (extra && ty < y + 37) {
         doc.setFontSize(6.8); doc.setTextColor(...TEAL)
@@ -188,8 +220,8 @@ export async function generarPdfOfertas(items: OfertaInv[], op: OpcionesPdf, pro
       doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(...NARANJA)
       const sp = usd(ahora); doc.text(sp, x + 4, py + 7.4); const wp = doc.getTextWidth(sp)
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GRIS); doc.text(ivaTxt(o), x + 4 + wp + 1.6, py + 7.4)
-      doc.setFontSize(7); doc.setTextColor(...TINTA)
-      doc.text(limpiarPdf(vigencia(o) + (op.interna ? `   ·   Stock: ${o.stock}` : '')), x + 4, py + 12.6)
+      const pie = [vigencia(o), op.interna ? `Stock: ${o.stock}` : ''].filter(Boolean).join('   ·   ')
+      if (pie) { doc.setFontSize(7); doc.setTextColor(...TINTA); doc.text(limpiarPdf(pie), x + 4, py + 12.6) }
     }
     portada()
     for (const g of grupos) {
@@ -204,19 +236,27 @@ export async function generarPdfOfertas(items: OfertaInv[], op: OpcionesPdf, pro
       y += 2
     }
   } else {
-    /* ---------- Lista compacta ---------- */
-    prog('Armando la lista…')
-    const C = op.interna
-      ? { ancho: 80, stock: 108, antes: 132, oferta: 158, ahorro: 172, hasta: 196 }
-      : { ancho: 94, stock: 0, antes: 132, oferta: 158, ahorro: 172, hasta: 196 }
-    let y = 58
+    /* ---------- Lista compacta: una foto pequeña por producto ---------- */
+    const FOTO = 11, X_FOTO = 14, X_NOM = X_FOTO + FOTO + 3, H = 13
+    // Columnas de derecha a izquierda; al nombre le queda lo que sobra. Sin fecha límite no hay columna "Hasta".
+    const cols: Col[] = [
+      ...(sinFecha ? [] : [{ k: 'hasta', w: 19, al: 'right' } as Col]),
+      { k: 'ahorro', w: 14, al: 'center' }, { k: 'oferta', w: 25, al: 'right' }, { k: 'antes', w: 22, al: 'right' },
+      ...(op.interna ? [{ k: 'stock', w: 10, al: 'right' } as Col] : []),
+    ]
+    const X: Partial<Record<Col['k'], number>> = {}
+    let borde = 196.5
+    for (const c of cols) { X[c.k] = c.al === 'center' ? borde - c.w / 2 : borde; borde -= c.w }
+    const ANCHO_NOM = borde - 2 - X_NOM
+    let y = BANDA + 1.4 + 6.6
     const encabezado = () => {
       doc.setFillColor(241, 245, 249); doc.rect(12, y, 186, 7, 'F')
       doc.setFont('helvetica', 'bold'); doc.setFontSize(6.8); doc.setTextColor(...GRIS)
-      doc.text('PRODUCTO', 14, y + 4.7)
-      if (C.stock) doc.text('STOCK', C.stock, y + 4.7, { align: 'right' })
-      doc.text('ANTES', C.antes, y + 4.7, { align: 'right' }); doc.text('OFERTA', C.oferta, y + 4.7, { align: 'right' })
-      doc.text('AHORRO', C.ahorro, y + 4.7, { align: 'center' }); doc.text('HASTA', C.hasta, y + 4.7, { align: 'right' })
+      doc.text('PRODUCTO', X_FOTO, y + 4.7)
+      if (X.stock != null) doc.text('STOCK', X.stock, y + 4.7, { align: 'right' })
+      doc.text('ANTES', X.antes as number, y + 4.7, { align: 'right' }); doc.text('OFERTA', X.oferta as number, y + 4.7, { align: 'right' })
+      doc.text('AHORRO', X.ahorro as number, y + 4.7, { align: 'center' })
+      if (X.hasta != null) doc.text('HASTA', X.hasta, y + 4.7, { align: 'right' })
       y += 7
     }
     const nueva = () => { doc.addPage(); cabecera(); y = 20; encabezado() }
@@ -228,26 +268,40 @@ export async function generarPdfOfertas(items: OfertaInv[], op: OpcionesPdf, pro
     }
     portada(); encabezado()
     for (const g of grupos) {
-      if (y + 6.6 + 9 > LIM) nueva()
+      if (y + 6.6 + H > LIM) nueva()
       filaCat(g.categoria, g.items.length, false)
       for (const o of g.items) {
         doc.setFont('helvetica', 'bold'); doc.setFontSize(8)
-        const nom = (doc.splitTextToSize(limpiarPdf(o.nombre), C.ancho) as string[]).slice(0, 2)
-        const h = nom.length > 1 ? 11.6 : 8.6
-        if (y + h > LIM) { nueva(); filaCat(g.categoria, g.items.length, true); doc.setFont('helvetica', 'bold'); doc.setFontSize(8) }
+        const nom = (doc.splitTextToSize(limpiarPdf(o.nombre), ANCHO_NOM) as string[]).slice(0, 2)
+        if (y + H > LIM) { nueva(); filaCat(g.categoria, g.items.length, true) }
         const { antes, ahora, ahorro } = precios(o)
-        doc.setTextColor(...TINTA); doc.text(nom, 14, y + 3.9)
+        // Foto pequeña
+        doc.setFillColor(...FONDO); doc.roundedRect(X_FOTO, y + 1, FOTO, FOTO, 1.2, 1.2, 'F')
+        const f = fotos.get(o.productoId)
+        let puesta = false
+        if (f) {
+          const s = Math.min((FOTO - 1.2) / f.w, (FOTO - 1.2) / f.h), w = f.w * s, h = f.h * s
+          try { doc.addImage(f.data, 'JPEG', X_FOTO + (FOTO - w) / 2, y + 1 + (FOTO - h) / 2, w, h, undefined, 'FAST'); puesta = true } catch { fallidas++ }
+        }
+        if (!puesta) {
+          sinFoto++
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(5); doc.setTextColor(...GRIS); doc.text('Sin foto', X_FOTO + FOTO / 2, y + 1 + FOTO / 2 + 0.7, { align: 'center' })
+        }
+        // Nombre y código
+        const ny = nom.length > 1 ? y + 3.9 : y + 5.3
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(...TINTA); doc.text(nom, X_NOM, ny)
         doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(...GRIS)
-        doc.text((doc.splitTextToSize(limpiarPdf([o.codigo, o.marca, o.proxima ? 'desde el ' + fechaCorta(o.inicio) : ''].filter(Boolean).join(' · ')), C.ancho) as string[]).slice(0, 1), 14, y + 3.9 + nom.length * 3.4)
-        const my = y + h / 2 + 0.6
-        if (C.stock) { doc.setFontSize(7.5); doc.setTextColor(...TINTA); doc.text(String(o.stock), C.stock, my, { align: 'right' }) }
-        doc.setFontSize(7.5); doc.setTextColor(...GRIS); tachado(usd(antes), C.antes, my, true)
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...NARANJA); doc.text(usd(ahora), C.oferta, my, { align: 'right' })
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(5.8); doc.setTextColor(...GRIS); doc.text(ivaTxt(o), C.oferta, my + 3, { align: 'right' })
-        if (ahorro > 0) { doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(...NARANJA); doc.text(`-${ahorro}%`, C.ahorro, my, { align: 'center' }) }
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...TINTA); doc.text(fechaCorta(o.fin) || '-', C.hasta, my, { align: 'right' })
-        doc.setDrawColor(...LINEA); doc.setLineWidth(0.25); doc.line(12, y + h, 198, y + h)
-        y += h
+        doc.text((doc.splitTextToSize(limpiarPdf([o.codigo, o.marca, multiCamp ? o.campana : '', o.proxima ? 'desde el ' + fechaCorta(o.inicio) : ''].filter(Boolean).join(' · ')), ANCHO_NOM) as string[]).slice(0, 1), X_NOM, ny + nom.length * 3.3 + 0.3)
+        // Precios
+        const my = y + H / 2 + 0.6
+        if (X.stock != null) { doc.setFontSize(7.5); doc.setTextColor(...TINTA); doc.text(String(o.stock), X.stock, my, { align: 'right' }) }
+        doc.setFontSize(7.5); doc.setTextColor(...GRIS); tachado(usd(antes), X.antes as number, my, true)
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...NARANJA); doc.text(usd(ahora), X.oferta as number, my, { align: 'right' })
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(5.8); doc.setTextColor(...GRIS); doc.text(ivaTxt(o), X.oferta as number, my + 3, { align: 'right' })
+        if (ahorro > 0) { doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(...NARANJA); doc.text(`-${ahorro}%`, X.ahorro as number, my, { align: 'center' }) }
+        if (X.hasta != null) { const fin = finDe(o); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...TINTA); doc.text(fin ? fechaCorta(fin) : '-', X.hasta, my, { align: 'right' }) }
+        doc.setDrawColor(...LINEA); doc.setLineWidth(0.25); doc.line(12, y + H, 198, y + H)
+        y += H
       }
     }
   }
