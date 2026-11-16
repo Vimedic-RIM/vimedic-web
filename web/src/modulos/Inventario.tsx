@@ -1,7 +1,7 @@
 import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
   BadgePercent, GripVertical, Move, RotateCcw, Ship, ArrowDownAZ, ArrowRight, BadgeCheck, CircleCheck, ClipboardList, PlusCircle, ShoppingCart, BadgeDollarSign, Barcode, Boxes, Check, ChevronDown, ChevronUp,
-  ChevronsUpDown, ClipboardCopy, Download, Eraser, Eye, EyeOff, FileText, Hash, ImagePlus, Images, LayoutGrid, Menu,
+  ChevronsUpDown, ClipboardCopy, Download, Eraser, Eye, EyeOff, FileText, Flame, Hash, ImagePlus, Images, LayoutGrid, Menu,
   Package, PackagePlus, PackageX, PanelsTopLeft, Pencil, Plus, RefreshCw, Search, SlidersHorizontal, Table2, Tag,
   Trash2, TriangleAlert, Video, X,
 } from 'lucide-react'
@@ -87,23 +87,28 @@ const enlaceEquipo = (codigo: string) => 'https://vimedic.com.ec/equipo/?id=' + 
 const pvpFemedics = (pvp: number | null | undefined) => Math.round(((Number(pvp) || 0) / 0.9) * 100) / 100
 
 type OfCopia = { o: OfertaInv; precio: number } | null
-/** La promoción que se puede publicar en el texto: vigente (no apagada ni próxima), con descuento y más barata que el precio de este cliente. */
-function ofertaParaCopia(x: OfCopia, antes: number): OfCopia { return x && ofertaDeLinea(x.o) && x.precio > 0 && x.precio < antes - 0.005 ? x : null }
+/** PVP: la promoción se puede publicar si está vigente (no apagada ni próxima), tiene descuento y deja un precio menor al PVP. */
+function ofertaCopiaPvp(x: OfCopia, p: Fila): OfCopia { const pvp = Number(p.pvp) || 0; return x && ofertaDeLinea(x.o) && x.precio > 0 && x.precio < pvp - 0.005 ? x : null }
+/** DIS: el descuento de la promoción se da sobre el PVP, así que a un distribuidor solo le sirve si es MAYOR que el descuento normal de su precio DIS
+*  (el que hay entre el PVP y el precio DIS). Si no lo supera, no se menciona la promoción. */
+function ofertaCopiaDis(x: OfCopia, p: Fila): OfCopia {
+  const pvp = Number(p.pvp) || 0, dis = Number(p.precio_dis) || 0
+  if (!x || !ofertaDeLinea(x.o) || !(pvp > 0) || !(dis > 0) || !(x.precio > 0) || x.precio >= pvp) return null
+  return x.o.descuento > (1 - dis / pvp) * 100 + 0.005 ? x : null
+}
 
-/** Texto para WhatsApp. Con promoción: la etiqueta y el descuento en negrita (*), el precio anterior tachado (~) y el precio nuevo en negrita. */
+/** Texto para WhatsApp. Con promoción: la etiqueta y el descuento en negrita (*), el PVP anterior tachado (~) y el precio nuevo en negrita. */
 function copiarTexto(p: Fila, tipo: 'pvp' | 'dis', of?: OfCopia): string {
   const iva = p.aplica_iva === false ? ' (IVA 0%)' : ' + IVA'
   const l = ['*' + (p.nombre || '') + '*', 'Código: ' + (p.codigo || '')]
-  const dis = tipo === 'dis'
-  const antes = Number(dis ? p.precio_dis : p.pvp) || 0
-  if (dis && !(antes > 0)) return ''
-  const promo = ofertaParaCopia(of ?? null, antes)
+  const pvp = Number(p.pvp) || 0, dis = Number(p.precio_dis) || 0
+  if (tipo === 'dis' && !(dis > 0)) return ''
+  const promo = tipo === 'dis' ? ofertaCopiaDis(of ?? null, p) : ofertaCopiaPvp(of ?? null, p)
   if (promo) {
-    // PVP: el % de la oferta. Distribuidor: lo que de verdad ahorra frente a su precio DIS.
-    const pct = dis ? Math.round((1 - promo.precio / antes) * 1000) / 10 : promo.o.descuento
-    l.push('*' + etiquetaOferta(promo.o) + ' -' + pctTexto(pct) + '%*')
-    l.push((dis ? 'Precio distribuidor: ' : 'Precio: ') + '*~$' + num2(antes) + '~* → *$' + num2(promo.precio) + '*' + iva)
-  } else l.push((dis ? 'Precio distribuidor: $' : 'Precio: $') + num2(antes) + iva)
+    // El descuento se da siempre sobre el PVP (también al distribuidor): se tacha el PVP y se pone el precio de la promoción.
+    l.push('*' + etiquetaOferta(promo.o) + ' -' + pctTexto(promo.o.descuento) + '%*')
+    l.push('Precio: *~$' + num2(pvp) + '~* → *$' + num2(promo.precio) + '*' + iva)
+  } else l.push((tipo === 'dis' ? 'Precio distribuidor: $' + num2(dis) : 'Precio: $' + num2(pvp)) + iva)
   if (p.codigo) l.push('Ver equipo: ' + enlaceEquipo(p.codigo))
   return l.join('\n')
 }
@@ -237,7 +242,7 @@ function Tarjeta({ p, abrir, car, alternar, reordenar }: { p: Fila; abrir: (id: 
   const marco = marcoEst(useContext(EstCtx).est[p.id])
   const of = useOferta(p.id)
   // Promoción para copiar a WhatsApp (PVP y DIS): el botón dice Black y el texto lleva el precio anterior tachado y el nuevo.
-  const ofD = useOfertaDis(p.id), bp = ofertaParaCopia(of, Number(p.pvp) || 0), bd = ofertaParaCopia(ofD, Number(p.precio_dis) || 0)
+  const ofD = useOfertaDis(p.id), bp = ofertaCopiaPvp(of, p), bd = ofertaCopiaDis(ofD, p)
   if (reordenar) {
     return (
       <div className="row-card relative bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col" style={{ cursor: 'grab', opacity: act ? 1 : 0.55 }} draggable
@@ -297,8 +302,8 @@ function Tarjeta({ p, abrir, car, alternar, reordenar }: { p: Fila; abrir: (id: 
           </div>
         </div>
         <span className="inv-qc-wrap mt-2 w-full">
-          <button type="button" className={'inv-qc' + (bp ? ' black' : '')} onClick={(e) => { e.stopPropagation(); copiar(p, 'pvp', e.currentTarget, bp) }} title={bp ? 'Copiar para WhatsApp con la promoción: precio anterior tachado y precio nuevo' : 'Copiar nombre, código y precio PVP'}><ClipboardCopy />{bp ? etiquetaOferta(bp.o, true) : 'PVP'}</button>
-          {Number(p.precio_dis) > 0 && <button type="button" className={'inv-qc dis' + (bd ? ' black' : '')} onClick={(e) => { e.stopPropagation(); copiar(p, 'dis', e.currentTarget, bd) }} title={bd ? 'Copiar para WhatsApp con la promoción para distribuidor: precio anterior tachado y precio nuevo' : 'Copiar nombre, código y precio distribuidor'}><ClipboardCopy />{bd ? etiquetaOferta(bd.o, true) + ' DIS' : 'DIS'}</button>}
+          <button type="button" className="inv-qc" onClick={(e) => { e.stopPropagation(); copiar(p, 'pvp', e.currentTarget, bp) }} title={bp ? 'Copiar para WhatsApp con la promoción: precio anterior tachado y precio nuevo' : 'Copiar nombre, código y precio PVP'}>{bp ? <Flame className="inv-fuego" /> : <ClipboardCopy />}PVP</button>
+          {Number(p.precio_dis) > 0 && <button type="button" className="inv-qc dis" onClick={(e) => { e.stopPropagation(); copiar(p, 'dis', e.currentTarget, bd) }} title={bd ? 'Copiar para WhatsApp con la promoción: el descuento (más alto que el de su precio DIS) va sobre el PVP tachado' : 'Copiar nombre, código y precio distribuidor'}>{bd ? <Flame className="inv-fuego" /> : <ClipboardCopy />}DIS</button>}
         </span>
         {car && (
           <button type="button" className="inv-cot mt-1.5" onClick={(e) => { e.stopPropagation(); car.agregar(p, e.currentTarget) }} aria-label={'Cotizar ' + p.nombre}>
@@ -377,7 +382,7 @@ function FilaTabla({ p, sel, click, car }: { p: Fila; sel: boolean; click: (id: 
 
 /* ---------- Panel de detalle (lateral en PC, cajón en pantallas chicas) ---------- */
 function Panel({ p, editar, abrirEditar, car }: { p: Fila; editar: boolean; abrirEditar: (id: string) => void; car: Carrito | null }) {
-  const ofP = useOferta(p.id), ofD = useOfertaDis(p.id), bp = ofertaParaCopia(ofP, Number(p.pvp) || 0), bd = ofertaParaCopia(ofD, Number(p.precio_dis) || 0)
+  const ofP = useOferta(p.id), ofD = useOfertaDis(p.id), bp = ofertaCopiaPvp(ofP, p), bd = ofertaCopiaDis(ofD, p)
   const nCot = car?.cant(p.id) ?? 0
   const [descripcion, setDescripcion] = useState<string | null>(null)
   useEffect(() => {
@@ -416,7 +421,7 @@ function Panel({ p, editar, abrirEditar, car }: { p: Fila; editar: boolean; abri
         {car && <button type="button" className={'inv-act inv-act-cot' + (nCot ? ' is-added' : '')} onClick={(e) => car.agregar(p, e.currentTarget)}><span className="ic" style={{ ['--c' as string]: '#04896f' }}>{nCot ? <Check /> : <ShoppingCart />}</span>{nCot ? 'Agregado' + (nCot > 1 ? ' ×' + nCot : '') : 'Cotizar'}</button>}
         {editar && <button type="button" className="inv-act" onClick={() => abrirEditar(p.id)}><span className="ic" style={{ ['--c' as string]: '#c98a1f' }}><Pencil /></span>Editar</button>}
         <button type="button" className={'inv-act' + (bp ? ' black' : '')} onClick={(e) => copiar(p, 'pvp', e.currentTarget, bp)} title={bp ? 'Copiar para WhatsApp con la promoción: precio anterior tachado y precio nuevo' : 'Copiar nombre, código y precio PVP'}><span className="ic" style={{ ['--c' as string]: bp ? '#111827' : '#055c9d' }}><ClipboardCopy /></span>{bp ? 'Copiar ' + etiquetaOferta(bp.o, true) : 'Copiar PVP'}</button>
-        {dis > 0 && <button type="button" className={'inv-act' + (bd ? ' black' : '')} onClick={(e) => copiar(p, 'dis', e.currentTarget, bd)} title={bd ? 'Copiar para WhatsApp con la promoción para distribuidor: precio anterior tachado y precio nuevo' : 'Copiar nombre, código y precio distribuidor'}><span className="ic" style={{ ['--c' as string]: bd ? '#111827' : '#7c3aed' }}><ClipboardCopy /></span>{bd ? 'Copiar ' + etiquetaOferta(bd.o, true) + ' DIS' : 'Copiar DIS'}</button>}
+        {dis > 0 && <button type="button" className={'inv-act' + (bd ? ' black' : '')} onClick={(e) => copiar(p, 'dis', e.currentTarget, bd)} title={bd ? 'Copiar para WhatsApp con la promoción: el descuento (más alto que el de su precio DIS) va sobre el PVP tachado' : 'Copiar nombre, código y precio distribuidor'}><span className="ic" style={{ ['--c' as string]: bd ? '#111827' : '#7c3aed' }}><ClipboardCopy /></span>{bd ? 'Copiar ' + etiquetaOferta(bd.o, true) + ' DIS' : 'Copiar DIS'}</button>}
       </div>
       <div className="px-4 pb-4 space-y-3">
         {p.reservaciones && (
@@ -1195,7 +1200,7 @@ function DetalleProducto({ p, editar, eliminar, verMovimientos, irAMovimientos, 
   p: Fila; editar: boolean; eliminar: boolean; verMovimientos?: boolean; irAMovimientos?: (codigo: string) => void
   cerrar: () => void; abrirEditar: (id: string) => void; eliminado: () => void; car: Carrito | null; editarMultimedia?: () => void
 }) {
-  const ofP = useOferta(p.id), ofD = useOfertaDis(p.id), bp = ofertaParaCopia(ofP, Number(p.pvp) || 0), bd = ofertaParaCopia(ofD, Number(p.precio_dis) || 0)
+  const ofP = useOferta(p.id), ofD = useOfertaDis(p.id), bp = ofertaCopiaPvp(ofP, p), bd = ofertaCopiaDis(ofD, p)
   const nCot = car?.cant(p.id) ?? 0
   const [info, setInfo] = useState<InfoExtra | null>(null)
   const [galeria, setGaleria] = useState<GaleriaItem[]>([])
@@ -1391,7 +1396,7 @@ function DetalleProducto({ p, editar, eliminar, verMovimientos, irAMovimientos, 
         {/* Acciones fijas abajo */}
         <div className="shrink-0 border-t border-slate-200 bg-white px-4 py-3 flex items-center gap-2">
           <button onClick={(e) => copiar(p, 'pvp', e.currentTarget, bp)} title={bp ? 'Copiar para WhatsApp con la promoción: precio anterior tachado y precio nuevo' : 'Copiar nombre y precio PVP'} className={'inv-cpy' + (bp ? ' black' : '')}><ClipboardCopy className="w-4 h-4" />{bp ? etiquetaOferta(bp.o, true) : 'PVP'}</button>
-          {dis > 0 && <button onClick={(e) => copiar(p, 'dis', e.currentTarget, bd)} title={bd ? 'Copiar para WhatsApp con la promoción para distribuidor: precio anterior tachado y precio nuevo' : 'Copiar nombre y precio DIS'} className={'inv-cpy dis' + (bd ? ' black' : '')}><ClipboardCopy className="w-4 h-4" />{bd ? etiquetaOferta(bd.o, true) + ' DIS' : 'DIS'}</button>}
+          {dis > 0 && <button onClick={(e) => copiar(p, 'dis', e.currentTarget, bd)} title={bd ? 'Copiar para WhatsApp con la promoción: el descuento (más alto que el de su precio DIS) va sobre el PVP tachado' : 'Copiar nombre y precio DIS'} className={'inv-cpy dis' + (bd ? ' black' : '')}><ClipboardCopy className="w-4 h-4" />{bd ? etiquetaOferta(bd.o, true) + ' DIS' : 'DIS'}</button>}
           {car && (
             <button type="button" className={'inv-dcot flex-1' + (nCot ? ' is-added' : '')} onClick={(e) => car.agregar(p, e.currentTarget)}>
               <span className="when-add inline-flex items-center gap-2"><ShoppingCart />Cotizar este producto</span>

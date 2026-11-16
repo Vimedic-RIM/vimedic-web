@@ -180,3 +180,6 @@
 .inv-qc.black,.inv-cpy.black{border-color:#111827;background:#111827;color:#fff}
 .inv-qc.black.dis,.inv-cpy.black.dis{border-color:#7c3aed}
 .inv-act.black{color:#111827}
+
+/* Tarjeta: con promoción, el botón de copia lleva un fuego amarillo en lugar del portapapeles (sin la palabra BLACK) */
+.inv-qc svg.inv-fuego{width:14px;height:14px;color:#f59e0b;fill:#facc15;stroke:#f59e0b}
