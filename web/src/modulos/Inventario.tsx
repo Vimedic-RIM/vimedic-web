@@ -1,6 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  GripVertical, Move, RotateCcw, Ship, ArrowDownAZ, ArrowRight, BadgeCheck, CircleCheck, ClipboardList, PlusCircle, ShoppingCart, BadgeDollarSign, Barcode, Boxes, Check, ChevronDown, ChevronUp,
+  BadgePercent, GripVertical, Move, RotateCcw, Ship, ArrowDownAZ, ArrowRight, BadgeCheck, CircleCheck, ClipboardList, PlusCircle, ShoppingCart, BadgeDollarSign, Barcode, Boxes, Check, ChevronDown, ChevronUp,
   ChevronsUpDown, ClipboardCopy, Download, Eraser, Eye, EyeOff, FileText, Hash, ImagePlus, Images, LayoutGrid, Menu,
   Package, PackagePlus, PackageX, PanelsTopLeft, Pencil, Plus, RefreshCw, Search, SlidersHorizontal, Table2, Tag,
   Trash2, TriangleAlert, Video, X,
@@ -11,6 +11,10 @@ import { puede } from '../permisos'
 import '../estilos/inventario-original.css'
 import { EditarMultimedia } from './InventarioMultimedia'
 import { imagenWebp, subirCatalogo } from './audiovisualMedios'
+import { aFemedics, cargarOfertasInv, dineroUsd, fechaCorta, type OfertaInv } from './ofertasInv'
+import '../estilos/inventario-ofertas.css'
+// Pantalla "Ofertas vigentes" con el PDF: se descarga solo al abrirla.
+const OfertasVigentes = lazy(() => import('./InventarioOfertas'))
 
 // Mismo lote que la app original: 24 productos por carga, al desplazarse.
 const LOTE = 24
@@ -143,6 +147,38 @@ function ImpLista({ id }: { id: string }) {
   )
 }
 
+/* ---------- Oferta vigente del producto (etiqueta OFERTA de la app original, Issue #39) ---------- */
+const OfCtx = createContext<{ of: Record<string, OfertaInv>; fem: boolean }>({ of: {}, fem: false })
+/** Precio de oferta tal como lo ve este usuario (con la regla Femedics si le aplica). */
+function useOferta(id: string) {
+  const { of, fem } = useContext(OfCtx)
+  const o = of[id]
+  return o ? { o, precio: fem ? aFemedics(o.precio) : o.precio } : null
+}
+function CintaOferta({ id }: { id: string }) {
+  const x = useOferta(id)
+  if (!x) return null
+  return <span className="inv-of-cinta" title={'Oferta vigente hasta el ' + fechaCorta(x.o.fin)}><BadgePercent />-{Math.round(x.o.descuento)}%</span>
+}
+/** Recuadro de la oferta en el detalle del producto. */
+function CajaOferta({ id, conIva }: { id: string; conIva: boolean }) {
+  const x = useOferta(id)
+  if (!x) return null
+  const { o, precio } = x
+  const extra = [o.regalo && 'Incluye regalo: ' + o.regalo, o.combo && 'Combo con: ' + o.combo, o.texto].filter(Boolean)
+  return (
+    <div className="inv-of-caja">
+      <BadgePercent className="ic" />
+      <div className="min-w-0">
+        <p className="t">Oferta vigente -{Math.round(o.descuento)}%{o.fin ? ' · hasta el ' + fechaCorta(o.fin) : ''}</p>
+        <p className="p"><b>{dineroUsd(precio)}</b> {conIva ? '+ IVA' : 'IVA 0%'}{conIva && <small>{dineroUsd(precio * 1.15)} IVA incluido</small>}</p>
+        {extra.map((t) => <p key={t} className="x">{t}</p>)}
+        {o.campana && <p className="x">Campaña: {o.campana}</p>}
+      </div>
+    </div>
+  )
+}
+
 /* ---------- Etiquetas de stock (mismas que la app original) ---------- */
 function UbicStock({ p, grande }: { p: { id: string; stock: number }; grande?: boolean }) {
   const st = Number(p.stock) || 0
@@ -181,6 +217,7 @@ function Tarjeta({ p, abrir, car, alternar, reordenar }: { p: Fila; abrir: (id: 
   const act = !inactivo(p)
   const n = car?.cant(p.id) ?? 0
   const marco = marcoEst(useContext(EstCtx).est[p.id])
+  const of = useOferta(p.id)
   if (reordenar) {
     return (
       <div className="row-card relative bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col" style={{ cursor: 'grab', opacity: act ? 1 : 0.55 }} draggable
@@ -199,6 +236,7 @@ function Tarjeta({ p, abrir, car, alternar, reordenar }: { p: Fila; abrir: (id: 
           : <div className="w-full aspect-square bg-slate-50 border-b border-slate-100" />}
         <span className="inv-added"><Check /><span className="inv-added-n">Agregado{n > 1 ? ' ×' + n : ''}</span></span>
         <Nuevo p={p} extra="absolute bottom-1.5 left-1.5 shadow" />
+        <CintaOferta id={p.id} />
         {alternar && (
           <button type="button" onClick={(e) => { e.stopPropagation(); alternar(p) }} title={act ? 'Inactivar producto' : 'Activar producto'} className="absolute top-1.5 left-1.5 bg-white p-1 rounded-md shadow border border-slate-200" style={{ color: act ? '#04896f' : '#c0392b' }}>
             {act ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
@@ -224,10 +262,18 @@ function Tarjeta({ p, abrir, car, alternar, reordenar }: { p: Fila; abrir: (id: 
         </div>
         <div className="mt-auto pt-1.5 flex items-end justify-between gap-1">
           <div className="min-w-0">
-            <p className="text-xs font-bold whitespace-nowrap" style={{ color: 'var(--primary)' }}>
-              ${(Number(p.pvp) || 0).toFixed(2)} {p.aplica_iva === false ? 'IVA 0%' : '+ IVA'}
-              <small className="block text-[9px] text-slate-500">${((Number(p.pvp) || 0) * (p.aplica_iva === false ? 1 : 1.15)).toFixed(2)} IVA incluido</small>
-            </p>
+            {of ? (
+              <p className="text-xs font-bold whitespace-nowrap inv-of-precio" title={'Oferta vigente' + (of.o.fin ? ' hasta el ' + fechaCorta(of.o.fin) : '')}>
+                <s>${(Number(p.pvp) || 0).toFixed(2)}</s>
+                ${of.precio.toFixed(2)} {p.aplica_iva === false ? 'IVA 0%' : '+ IVA'}
+                <small className="block text-[9px] text-slate-500">${(of.precio * (p.aplica_iva === false ? 1 : 1.15)).toFixed(2)} IVA incluido</small>
+              </p>
+            ) : (
+              <p className="text-xs font-bold whitespace-nowrap" style={{ color: 'var(--primary)' }}>
+                ${(Number(p.pvp) || 0).toFixed(2)} {p.aplica_iva === false ? 'IVA 0%' : '+ IVA'}
+                <small className="block text-[9px] text-slate-500">${((Number(p.pvp) || 0) * (p.aplica_iva === false ? 1 : 1.15)).toFixed(2)} IVA incluido</small>
+              </p>
+            )}
           </div>
         </div>
         <span className="inv-qc-wrap mt-2 w-full">
@@ -264,6 +310,7 @@ function FilaTabla({ p, sel, click, car }: { p: Fila; sel: boolean; click: (id: 
   const stockNum = Number(p.stock) || 0
   const ivaTxt = p.aplica_iva === false ? 'IVA 0%' : '+ IVA'
   const marco = marcoEst(useContext(EstCtx).est[p.id])
+  const of = useOferta(p.id)
   return (
     <div onClick={() => click(p.id)} className={'inv-tr ' + (n ? 'is-added ' : '') + (sel ? 'is-sel ' : '') + marco} style={act ? undefined : { opacity: 0.55 }}>
       <div className="inv-td-img">{p.imagen_url ? <img loading="lazy" decoding="async" src={imagen(p.imagen_url, 120)}onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} alt="" /> : <img alt="" style={{ visibility: 'hidden' }} />}</div>
@@ -273,7 +320,7 @@ function FilaTabla({ p, sel, click, car }: { p: Fila; sel: boolean; click: (id: 
       </div>
       <div className="inv-lg min-w-0"><span className="block w-full text-[11px] font-mono-spec font-semibold truncate" style={{ color: 'var(--primary)' }}>{p.codigo}</span></div>
       <div className="min-w-0">
-        <p className="text-xs font-bold text-slate-800 leading-snug truncate" title={p.nombre}><Nuevo p={p} extra="mr-1" />{p.nombre}</p>
+        <p className="text-xs font-bold text-slate-800 leading-snug truncate" title={p.nombre}><Nuevo p={p} extra="mr-1" />{of && <span className="inv-of-pill mr-1" title={'Oferta vigente' + (of.o.fin ? ' hasta el ' + fechaCorta(of.o.fin) : '')}>OFERTA -{Math.round(of.o.descuento)}%</span>}{p.nombre}</p>
         <p className="inv-lg text-[10px] text-slate-400 truncate flex items-center gap-1">
           <span className="truncate">{p.categoria?.nombre || ''}{!act ? ' · Inactivo' : ''}</span>
           {p.reservaciones && <Obs texto={p.reservaciones} />}
@@ -282,13 +329,20 @@ function FilaTabla({ p, sel, click, car }: { p: Fila; sel: boolean; click: (id: 
           <span className="font-mono-spec text-slate-400">{p.codigo}{p.codigo_unico ? ' - ' + p.codigo_unico : ''}</span>
           {p.marca && <span className="text-slate-500 font-semibold">{p.marca}</span>}
           <UbicStock p={p} />
-          <span className="font-bold" style={{ color: 'var(--primary)' }}>{dinero(p.pvp)} <span className="font-semibold text-slate-400">{ivaTxt}</span></span>
+          {of
+            ? <span className="font-bold inv-of-precio"><s>{dinero(p.pvp)}</s> {dinero(of.precio)} <span className="font-semibold text-slate-400">{ivaTxt}</span></span>
+            : <span className="font-bold" style={{ color: 'var(--primary)' }}>{dinero(p.pvp)} <span className="font-semibold text-slate-400">{ivaTxt}</span></span>}
         </div>
       </div>
       <div className="inv-lg inv-xl min-w-0"><span className="block w-full text-[11px] text-slate-600 truncate">{p.codigo_unico || '—'}</span></div>
       <div className="inv-lg flex-col items-start gap-0.5"><span className={'inv-pill ' + (stockNum > 0 ? 'ok' : 'no')}>{p.stock ?? '—'}</span><TablaEst id={p.id} /></div>
       <div className="inv-lg inv-xl min-w-0"><span className="block w-full text-[11px] font-semibold text-slate-600 truncate">{p.marca || '—'}</span></div>
-      <div className="inv-lg flex-col items-start leading-tight"><b className="text-xs" style={{ color: 'var(--primary)' }}>{dinero(p.pvp)}</b><small className="text-[9px] text-slate-400 font-semibold">{ivaTxt}</small></div>
+      <div className="inv-lg flex-col items-start leading-tight">
+        {of
+          ? <span className="inv-of-precio"><s className="text-[10px]">{dinero(p.pvp)}</s><b className="block text-xs">{dinero(of.precio)}</b></span>
+          : <b className="text-xs" style={{ color: 'var(--primary)' }}>{dinero(p.pvp)}</b>}
+        <small className="text-[9px] text-slate-400 font-semibold">{ivaTxt}</small>
+      </div>
       <div className="inv-cot-col">
         {car && (
           <button type="button" className="inv-mini-cot" onClick={(e) => { e.stopPropagation(); car.agregar(p, e.currentTarget) }} title="Agregar a la cotización">
@@ -347,6 +401,7 @@ function Panel({ p, editar, abrirEditar, car }: { p: Fila; editar: boolean; abri
         {p.reservaciones && (
           <div title={p.reservaciones} className="flex items-center gap-1.5 text-[11px] font-bold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2 cursor-help"><TriangleAlert className="w-4 h-4 shrink-0" /><span>Observaciones · pasa el cursor para verlas</span></div>
         )}
+        <CajaOferta id={p.id} conIva={conIva} />
         <div className="inv-price">
           <div className="grid grid-cols-2 gap-3 items-stretch">
             <div>
@@ -431,10 +486,11 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
   const editar = puede(perfil, 'inventario', 'editar')
   const crear = puede(perfil, 'inventario', 'crear')
   asesorEnlace = slug(perfil.nombre || '')
-  const [band, setBand] = useState<{ preciosFemedics?: boolean; multimedia?: boolean }>({})
+  type Banderas = { preciosFemedics?: boolean; multimedia?: boolean; ambas?: boolean }
+  const [band, setBand] = useState<Banderas>({})
   const femRef = useRef(false)
   femRef.current = !!band.preciosFemedics
-  useEffect(() => { supabase.rpc('mis_banderas').then(({ data }) => setBand((data as { preciosFemedics?: boolean; multimedia?: boolean } | null) ?? {})) }, [])
+  useEffect(() => { supabase.rpc('mis_banderas').then(({ data }) => setBand((data as Banderas | null) ?? {})) }, [])
   const ajustar = (l: Fila[]) => (femRef.current ? l.map((x) => ({ ...x, pvp: pvpFemedics(x.pvp) })) : l)
   const [multimedia, setMultimedia] = useState<Fila | null>(null)
 
@@ -494,9 +550,19 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
   const impSel = impFiltro ? imps.find((i) => i.codigo === impFiltro) ?? null : null
   const idsImp = useMemo(() => (impSel ? Object.keys(impSel.productos) : null), [impSel])
 
+  // Ofertas vigentes (Issue #39): etiqueta en cada producto, filtro y pantalla para el PDF.
+  const [ofertas, setOfertas] = useState<OfertaInv[]>([])
+  const [soloOferta, setSoloOferta] = useState(false)
+  const [verOfertas, setVerOfertas] = useState(false)
+  const cargarOfertas = useCallback(() => { cargarOfertasInv(false).then(setOfertas).catch(() => setOfertas([])) }, [])
+  useEffect(() => { const t = setTimeout(cargarOfertas, 350); return () => clearTimeout(t) }, [cargarOfertas])
+  const ofMapa = useMemo(() => Object.fromEntries(ofertas.map((o) => [o.productoId, o])), [ofertas])
+  const idsOferta = useMemo(() => (soloOferta ? ofertas.map((o) => o.productoId) : null), [soloOferta, ofertas])
+
   const consulta = useCallback(() => {
     let q = supabase.from('productos').select(COLUMNAS, { count: 'exact' }).is('deleted_at', null)
     if (idsImp) q = q.in('id', idsImp.length ? idsImp : ['00000000-0000-0000-0000-000000000000'])
+    if (idsOferta) q = q.in('id', idsOferta.length ? idsOferta : ['00000000-0000-0000-0000-000000000000'])
     // Cada palabra (en cualquier orden) debe aparecer en nombre, código, código interno, modelo, marca o categoría — sin importar tildes, mayúsculas ni guiones.
     for (const palabra of sinTildes(busqueda).split(/\s+/).filter(Boolean)) {
       q = q.ilike('busqueda_normalizada', `%${palabra}%`)
@@ -506,7 +572,7 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
     if (orden) q = q.order(CAMPO_BD[orden.campo], { ascending: orden.dir === 'asc', nullsFirst: false })
     else q = q.order('en_vista_publica', { ascending: false }).order('orden', { ascending: true, nullsFirst: false })
     return q.order('nombre', { ascending: true })
-  }, [busqueda, categoria, mostrarInactivos, orden, idsImp])
+  }, [busqueda, categoria, mostrarInactivos, orden, idsImp, idsOferta])
 
   // Carga desde cero cuando cambia la búsqueda, el filtro o el orden.
   const cargar = useCallback(async (hasta = LOTE) => {
@@ -564,7 +630,7 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
   }, [])
 
   const categoriasLista = useMemo(() => categorias, [categorias])
-  const hayFiltros = !!categoria || !!orden || !!impFiltro
+  const hayFiltros = !!categoria || !!orden || !!impFiltro || soloOferta
 
   function abrirMenu(e: React.MouseEvent<HTMLButtonElement>, cual: 'filtros' | 'vista' | 'mas') {
     e.stopPropagation()
@@ -584,7 +650,7 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
     })
   }
 
-  function restablecer() { setTexto(''); setCategoria(''); setOrden(null); setMostrarInactivos(false); setImpFiltro('') }
+  function restablecer() { setTexto(''); setCategoria(''); setOrden(null); setMostrarInactivos(false); setImpFiltro(''); setSoloOferta(false) }
 
   /** Muestra todos los productos de una importación (o quita el filtro). */
   function filtrarImp(codigo: string, desdeDetalle?: boolean) {
@@ -656,6 +722,7 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
 
   return (
     <EstCtx.Provider value={{ est, verImp: (c) => filtrarImp(c, true) }}>
+    <OfCtx.Provider value={{ of: ofMapa, fem: !!band.preciosFemedics }}>
     <div className="min-h-screen antialiased" style={{ background: 'var(--bg)' }}>
       <header className="sticky top-0 z-30 border-b border-slate-200" style={{ background: 'linear-gradient(135deg, var(--navy), var(--primary))' }}>
         {/* Barra superior compacta: TODO en una sola línea */}
@@ -678,6 +745,14 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
                   <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
                     <div><p className="text-xs font-bold text-slate-800">Filtros</p><p className="text-[10px] text-slate-400 mt-0.5">Categoría, importación y orden</p></div>
                     <SlidersHorizontal className="w-4 h-4 text-slate-400" />
+                  </div>
+                  <div className="py-2 border-b border-slate-100">
+                    <p className="px-4 pt-1 pb-2 text-[9px] font-bold uppercase tracking-wider text-slate-400">Ofertas</p>
+                    <button type="button" onClick={() => setSoloOferta((v) => !v)} className={'w-full px-4 py-2.5 flex items-center gap-3 text-left hover:bg-slate-50 transition-colors ' + (soloOferta ? 'inv-of-on' : '')}>
+                      <span className="w-8 h-8 rounded-lg inv-of-ico flex items-center justify-center shrink-0"><BadgePercent className="w-4 h-4" /></span>
+                      <span className="min-w-0 flex-1"><b className="block text-xs text-slate-700">Solo con oferta vigente</b><small className="block text-[10px] text-slate-400">{ofertas.length} producto{ofertas.length === 1 ? '' : 's'} en oferta</small></span>
+                      {soloOferta && <Check className="w-4 h-4 shrink-0" style={{ color: '#c2410c' }} />}
+                    </button>
                   </div>
                   <div className="py-2">
                     <p className="px-4 pt-1 pb-2 text-[9px] font-bold uppercase tracking-wider text-slate-400">Categoría</p>
@@ -744,18 +819,20 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
                 <div className="p-2 inv-mas">
                   <button type="button" onClick={() => { setPos({ left: Math.max(12, window.innerWidth - 312), top: pos.top }); setMenu('filtros') }}><SlidersHorizontal /><span>Filtros y orden<small>Categoría, importación y orden</small></span>{hayFiltros && <Check className="ok" />}</button>
                   <button type="button" onClick={() => cambiarVista(vista === 'tabla' ? 'tarjetas' : 'tabla')}>{vista === 'tabla' ? <LayoutGrid /> : <Table2 />}<span>{vista === 'tabla' ? 'Ver en tarjetas' : 'Ver en tabla'}<small>Ahora: {vista === 'tabla' ? 'tabla' : 'tarjetas'}</small></span></button>
+                  <button type="button" onClick={() => { setMenu(null); setVerOfertas(true) }}><BadgePercent style={{ color: '#c2410c' }} /><span>Ofertas vigentes<small>Elegir productos y descargar PDF</small></span>{ofertas.length > 0 && <b className="inv-of-n">{ofertas.length}</b>}</button>
                   {crear && <button type="button" onClick={() => { setMenu(null); setForm('nuevo') }}><Plus /><span>Agregar producto</span></button>}
                   {editar && <button type="button" onClick={() => { setMenu(null); setMostrarInactivos((v) => !v) }}><EyeOff /><span>Mostrar productos inactivos</span>{mostrarInactivos && <Check className="ok" />}</button>}
                   {editar && <button type="button" disabled={reordenando} onClick={() => { setMenu(null); iniciarOrden() }}><Move /><span>Reordenar productos</span></button>}
                   {editar && <button type="button" onClick={() => { setMenu(null); setGestionCat(true) }}><Tag /><span>Categorías del catálogo</span></button>}
                   {puede(perfil, 'inventario', 'eliminar') && <button type="button" onClick={() => { setMenu(null); setPapelera(true) }}><Trash2 /><span>Papelera</span></button>}
-                  <button type="button" onClick={() => { setMenu(null); cargarEstado(); cargar(Math.max(LOTE, items.length)) }}><RefreshCw /><span>Actualizar inventario</span></button>
+                  <button type="button" onClick={() => { setMenu(null); cargarEstado(); cargarOfertas(); cargar(Math.max(LOTE, items.length)) }}><RefreshCw /><span>Actualizar inventario</span></button>
                 </div>
               </div>
             )}
           </div>
 
           <div className="flex items-center gap-1 shrink-0 ml-auto inv-solo-pc">
+            <button type="button" onClick={() => setVerOfertas(true)} className="inv-of-btn" title="Ofertas vigentes: elegir productos y descargar el PDF"><BadgePercent /><span>Ofertas</span>{ofertas.length > 0 && <b>{ofertas.length}</b>}</button>
             <div className="relative" data-menu>
               <button type="button" onClick={(e) => abrirMenu(e, 'vista')} className="w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors" title="Cambiar vista">
                 {vista === 'tabla' ? <Table2 className="w-4 h-4" /> : <LayoutGrid className="w-4 h-4" />}
@@ -785,7 +862,7 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
             )}
             {editar && <button onClick={iniciarOrden} disabled={reordenando} className="flex w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white items-center justify-center transition-colors" title="Reordenar productos"><Move className="w-4 h-4" /></button>}
             {editar && <button onClick={() => setGestionCat(true)} className="flex w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white items-center justify-center transition-colors" title="Categorías del catálogo"><Tag className="w-4 h-4" /></button>}
-            <button onClick={() => { cargarEstado(); cargar(Math.max(LOTE, items.length)) }} className="w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors" title="Actualizar inventario"><RefreshCw className={'w-4 h-4 ' + (cargando ? 'animate-spin' : '')} /></button>
+            <button onClick={() => { cargarEstado(); cargarOfertas(); cargar(Math.max(LOTE, items.length)) }} className="w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors" title="Actualizar inventario"><RefreshCw className={'w-4 h-4 ' + (cargando ? 'animate-spin' : '')} /></button>
           </div>
         </div>
       </header>
@@ -813,6 +890,17 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
               </p>
             </div>
             <button type="button" onClick={() => setImpFiltro('')} className="text-[11px] font-bold px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 bg-white hover:bg-slate-50 flex items-center gap-1"><X className="w-3.5 h-3.5" />Quitar filtro</button>
+          </div>
+        )}
+        {soloOferta && (
+          <div className="mb-3 inv-impf inv-of-filtro">
+            <span className="w-9 h-9 rounded-xl text-white flex items-center justify-center shrink-0" style={{ background: '#c2410c' }}><BadgePercent className="w-4 h-4" /></span>
+            <div className="min-w-0 flex-1 inv-of-filtro-txt">
+              <p className="text-[13px] font-bold text-slate-800">Productos con oferta vigente</p>
+              <p className="text-[11.5px] text-slate-500">{ofertas.length} producto{ofertas.length === 1 ? '' : 's'} en oferta · el precio tachado es el normal</p>
+            </div>
+            <button type="button" onClick={() => setVerOfertas(true)} className="text-[11px] font-bold px-3 py-1.5 rounded-lg text-white flex items-center gap-1" style={{ background: '#c2410c' }}><Download className="w-3.5 h-3.5" />Elegir y descargar PDF</button>
+            <button type="button" onClick={() => setSoloOferta(false)} className="text-[11px] font-bold px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 bg-white hover:bg-slate-50 flex items-center gap-1"><X className="w-3.5 h-3.5" />Quitar filtro</button>
           </div>
         )}
         {error &&<div className="mb-3 text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{error}</div>}
@@ -946,7 +1034,13 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
       {band.preciosFemedics && <div role="status" style={{ position: 'fixed', left: '50%', bottom: 14, transform: 'translateX(-50%)', zIndex: 40, background: '#0cc4cf', color: '#fff', font: '700 11px/1.2 Inter,sans-serif', padding: '7px 14px', borderRadius: 999, boxShadow: '0 6px 18px rgba(12,196,207,.35)', pointerEvents: 'none' }}>PVP Femedics +11,11 % aplicado automáticamente</div>}
       {papelera && <PapeleraProductos cerrar={() => setPapelera(false)} restaurado={() => cargar(Math.max(LOTE, items.length))} />}
       {gestionCat && <GestionCategorias cerrar={() => setGestionCat(false)} actualizado={cargarCategorias} />}
+      {verOfertas && (
+        <Suspense fallback={<div className="io-ovl"><p className="io-cargando">Abriendo ofertas…</p></div>}>
+          <OfertasVigentes perfil={perfil} femedics={!!band.preciosFemedics} ambas={!!band.ambas} cerrar={() => setVerOfertas(false)} />
+        </Suspense>
+      )}
     </div>
+    </OfCtx.Provider>
     </EstCtx.Provider>
   )
 }
@@ -1184,6 +1278,7 @@ function DetalleProducto({ p, editar, eliminar, verMovimientos, irAMovimientos, 
                 </div>
               )}
 
+              <CajaOferta id={p.id} conIva={conIva} />
               {/* Precio + DIS oculto */}
               <div className="inv-price">
                 <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-2.5 items-stretch">

@@ -266,6 +266,8 @@ Pantallas: `Inventario.html` (20 funciones de servidor) y `Movimientos.html` (5)
 | `toggleEstadoProducto`, mostrar inactivos | Activar / desactivar | ✅ | `Inventario.tsx` |
 | `guardarOrdenInventario` | Ordenar arrastrando | ✅ | `inv_guardar_orden` |
 | `vmInvEstadoStock` | En revisión, en reparación, por llegar | ✅ | `inv_estado_stock` |
+| etiqueta `p.oferta` ("OFERTA -X % · $precio") | Oferta vigente en la tarjeta y el detalle del producto | ✅ (16-nov, #39) | `inv_ofertas_vigentes` + `Inventario.tsx`; se había perdido en la migración |
+| — (pedido nuevo, #39) | Filtro "Solo con oferta" y pantalla "Ofertas vigentes": elegir categorías y productos y descargar PDF (catálogo con fotos o lista compacta, VIMEDIC/FEMEDICS, con o sin IVA, versión interna, compartir) | 🆕 | `InventarioOfertas.tsx`, `ofertasPdf.ts` |
 | `vmProductoEliminar`, `vmPapeleraListar/Restaurar` | Eliminar y papelera | ✅ | `PapeleraProductos` |
 | `getCategoriasCatalogo`, `guardarCategoriaCatalogo` | Categorías del catálogo | ✅ | `GestionCategorias` (#10) |
 | `ft*` (ficha técnica), `dt*` (documentos técnicos) | Ficha automática y documentos | ✅ | Marketing › Biblioteca (#7, #11) |
