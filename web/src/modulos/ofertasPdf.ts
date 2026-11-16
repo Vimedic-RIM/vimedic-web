@@ -8,7 +8,8 @@ export type OpcionesPdf = {
   formato: 'fotos' | 'lista'; empresa: 'VIMEDIC' | 'FEMEDICS'; conIva: boolean; interna: boolean
   titulo: string; nombre: string; telefono: string
 }
-export type ResultadoPdf = { blob: Blob; paginas: number; sinFoto: number }
+/** sinFoto: productos que salieron sin foto (sin imagen en el inventario + fallidas). fallidas: tenían imagen pero no se pudo descargar. */
+export type ResultadoPdf = { blob: Blob; paginas: number; sinFoto: number; fallidas: number }
 
 type RGB = [number, number, number]
 const NAVY: RGB = [11, 37, 69], NARANJA: RGB = [194, 65, 12], TINTA: RGB = [15, 23, 42], GRIS: RGB = [100, 116, 139]
@@ -20,16 +21,24 @@ export const limpiarPdf = (v: unknown) => String(v ?? '').normalize('NFC')
   .replace(/[^\x20-\x7E\xA0-\xFF\n]/g, '').replace(/[ \t]+/g, ' ').trim()
 const usd = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-/** Descarga la foto y la deja en JPEG liviano con fondo blanco (sirve para WebP/PNG con transparencia). */
+/** Carga la foto y la deja en JPEG liviano con fondo blanco (sirve para WebP/PNG con transparencia).
+ *  Se carga COMO IMAGEN y no con fetch: la política de seguridad del sitio (web/public/_headers) permite mostrar imágenes de
+ *  Google (img-src) pero no descargarlas por código (connect-src), así que con fetch el navegador las bloqueaba y todas
+ *  salían "Imagen no disponible". crossOrigin = 'anonymous': Google responde con permiso CORS, el canvas no queda
+ *  "contaminado" y se puede exportar. Un reintento por si la red falla un momento (el celular, sobre todo). */
 async function fotoJpeg(src: string, max = 520): Promise<{ data: string; w: number; h: number } | null> {
-  try {
-    const r = await fetch(src)
-    if (!r.ok) return null
-    const b = await r.blob()
-    if (b.size > 8 * 1048576) return null
-    const url = URL.createObjectURL(b)
+  const cargar = () => new Promise<HTMLImageElement>((ok, mal) => {
+    const i = new Image()
+    i.crossOrigin = 'anonymous'
+    const t = setTimeout(() => mal(new Error('tiempo agotado')), 20000)
+    i.onload = () => { clearTimeout(t); ok(i) }
+    i.onerror = () => { clearTimeout(t); mal(new Error('no cargó')) }
+    i.src = src
+  })
+  for (let intento = 0; intento < 2; intento++) {
     try {
-      const img = await new Promise<HTMLImageElement>((ok, mal) => { const i = new Image(); i.onload = () => ok(i); i.onerror = mal; i.src = url })
+      const img = await cargar()
+      if (!img.naturalWidth || !img.naturalHeight) return null
       const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight))
       const w = Math.max(1, Math.round(img.naturalWidth * k)), h = Math.max(1, Math.round(img.naturalHeight * k))
       const c = document.createElement('canvas'); c.width = w; c.height = h
@@ -37,8 +46,9 @@ async function fotoJpeg(src: string, max = 520): Promise<{ data: string; w: numb
       if (!g) return null
       g.fillStyle = '#fff'; g.fillRect(0, 0, w, h); g.drawImage(img, 0, 0, w, h)
       return { data: c.toDataURL('image/jpeg', 0.82), w, h }
-    } finally { URL.revokeObjectURL(url) }
-  } catch { return null }
+    } catch { if (!intento) await new Promise((r) => setTimeout(r, 800)) }
+  }
+  return null
 }
 
 /** El logo es SVG: se pasa a PNG para el PDF. */
@@ -112,7 +122,7 @@ export async function generarPdfOfertas(items: OfertaInv[], op: OpcionesPdf, pro
     doc.text(t, x0, y); doc.setDrawColor(...GRIS); doc.setLineWidth(0.25); doc.line(x0 - 0.3, y - 1.05, x0 + w + 0.3, y - 1.05)
   }
 
-  let sinFoto = 0
+  let sinFoto = 0, fallidas = 0
   if (op.formato === 'fotos') {
     /* ---------- Fotos: de 4 en 4 ---------- */
     const fotos = new Map<string, { data: string; w: number; h: number } | null>()
@@ -126,6 +136,7 @@ export async function generarPdfOfertas(items: OfertaInv[], op: OpcionesPdf, pro
       }
     }
     await Promise.all([tarea(), tarea(), tarea(), tarea()])
+    fallidas = pend.filter((o) => !fotos.get(o.productoId)).length
     prog('Armando las páginas…')
 
     const X0 = 12, CW = 90, GAP = 6, CH = 59
@@ -145,10 +156,12 @@ export async function generarPdfOfertas(items: OfertaInv[], op: OpcionesPdf, pro
       const F = 34
       doc.setFillColor(...FONDO); doc.roundedRect(x + 4, y + 4, F, F, 2, 2, 'F')
       const f = fotos.get(o.productoId)
+      let puesta = false
       if (f) {
         const s = Math.min((F - 3) / f.w, (F - 3) / f.h), w = f.w * s, h = f.h * s
-        try { doc.addImage(f.data, 'JPEG', x + 4 + (F - w) / 2, y + 4 + (F - h) / 2, w, h, undefined, 'FAST') } catch { sinFoto++ }
-      } else {
+        try { doc.addImage(f.data, 'JPEG', x + 4 + (F - w) / 2, y + 4 + (F - h) / 2, w, h, undefined, 'FAST'); puesta = true } catch { fallidas++ }
+      }
+      if (!puesta) {
         sinFoto++
         doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...GRIS); doc.text('Imagen no disponible', x + 4 + F / 2, y + 4 + F / 2, { align: 'center' })
       }
@@ -240,5 +253,5 @@ export async function generarPdfOfertas(items: OfertaInv[], op: OpcionesPdf, pro
   }
   pies()
   prog('')
-  return { blob: doc.output('blob'), paginas: doc.getNumberOfPages(), sinFoto }
+  return { blob: doc.output('blob'), paginas: doc.getNumberOfPages(), sinFoto, fallidas }
 }

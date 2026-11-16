@@ -1,6 +1,6 @@
 /* Inventario › Ofertas vigentes (Issue #39): elegir categorías y productos y descargar el PDF para el cliente. */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { BadgePercent, Check, ChevronDown, Download, FileDown, Images, List, Package, Search, Share2, Square, SquareCheck, SquareMinus, X } from 'lucide-react'
+import { BadgePercent, Check, ChevronDown, Download, FileDown, Images, List, Package, Search, Share2, Square, SquareCheck, SquareMinus, TriangleAlert, X } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { imagen } from './inventarioUtil'
 import { agruparOfertas, cargarOfertasInv, dineroUsd, fechaCorta, normalizar, preciosOferta, textoVigencia, type OfertaInv } from './ofertasInv'
@@ -184,7 +184,7 @@ function HojaPdf({ elegidos, perfil, empresa, setEmpresa, soloFemedics, cerrar }
   const [telefono, setTelefono] = useState(() => leer('vm_of_pdf_tel') ?? '')
   const [prog, setProg] = useState('')
   const [gen, setGen] = useState(false)
-  const [res, setRes] = useState<{ url: string; archivo: File; paginas: number; sinFoto: number } | null>(null)
+  const [res, setRes] = useState<{ url: string; archivo: File; paginas: number; sinFoto: number; fallidas: number } | null>(null)
 
   // El teléfono de la ficha del empleado, si no escribió otro antes.
   useEffect(() => {
@@ -207,7 +207,7 @@ function HojaPdf({ elegidos, perfil, empresa, setEmpresa, soloFemedics, cerrar }
       const r = await generarPdfOfertas(elegidos, { formato, empresa, conIva, interna, titulo, nombre: nombre.trim(), telefono: telefono.trim() }, setProg)
       const archivo = new File([r.blob], `${empresa}-Ofertas${interna ? '-INTERNO' : ''}-${hoyYmd()}.pdf`, { type: 'application/pdf' })
       soltarUrl(); urlRef.current = URL.createObjectURL(r.blob)
-      setRes({ url: urlRef.current, archivo, paginas: r.paginas, sinFoto: r.sinFoto })
+      setRes({ url: urlRef.current, archivo, paginas: r.paginas, sinFoto: r.sinFoto, fallidas: r.fallidas })
       setProg('')
     } catch (e) { setProg('No se pudo generar el PDF: ' + (e as Error).message) }
     setGen(false)
@@ -265,7 +265,12 @@ function HojaPdf({ elegidos, perfil, empresa, setEmpresa, soloFemedics, cerrar }
           <label className="io-campo"><span>WhatsApp (pie de página)</span><input value={telefono} maxLength={30} inputMode="tel" placeholder="Ej.: 099 123 4567" onChange={(e) => setTelefono(e.target.value)} /></label>
         </div>
 
-        <p className="io-prog" role="status">{prog}{res && !prog ? `PDF listo: ${res.paginas} página${res.paginas === 1 ? '' : 's'}${res.sinFoto ? ` · ${res.sinFoto} producto${res.sinFoto === 1 ? '' : 's'} sin foto disponible` : ''}.` : ''}</p>
+        <p className="io-prog" role="status">{prog}{res && !prog ? `PDF listo: ${res.paginas} página${res.paginas === 1 ? '' : 's'}${res.sinFoto - res.fallidas > 0 ? ` · ${res.sinFoto - res.fallidas} producto${res.sinFoto - res.fallidas === 1 ? '' : 's'} sin imagen en el inventario` : ''}.` : ''}</p>
+        {res && res.fallidas > 0 && (
+          <p className="io-aviso" role="alert"><TriangleAlert />
+            <span>{res.fallidas === 1 ? 'No se pudo descargar la foto de 1 producto.' : `No se pudo descargar la foto de ${res.fallidas} productos.`} Vuelve a generar el PDF; si sigue igual, revisa la imagen de esos productos en el Inventario.</span>
+          </p>
+        )}
 
         <div className="io-hoja-acc">
           {res ? (
