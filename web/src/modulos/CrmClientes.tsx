@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Copy, MessageCircle, Phone, Search, Trash2, UserPlus, UserRoundPlus, X } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
+import { conservarCursor, nombrePropio, nombrePropioFinal } from '../formatoNombres'
 
 type Asesor = { id: string; nombre: string }
 export type Cliente = {
@@ -22,7 +23,8 @@ const MEDIOS: [string, string[]][] = [
   ['Gestión comercial', ['🚶 Visita comercial', '🏢 Visita del cliente a nuestras instalaciones', '📞 Prospección telefónica', '🎪 Feria o evento', '🏛️ Compra pública (SERCOP)', '🔄 Reactivación o seguimiento']],
 ]
 const soloNum = (s: string) => s.replace(/\D/g, '')
-const titulo = (s: string) => s.replace(/(^|\s)(\p{L})/gu, (_m, a, b) => a + b.toUpperCase())
+// Nombres: primera letra de cada palabra en mayúscula y el resto en minúscula, como la app original (ver formatoNombres.ts).
+const titulo = nombrePropio
 const wa = (t: string | null) => { const d = soloNum(t || ''); return d ? 'https://wa.me/' + (d.startsWith('0') ? '593' + d.slice(1) : d) : '' }
 
 /* ============== Confirmar eliminación (VMACC.confirmarEliminar) ============== */
@@ -161,8 +163,8 @@ export function FormularioCliente({ perfil, asesores, cliente, cerrar, guardado,
 }) {
   const v = (x: string | null | undefined) => x ?? ''
   const [f, setF] = useState({
-    identificacion: v(cliente?.identificacion ?? prefill?.identificacion), nombre: v(cliente?.nombre ?? prefill?.nombre), telefono: v(cliente?.telefono ?? prefill?.telefono), email: v(cliente?.email ?? prefill?.email),
-    ciudad: v(cliente?.ciudad ?? prefill?.ciudad), direccion: v(cliente?.direccion), tipo: v(cliente?.tipo_cliente), descuento: v(cliente?.descuento_fijo),
+    identificacion: v(cliente?.identificacion ?? prefill?.identificacion), nombre: cliente ? v(cliente.nombre) : titulo(v(prefill?.nombre)), telefono: v(cliente?.telefono ?? prefill?.telefono), email: v(cliente?.email ?? prefill?.email),
+    ciudad: cliente ? v(cliente.ciudad) : titulo(v(prefill?.ciudad)), direccion: v(cliente?.direccion), tipo: v(cliente?.tipo_cliente), descuento: v(cliente?.descuento_fijo),
     telefono2: v(cliente?.telefono2), institucion: v(cliente?.institucion), url_maps: v(cliente?.url_maps),
     asesor: cliente?.asesor_id ?? perfil.id, contacto: v(cliente?.persona_contacto), cargo: v(cliente?.cargo_contacto), medio: v(cliente?.medio_captacion),
     responsable: v(cliente?.responsable_id), fecha: cliente?.fecha_registro ? cliente.fecha_registro.slice(0, 19) : '',
@@ -192,10 +194,13 @@ export function FormularioCliente({ perfil, asesores, cliente, cerrar, guardado,
     if (f.tipo === 'DIS' && !f.descuento) { setError('Elige el nivel de descuento del distribuidor.'); return }
     if (dup) { setError(dup); return }
     setGuardando(true)
+    // Los nombres se guardan con el formato (Primera Mayúscula) aunque lleguen ya escritos, pegados o desde un lead. Al editar, lo que no se tocó
+    // queda como estaba (hay razones sociales migradas como "HTOM S.A.S." que no deben reescribirse).
+    const fmt = (nuevo: string, original?: string | null) => (cliente && nuevo.trim() === (original ?? '').trim() ? nuevo.trim() : nombrePropioFinal(nuevo))
     const fila = {
-      identificacion: f.identificacion, nombre: f.nombre.trim(), telefono: f.telefono, email: f.email.trim().toLowerCase(), ciudad: f.ciudad.trim(), direccion: f.direccion.trim(),
-      tipo_cliente: f.tipo, descuento_fijo: f.tipo === 'DIS' ? f.descuento : null, telefono2: f.telefono2 || null, institucion: f.institucion.trim() || null,
-      url_maps: f.url_maps.trim() || null, asesor_id: f.asesor || null, persona_contacto: f.contacto.trim() || null, cargo_contacto: f.cargo.trim() || null,
+      identificacion: f.identificacion, nombre: fmt(f.nombre, cliente?.nombre), telefono: f.telefono, email: f.email.trim().toLowerCase(), ciudad: fmt(f.ciudad, cliente?.ciudad), direccion: f.direccion.trim(),
+      tipo_cliente: f.tipo, descuento_fijo: f.tipo === 'DIS' ? f.descuento : null, telefono2: f.telefono2 || null, institucion: fmt(f.institucion, cliente?.institucion) || null,
+      url_maps: f.url_maps.trim() || null, asesor_id: f.asesor || null, persona_contacto: fmt(f.contacto, cliente?.persona_contacto) || null, cargo_contacto: fmt(f.cargo, cliente?.cargo_contacto) || null,
       medio_captacion: f.medio || null, responsable_id: f.responsable || null, fecha_registro: f.fecha ? new Date(f.fecha).toISOString() : null,
       cumpleanos: f.cumple || null, aniversario_empresa: f.aniv || null,
     }
@@ -222,7 +227,7 @@ export function FormularioCliente({ perfil, asesores, cliente, cerrar, guardado,
 
   const campo = (et: string, k: keyof typeof f, props: React.InputHTMLAttributes<HTMLInputElement> = {}, tr: (s: string) => string = (s) => s, extra?: React.ReactNode, cls = '') => (
     <label className={'cf-f ' + cls}><span>{et}</span>
-      <input className="ns-input cf-in" value={f[k]} onChange={(e) => set(k, tr(e.target.value))} {...props} />{extra}
+      <input className="ns-input cf-in" value={f[k]} onChange={(e) => { const el = e.target, nuevo = tr(el.value); set(k, nuevo); if (tr === titulo) conservarCursor(el, el.value, nuevo) }} {...props} />{extra}
     </label>
   )
 

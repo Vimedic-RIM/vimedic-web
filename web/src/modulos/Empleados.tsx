@@ -5,6 +5,7 @@ import { puede } from '../permisos'
 import { imagen } from './inventarioUtil'
 import { ConfirmarEliminar } from './CrmClientes'
 import { imagenWebp } from './audiovisualMedios'
+import { conservarCursor, nombrePropio, nombrePropioFinal } from '../formatoNombres'
 import '../estilos/empleados.css'
 
 type Emp = {
@@ -84,7 +85,7 @@ const SUBMODULO: Record<string, Tog[]> = {
   ],
 }
 
-const titulo = (s: string) => s.replace(/(^|\s)([a-záéíóúñ])/g, (_m, a, b) => a + b.toUpperCase())
+const titulo = nombrePropio   // Primera Mayúscula y el resto en minúscula, como la app original (formatoNombres.ts)
 const iniciales = (n: string) => { const p = n.trim().split(' ').filter(Boolean); return p.length ? (p[0][0] + (p[1]?.[0] ?? '')).toUpperCase() : '?' }
 const fechaCorta = (d: string | null) => (d ? d.split('-').reverse().join('/') : '')
 
@@ -288,6 +289,8 @@ function Ficha({ perfil, emp, lista, roles, cerrar, guardado, aviso }: { perfil:
     aviso(r.nuevo ? 'Cuenta de acceso creada.' : 'Contraseña actualizada.')
   }
   const set = (k: keyof typeof f, val: string) => setF((a) => ({ ...a, [k]: val }))
+  /** Campos de nombre/cargo/local/departamento: formato Primera Mayúscula mientras se escribe, sin que el cursor salte al final. */
+  const cambiarTitulo = (e: React.ChangeEvent<HTMLInputElement>, k: keyof typeof f) => { const el = e.target, v = titulo(el.value); set(k, v); conservarCursor(el, el.value, v) }
   const rol = roles.find((r) => r.id === f.rolId)
   const puedeEditar = puede(perfil, 'empleados', 'editar') || (!emp && puede(perfil, 'empleados', 'crear'))
 
@@ -339,8 +342,10 @@ function Ficha({ perfil, emp, lista, roles, cerrar, guardado, aviso }: { perfil:
     const saldo = f.saldoInicial.trim() === '' ? null : Number(f.saldoInicial)
     if (saldo != null && (!isFinite(saldo) || saldo < 0 || saldo > 400)) { setError('El saldo inicial de vacaciones no es válido.'); return }
     setGuardando(true)
+    // Con el formato Primera Mayúscula aunque llegue pegado o en mayúsculas; al editar, lo que no se tocó queda como estaba.
+    const fmt = (nuevo: string, original?: string | null) => (emp && nuevo.trim() === (original ?? '').trim() ? nuevo.trim() : nombrePropioFinal(nuevo))
     const fila = {
-      email, nombre: f.nombre.trim(), cedula: f.cedula || null, telefono: f.telefono || null, cargo: f.cargo.trim() || null, local: f.local.trim() || null,
+      email, nombre: fmt(f.nombre, emp?.nombre), cedula: f.cedula || null, telefono: f.telefono || null, cargo: fmt(f.cargo, emp?.cargo) || null, local: fmt(f.local, emp?.local) || null,
       jefe_id: f.jefe || null, empresa: f.empresa === 'AMBAS' ? 'VIMEDIC' : f.empresa, correo_personal: f.correoPersonal.trim().toLowerCase() || null, cumpleanos: f.cumpleanos || null,
       foto_url: f.foto.trim() || null, estado: f.estado, rol_id: accesoCrm ? f.rolId || null : null, permisos_extra: extra,
       recibe_leads: cols.recibe_leads, recibe_leads_mensajes: cols.recibe_leads_mensajes, recibe_clientes_meta: cols.recibe_clientes_meta,
@@ -402,11 +407,11 @@ function Ficha({ perfil, emp, lista, roles, cerrar, guardado, aviso }: { perfil:
 
           <div className={'grid grid-cols-1 sm:grid-cols-2 gap-2.5 ' + (emp ? 'lg:grid-cols-4' : '')}>
             <input type="email" value={f.email} onChange={(e) => set('email', e.target.value.toLowerCase())} placeholder="Correo institucional (obligatorio) *" className={campo + ' sm:col-span-2'} style={ring} />
-            <input type="text" value={f.nombre} onChange={(e) => set('nombre', titulo(e.target.value))} placeholder="Nombre completo *" className={campo + ' sm:col-span-2'} style={ring} />
+            <input type="text" value={f.nombre} onChange={(e) => cambiarTitulo(e, 'nombre')} placeholder="Nombre completo *" className={campo + ' sm:col-span-2'} style={ring} />
             <input type="text" inputMode="numeric" value={f.cedula} onChange={(e) => set('cedula', e.target.value.replace(/\D/g, ''))} placeholder="Cédula" className={campo} style={ring} />
             <input type="text" inputMode="numeric" value={f.telefono} onChange={(e) => set('telefono', e.target.value.replace(/\D/g, ''))} placeholder="Teléfono" className={campo} style={ring} />
-            <input type="text" value={f.cargo} onChange={(e) => set('cargo', titulo(e.target.value))} placeholder="Rol / Área (ej. Comercial)" className={campo} style={ring} />
-            <input type="text" value={f.local} onChange={(e) => set('local', titulo(e.target.value))} placeholder="Local (ej. Matriz)" className={campo} style={ring} />
+            <input type="text" value={f.cargo} onChange={(e) => cambiarTitulo(e, 'cargo')} placeholder="Rol / Área (ej. Comercial)" className={campo} style={ring} />
+            <input type="text" value={f.local} onChange={(e) => cambiarTitulo(e, 'local')} placeholder="Local (ej. Matriz)" className={campo} style={ring} />
             <select value={f.jefe} onChange={(e) => set('jefe', e.target.value)} className={campo + ' bg-white'} style={ring} title="Jefe inmediato">
               <option value="">Jefe inmediato</option>
               {jefesPosibles.map((x) => <option key={x.id} value={x.id}>{x.nombre}</option>)}
@@ -438,7 +443,7 @@ function Ficha({ perfil, emp, lista, roles, cerrar, guardado, aviso }: { perfil:
               <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Fecha de ingreso</label>
                 <input type="date" max={new Date().toISOString().slice(0, 10)} value={f.fechaIngreso} onChange={(e) => set('fechaIngreso', e.target.value)} className={campo} style={ring} /></div>
               <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Departamento</label>
-                <input type="text" list="empDepLista" placeholder="Ej. Comercial" value={f.departamento} onChange={(e) => set('departamento', titulo(e.target.value))} className={campo} style={ring} />
+                <input type="text" list="empDepLista" placeholder="Ej. Comercial" value={f.departamento} onChange={(e) => cambiarTitulo(e, 'departamento')} className={campo} style={ring} />
                 <datalist id="empDepLista">{departamentos.map((d) => <option key={d} value={d} />)}</datalist></div>
               <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Jornada laboral</label>
                 <input type="text" list="empJornadaLista" placeholder="Ej. Tiempo completo" value={f.jornada} onChange={(e) => set('jornada', e.target.value)} className={campo} style={ring} />

@@ -10,6 +10,7 @@ import { imagen } from './inventarioUtil'
 import type { DatosDoc } from '../proforma'
 import { EtiquetasStockCotizacion, FranjaStock, marcoStock, useEstadoStock } from '../estadoStock'
 import { leerDatosEmpresa } from './CrmMeta'
+import { conservarCursor, nombrePropio, nombrePropioFinal } from '../formatoNombres'
 import { cargarOfertasInv, type OfertaInv } from './ofertasInv'
 import { descuentoConCliente, mapaOfertas, mejorDeLosDos, nombreOferta, ofertaAplicada, ofertaDeLinea, pctTexto, textoChipOferta, textoChipOfertaInv, type OfertaLinea } from './ofertaLinea'
 
@@ -262,7 +263,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   }, [carrito])
   const unidades = carrito.reduce((n, i) => n + i.cantidad, 0)
 
-  const nombre = cliente?.nombre ?? lead.nombre.trim()
+  const nombre = cliente?.nombre ?? nombrePropioFinal(lead.nombre)   // el del lead se guarda con el formato aunque llegue en mayúsculas
   const faltan: string[] = []
   if (!nombre) faltan.push('cliente')
   if (!medio) faltan.push('medio de captación')
@@ -288,7 +289,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     const datos: Record<string, unknown> = {
       tipo_registro: modo, cliente_id: cliente?.id ?? null, lead_sin_cliente: !cliente, nombre,
       identificacion: cliente?.identificacion ?? (lead.identificacion || null), email: cliente?.email ?? (lead.email.trim() || null), telefono: cliente?.telefono ?? (lead.telefono.trim() || null),
-      direccion: cliente?.direccion ?? null, ciudad: cliente?.ciudad ?? (leadCiudad.trim() || null), asesor_id: asesorId || null, detalle_equipos: carrito.map((i) => `${i.nombre} (Cant: ${i.cantidad})`).join(', '),
+      direccion: cliente?.direccion ?? null, ciudad: cliente?.ciudad ?? (nombrePropioFinal(leadCiudad) || null), asesor_id: asesorId || null, detalle_equipos: carrito.map((i) => `${i.nombre} (Cant: ${i.cantidad})`).join(', '),
       items, total: Math.round(total * 100) / 100, medio_captacion_lead: esVenta && medioLead ? medioLead : medio, nota_cotizacion: nota.trim() || null,
       estado_crm: esVenta ? 'Ganado' : 'Seguimiento', ultima_actividad: ahora,
     }
@@ -382,7 +383,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
 
   const soloDig = (s: string) => String(s || '').replace(/\D/g, '')
   const waLink = (s: string) => { const d = soloDig(s); return d ? 'https://wa.me/' + (d.startsWith('0') ? '593' + d.slice(1) : d) : '' }
-  const titulo1 = (s: string) => s.replace(/(^|\s)(\p{L})/gu, (_m, a, b) => a + b.toUpperCase())
+  const titulo1 = nombrePropio   // Primera Mayúscula y el resto en minúscula, como la app original (formatoNombres.ts)
   const nombreAsesor = (id?: string | null) => asesores.find((x) => x.id === id)?.nombre ?? ''
   const etiquetaDis = (c: Cli) => { const n = String(c.descuento_fijo || '').trim().toUpperCase(); return n === '5' || n === '10' || n === '15' ? 'DIS:' + n + '%' : n === 'VIP' ? 'DIS VIP' : 'DIS' }
   const avisoLocal = (m: string) => { setInfoCli(m); setTimeout(() => setInfoCli(''), 2500) }
@@ -539,10 +540,10 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
             {!cliente && leadAbierto && !esVenta && (
               <div className="mt-3 space-y-2 bg-white border border-slate-200 rounded-lg p-3">
                 <p className="text-[10px] text-slate-400">Cotiza sin crear cliente. Ningún campo es obligatorio — completa lo que tengas.</p>
-                <input className="w-full border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2" style={{ ['--tw-ring-color' as string]: 'var(--cyan)' }} placeholder="Nombre (opcional)" value={lead.nombre} onChange={(e) => setLead({ ...lead, nombre: titulo1(e.target.value) })} />
+                <input className="w-full border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2" style={{ ['--tw-ring-color' as string]: 'var(--cyan)' }} placeholder="Nombre (opcional)" value={lead.nombre} onChange={(e) => { const el = e.target, v = titulo1(el.value); setLead({ ...lead, nombre: v }); conservarCursor(el, el.value, v) }} />
                 <input className="w-full border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2" style={{ ['--tw-ring-color' as string]: 'var(--cyan)' }} placeholder="+593 99 999 9999" value={lead.telefono} onChange={(e) => setLead({ ...lead, telefono: e.target.value })} />
                 <input className="w-full border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2" style={{ ['--tw-ring-color' as string]: 'var(--cyan)' }} placeholder="Email (opcional)" value={lead.email} onChange={(e) => setLead({ ...lead, email: e.target.value })} />
-                <input className="w-full border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2" style={{ ['--tw-ring-color' as string]: 'var(--cyan)' }} placeholder="Ciudad (opcional)" value={leadCiudad} onChange={(e) => setLeadCiudad(titulo1(e.target.value))} />
+                <input className="w-full border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2" style={{ ['--tw-ring-color' as string]: 'var(--cyan)' }} placeholder="Ciudad (opcional)" value={leadCiudad} onChange={(e) => { const el = e.target, v = titulo1(el.value); setLeadCiudad(v); conservarCursor(el, el.value, v) }} />
                 <button type="button" onClick={usarLead} className="w-full text-xs font-bold py-2 rounded-lg text-white" style={{ background: 'var(--primary)' }}>Usar estos datos</button>
               </div>
             )}

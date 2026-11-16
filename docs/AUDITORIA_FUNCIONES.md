@@ -132,6 +132,12 @@ Pedido del usuario: actualizar CRM y Facturación y depurar lo que no exista (pr
   actualización volvieron a su estado real.
 - El stock de los productos se vuelve a tomar del Excel en la vuelta de Inventario.
 
+Corregido el 16-nov-2026: el formato de los nombres en los formularios se había perdido.
+
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `primeraMayusculaEnVivo_`, `formatearNombrePropio_` (CRMDashboard.html, Empleados.html) | Primera Mayúscula y el resto en minúscula, mientras se escribe, en Nombre completo, Institución/Empresa, Persona y Cargo de contacto, Ciudad, lead rápido de cotización/venta y Empleados | ✅ corregido | `formatoNombres.ts`. La app nueva solo subía la primera letra: un nombre pegado, traído de un lead o escrito en mayúsculas se guardaba en mayúsculas (cliente CLI-B1EFD7 "LOPEZ DIAZ CRISTOPHER ADRIAN"). Ahora también se aplica a lo que llega ya escrito y al guardar; al editar, lo que no se tocó queda como estaba (razones sociales migradas como "HTOM S.A.S.") |
+
 Corregido el 16-nov-2026 (#42, urgente): el envío de una venta a Facturación no funcionaba.
 
 | Función original | Qué hace | Estado | Dónde quedó |
