@@ -132,6 +132,14 @@ Pedido del usuario: actualizar CRM y Facturación y depurar lo que no exista (pr
   actualización volvieron a su estado real.
 - El stock de los productos se vuelve a tomar del Excel en la vuelta de Inventario.
 
+Corregido el 16-nov-2026 (#42, urgente): el envío de una venta a Facturación no funcionaba.
+
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `crearRegistroFacturacion_` | Cada venta del CRM entra a Facturación como "Pendiente" con sus datos de pago y entrega | ✅ corregido | `public.enviar_venta_a_facturacion` (existía solo en el esquema `app`, que la API no expone: el formulario mostraba "No se pudo enviar a Facturación" y la venta quedaba "Ganado" sin factura) |
+| `registrar_bitacora`, `registrar_ingreso_proveedor` | Bitácora de Facturación (guía de despacho, acta) e ingreso de proveedores (Adquisiciones) | ✅ corregido | Mismo defecto y misma corrección: versiones en `public`. Pruebas en `supabase/tests/facturacion_envio.sql` |
+| — | Un reintento del formulario creaba otra venta | ✅ corregido | `CrmDocumento.tsx` reutiliza la venta ya guardada |
+
 Recuperado el 16-nov-2026 (#41): la etiqueta de promoción en la proforma.
 
 | Función original | Qué hace | Estado | Dónde quedó |

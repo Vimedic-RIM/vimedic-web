@@ -128,6 +128,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   }, [esFm])
   // Abierta desde el aviso de la proforma ("Aplicar la promoción"): se aplica a las líneas que no la llevan, salvo que el cliente
   // ya tenga un descuento mejor. El asesor revisa y guarda como siempre (queda en el historial de versiones).
+  const reintento = useRef<{ id: string; codigo: string } | null>(null)   // documento guardado por un intento que falló después
   const promoPedida = useRef(false)
   useEffect(() => {
     if (!aplicarPromo || promoPedida.current || !Object.keys(ofertas).length) return
@@ -301,7 +302,9 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
         detalle_venta: { observacionPago: obsPago || null, remitente: entrega === 'Envío' ? rem : null, destinatario: entrega === 'Envío' ? dest : null, direccionEnvio: dirEnvio || null, transporte: transporte || null, ciudadDestino: ciudadDestino || null, empaque: { caja, armado, stretch }, cartaGarantia: garantia || null },
       })
     }
-    const existente = ed ? { id: ed.id as string, codigo: ed.codigo as string } : origen?.tabla === 'cotizaciones' ? { id: origen.id, codigo: origen.codigo } : null
+    // Si un intento anterior guardó el documento pero falló después (p. ej. el envío a Facturación), el reintento lo reutiliza
+    // en lugar de crear otro: antes cada reintento dejaba una venta más "Ganado" sin factura.
+    const existente = ed ? { id: ed.id as string, codigo: ed.codigo as string } : origen?.tabla === 'cotizaciones' ? { id: origen.id, codigo: origen.codigo } : reintento.current
     let id = existente ? existente.id : crypto.randomUUID()
     let codigo = existente ? existente.codigo : (esVenta ? 'VEN-' : 'COT-') + crypto.randomUUID().slice(0, 6).toUpperCase()
     if (esVenta && comprobante) {
@@ -315,6 +318,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
       ? await supabase.from('cotizaciones').update(datos).eq('id', id)
       : await supabase.from('cotizaciones').insert({ id, codigo, empresa, fecha: ahora, lead_id: origen?.tabla === 'leads' ? origen.id : null, ...datos })
     if (r.error) { setError(r.error.message); setGuardando(false); return }
+    if (!existente) reintento.current = { id, codigo }
     if (origen?.tabla === 'leads') await supabase.from('leads').update({ estado_crm: esVenta ? 'Ganado' : 'Seguimiento', ultima_actividad: ahora }).eq('id', origen.id)
     /* Historial de versiones: qué cambió, quién y cuándo (con la foto de los productos de esa versión). */
     const cambios = ed
@@ -360,7 +364,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
         setGuardando(false); return
       }
     }
-    const codigoFinal = codigo, idFinal = id, eraNuevo = !existente
+    const codigoFinal = codigo, idFinal = id, eraNuevo = !(ed || origen?.tabla === 'cotizaciones')
     id = ''; codigo = ''
     const resumenEntrega = [entrega === 'Local' ? dirEntrega : entrega === 'Envío' ? `${ciudadDestino} (${transporte})${dirEnvio ? ' · ' + dirEnvio : ''}` : '', quienRecibe ? 'Recibe: ' + quienRecibe : '', fechaEntrega ? 'Fecha de entrega: ' + fechaEntrega : '', [caja, armado, stretch].filter(Boolean).length ? 'Empaque: ' + [caja, armado, stretch].filter(Boolean).join(' · ') : '', garantia ? 'Garantía: ' + garantia : ''].filter(Boolean)
     guardado(`${modo} ${ed ? 'actualizada' : 'creada'} por ${dinero(total)}.`, {
