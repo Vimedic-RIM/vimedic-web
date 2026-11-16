@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Download, Printer, X } from 'lucide-react'
+import { BadgePercent, Download, Printer, X } from 'lucide-react'
 import { imagen } from './modulos/inventarioUtil'
 import { nombreOferta, ofertaAplicada, pctTexto, type OfertaLinea } from './modulos/ofertaLinea'
 import { supabase } from './supabase'
@@ -8,13 +8,17 @@ import { supabase } from './supabase'
    Mismo diseño que la proforma de la app original (Documentos.gs → generateInternalQuotePDFBase_). */
 
 export type ItemDoc = { id?: string; codigo?: string; nombre: string; imagen?: string; categoria?: string; descripcion?: string; ficha?: string; carpeta?: string; precio: number; cantidad: number; descuento?: number; iva?: boolean; observacion?: string
-  /** Oferta vigente con la que se cotizó (Issue #41). Se imprime solo si la línea lleva el descuento de esa oferta. */
+  /** Oferta vigente con la que se cotizó (Issue #41). Se imprime solo si la línea lleva descuento; el porcentaje es el de la línea. */
   oferta?: OfertaLinea | null }
 export type DatosDoc = {
   codigo: string; fecha: string; tipo: 'Cotización' | 'Venta'; empresa?: 'VIMEDIC' | 'FEMEDICS'
   cliente: { nombre: string; identificacion?: string | null; email?: string | null; telefono?: string | null }
   asesor: string; nota?: string | null; items: ItemDoc[]
   pagoEntrega?: { pago?: string; entrega?: string; detalle?: string[] } | null
+  /** Productos de esta proforma que están en una promoción vigente y no la llevan (Issue #41). Solo se avisa en pantalla; no se imprime. */
+  promoPendiente?: { codigo: string; nombre: string; pct: number; campana: string }[]
+  /** Si se puede corregir: abre la proforma para editar con la promoción ya aplicada. */
+  alAplicarPromo?: () => void
 }
 
 const esc = (v: unknown) => (v == null ? '' : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'))
@@ -29,7 +33,8 @@ function armar(d: DatosDoc, base: string): { titulo: string; cuerpo: string } {
     const bruto = unit * cant, ahorro = bruto * (pct / 100), sub = bruto - ahorro
     total += sub; if (i.iva !== false) baseIva += sub
     const img = i.imagen ? `<img src="${esc(imagen(i.imagen, 160))}" style="display:block;margin:0 auto;max-width:64px;max-height:64px;width:auto;height:auto" onerror="this.style.visibility='hidden'" />` : '<div style="width:64px;height:64px"></div>'
-    // Promoción (Issue #41; Documentos.gs del original): la línea lleva el descuento de una oferta vigente de campaña.
+    // Promoción (Issue #41; Documentos.gs del original): la línea lleva la oferta de una campaña con un descuento mayor que 0.
+    // Se imprime el porcentaje que lleva la línea, que el asesor puede haber editado.
     const enPromo = ofertaAplicada({ descuento: pct, oferta: i.oferta })
     const tot =
       `<tr><td class="l">CANTIDAD:</td><td class="r">${cant}</td></tr>` +
@@ -39,7 +44,7 @@ function armar(d: DatosDoc, base: string): { titulo: string; cuerpo: string } {
     return `<tr class="fila">
       <td style="text-align:center;font-size:11px">${k + 1}</td>
       <td style="text-align:center;width:70px">${img}</td>
-      <td style="font-size:11px"><strong>${esc(i.nombre)}${i.codigo || i.id ? ' | ' + esc(i.codigo || i.id) : ''}</strong>${i.iva === false ? ' <span class="sin-iva">SIN IVA</span>' : ''}${enPromo && i.oferta ? ` <span style="background:#ea580c;color:#ffffff;font-size:8.5px;font-weight:bold;padding:2px 6px;border-radius:4px;white-space:nowrap">${esc(nombreOferta(i.oferta).toUpperCase())} -${pctTexto(i.oferta.pct)}%</span>` : ''}<br>
+      <td style="font-size:11px"><strong>${esc(i.nombre)}${i.codigo || i.id ? ' | ' + esc(i.codigo || i.id) : ''}</strong>${i.iva === false ? ' <span class="sin-iva">SIN IVA</span>' : ''}${enPromo && i.oferta ? ` <span style="background:#ea580c;color:#ffffff;font-size:8.5px;font-weight:bold;padding:2px 6px;border-radius:4px;white-space:nowrap">${esc(nombreOferta(i.oferta).toUpperCase())} -${pctTexto(pct)}%</span>` : ''}<br>
         ${i.categoria ? `<span style="color:#64748b;font-size:10px">${esc(i.categoria)}</span>` : ''}
         ${i.descripcion ? `<div style="color:#475569;font-size:9.5px;margin-top:5px;line-height:1.5;white-space:pre-line">${esc(i.descripcion)}</div>` : ''}
         ${i.observacion ? `<div style="margin-top:4px;font-size:9.5px;font-weight:bold;color:#b45309">📌 ${esc(i.observacion)}</div>` : ''}
@@ -156,6 +161,17 @@ export function ProformaVisor({ datos, cerrar }: { datos: DatosDoc; cerrar: () =
         <button onClick={imprimir} className="text-xs font-bold px-3.5 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center gap-1.5"><Printer className="w-4 h-4" /> Imprimir</button>
         <button onClick={cerrar} className="w-9 h-9 rounded-full grid place-items-center bg-white/10 hover:bg-white/20" aria-label="Cerrar"><X className="w-4 h-4" /></button>
       </div>
+      {/* Aviso solo en pantalla (no se imprime): hay productos en promoción que esta proforma no lleva. */}
+      {!!datos.promoPendiente?.length && (
+        <div role="alert" className="shrink-0 flex items-center gap-3 px-4 py-2 flex-wrap" style={{ background: '#fff7ed', borderBottom: '1px solid #fed7aa', color: '#9a3412' }}>
+          <BadgePercent className="w-5 h-5 shrink-0" style={{ color: '#c2410c' }} />
+          <p className="min-w-0 flex-1 text-xs" style={{ lineHeight: 1.45 }}>
+            <b>{datos.promoPendiente.length === 1 ? 'Un producto de esta proforma está' : `${datos.promoPendiente.length} productos de esta proforma están`} en promoción y no la lleva{datos.promoPendiente.length === 1 ? '' : 'n'}:</b>{' '}
+            {datos.promoPendiente.map((p) => `${p.nombre}${p.codigo ? ' (' + p.codigo + ')' : ''} −${p.pct}%${p.campana ? ' · ' + p.campana : ''}`).join('  |  ')}
+          </p>
+          {datos.alAplicarPromo && <button onClick={() => { cerrar(); datos.alAplicarPromo?.() }} className="text-xs font-bold px-3.5 py-2 rounded-lg text-white" style={{ background: '#c2410c' }}>Aplicar la promoción</button>}
+        </div>
+      )}
       <iframe ref={ref} title="Proforma" srcDoc={html} className="flex-1 w-full bg-white" style={{ border: 0 }} />
     </div>
   )

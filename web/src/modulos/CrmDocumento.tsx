@@ -11,7 +11,7 @@ import type { DatosDoc } from '../proforma'
 import { EtiquetasStockCotizacion, FranjaStock, marcoStock, useEstadoStock } from '../estadoStock'
 import { leerDatosEmpresa } from './CrmMeta'
 import { cargarOfertasInv, type OfertaInv } from './ofertasInv'
-import { descuentoConCliente, mejorDeLosDos, ofertaAplicada, ofertaDeLinea, textoChipOferta, textoChipOfertaInv, type OfertaLinea } from './ofertaLinea'
+import { descuentoConCliente, mapaOfertas, mejorDeLosDos, nombreOferta, ofertaAplicada, ofertaDeLinea, pctTexto, textoChipOferta, textoChipOfertaInv, type OfertaLinea } from './ofertaLinea'
 
 type Asesor = { id: string; nombre: string }
 /** Lo que el CRM necesita saber al guardar (p. ej. para pedir el seguimiento de una proforma nueva). */
@@ -63,8 +63,10 @@ function diferencias(prev: Record<string, any>[], sig: Linea[], extra: { notaPre
   return c
 }
 
-export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, guardado, editar, empresa, itemsIniciales }: {
+export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, guardado, editar, empresa, itemsIniciales, aplicarPromo }: {
   itemsIniciales?: Record<string, any>[] // eslint-disable-line @typescript-eslint/no-explicit-any
+  /** Se abrió desde el aviso de la proforma ("Aplicar la promoción"): al cargar las ofertas se aplican a las líneas que no las llevan. */
+  aplicarPromo?: boolean
   empresa: 'VIMEDIC' | 'FEMEDICS'
   modo: 'Cotización' | 'Venta'; perfil: Perfil; asesores: Asesor[]; origen: Origen; cerrar: () => void; guardado: (msg: string, doc: DatosDoc, info?: InfoGuardado) => void
   editar?: Record<string, any> | null // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -121,9 +123,29 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   useEffect(() => {
     if (esFm) return
     let vivo = true
-    cargarOfertasInv(false).then((l) => { if (vivo) setOfertas(Object.fromEntries(l.filter((o) => !o.apagada).map((o) => [o.productoId, o]))) }).catch(() => undefined)
+    cargarOfertasInv(false).then((l) => { if (vivo) setOfertas(mapaOfertas(l)) }).catch(() => undefined)
     return () => { vivo = false }
   }, [esFm])
+  // Abierta desde el aviso de la proforma ("Aplicar la promoción"): se aplica a las líneas que no la llevan, salvo que el cliente
+  // ya tenga un descuento mejor. El asesor revisa y guarda como siempre (queda en el historial de versiones).
+  const promoPedida = useRef(false)
+  useEffect(() => {
+    if (!aplicarPromo || promoPedida.current || !Object.keys(ofertas).length) return
+    promoPedida.current = true
+    setCarrito((a) => a.map((l) => {
+      if (ofertaAplicada(l)) return l
+      const o = ofertaDeLinea(ofertas[l.id]); if (!o) return l
+      const m = mejorDeLosDos(l.precio, l.descuento, l.precio, o)
+      return m.oferta ? { ...l, precio: m.precio, descuento: m.descuento, oferta: m.oferta } : l
+    }))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ofertas])
+  /** Aplica la oferta a esta línea como descuento (acción explícita del asesor). */
+  const aplicarOferta = (idx: number) => {
+    const l = carrito[idx]; if (!l) return
+    const o = ofertaDeLinea(ofertas[l.id]); if (!o) return
+    cambiar(idx, { descuento: o.pct, oferta: o })
+  }
   // Productos que llegan ya elegidos desde el cotizador de Inventario (documento nuevo): se les aplica la oferta una vez cargadas.
   const ofertaInicial = useRef(false)
   useEffect(() => {
@@ -367,7 +389,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     // La línea conserva su oferta si da igual o más descuento que el del cliente; si no, gana el del cliente (como el original).
     const dCli = descCliente(c)
     setCarrito((a) => a.map((l) => {
-      const r = descuentoConCliente(l.oferta ?? (ed || esFm ? null : ofertaDeLinea(ofertas[l.id])), dCli)
+      const r = descuentoConCliente(l, l.oferta || ed || esFm ? null : ofertaDeLinea(ofertas[l.id]), dCli)
       return { ...l, descuento: r.descuento, oferta: r.oferta }
     })); aplicarDv(c)
   }
@@ -700,7 +722,12 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
               <div className="flex-grow min-w-0">
                 <p className="text-xs font-bold text-slate-800 truncate" title={i.nombre}>{i.nombre}</p>
                 <p className="text-[10px] text-slate-400">{i.descuento ? <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: '#7c3aed1A', color: '#7c3aed' }}>Desc: {i.descuento}%</span> : null} <b className="text-slate-600">{dinero(i.precio * i.cantidad * (1 - i.descuento / 100))}</b></p>
-                {ofertaAplicada(i) && i.oferta && <ChipOferta enCarrito texto={textoChipOferta(i.oferta, true)} />}
+                {ofertaAplicada(i) && i.oferta && <ChipOferta enCarrito texto={textoChipOferta({ ...i.oferta, pct: i.descuento }, true) + (Math.abs(i.descuento - i.oferta.pct) > 0.004 ? ' · oferta -' + pctTexto(i.oferta.pct) + '%' : '')} />}
+                {!ofertaAplicada(i) && (() => { const o = ofertaDeLinea(ofertas[i.id]); return o ? (
+                  <button type="button" onClick={() => aplicarOferta(idx)} title="Aplica la oferta como descuento de esta línea" className="text-[9px] font-extrabold px-1.5 py-0.5 rounded leading-tight mt-0.5 inline-block" style={{ background: '#fff7ed', color: '#c2410c', border: '1px solid #fdba74' }}>
+                    Aplicar oferta -{pctTexto(o.pct)}% · {nombreOferta(o)}
+                  </button>
+                ) : null })()}
               </div>
               <div className="ns-qty shrink-0">
                 <button onClick={() => i.cantidad <= 1 ? setCarrito((a) => a.filter((_, k) => k !== idx)) : cambiar(idx, { cantidad: i.cantidad - 1 })} aria-label="Menos">−</button>
@@ -715,6 +742,17 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
               <button onClick={() => aplicarPct(idx, -1)} title="Aplicar el % del cuadro de abajo como descuento" className="ns-round !w-6 !h-6 ml-auto">−</button>
               <button onClick={() => aplicarPct(idx, 1)} title="Subir el precio ese %" className="ns-round !w-6 !h-6">+</button>
             </div>
+            {/* Porcentaje de la oferta (Black): editable. Con 0 se quita; "Volver" regresa al de la campaña. */}
+            {i.oferta && (
+              <div className="flex items-center gap-1.5 mt-1.5">
+                <span className="text-[10px] font-bold" style={{ color: '#c2410c' }} title={'Oferta ' + nombreOferta(i.oferta)}>Desc. oferta %</span>
+                <input type="number" min="0" max="100" step="0.01" value={i.descuento} onFocus={(e) => e.target.select()} aria-label={'Porcentaje de descuento de la oferta de ' + i.nombre}
+                  onChange={(e) => cambiar(idx, { descuento: Math.min(100, Math.max(0, Number(e.target.value) || 0)) })} className="ns-mini w-16" />
+                {Math.abs(i.descuento - i.oferta.pct) > 0.004 && (
+                  <button type="button" onClick={() => cambiar(idx, { descuento: i.oferta?.pct ?? 0 })} className="text-[10px] font-bold underline" style={{ color: '#c2410c' }} title="Volver al porcentaje de la campaña">Volver a {pctTexto(i.oferta.pct)}%</button>
+                )}
+              </div>
+            )}
             <input type="text" value={i.observacion} placeholder="Observación (ej. Entrega inmediata / 72h)" onChange={(e) => cambiar(idx, { observacion: e.target.value })} className="ns-mini w-full text-left mt-1.5" />
           </div>
         ))}

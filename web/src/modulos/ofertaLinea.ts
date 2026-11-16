@@ -13,9 +13,19 @@ export function ofertaDeLinea(o: OfertaInv | undefined | null): OfertaLinea | nu
   return { campana: o.campana || '', tipo: o.tipo || '', pct: o.descuento, fin: o.fin || null, ...(o.regalo ? { regalo: o.regalo } : {}), ...(o.combo ? { combo: o.combo } : {}) }
 }
 
-/** ¿La línea lleva el descuento de su oferta? Solo entonces se habla de promoción: con otro descuento (por ejemplo el del cliente) no la tiene. */
+/** Ofertas que se pueden aplicar (las apagadas no), buscables por el id del producto y por su código: las proformas
+ *  migradas de la app original guardan el código en lugar del id. */
+export function mapaOfertas(l: OfertaInv[]): Record<string, OfertaInv> {
+  const m: Record<string, OfertaInv> = {}
+  for (const o of l) { if (o.apagada) continue; m[o.productoId] = o; if (o.codigo) m[o.codigo] = o }
+  return m
+}
+
+/** ¿La línea lleva la promoción? Sí si tiene la oferta y un descuento mayor que 0. El porcentaje que se aplica es el de la línea, que el asesor
+ *  puede editar (por ejemplo 40 % en lugar del 35 % de la campaña). Con descuento 0 no hay promoción. Si el cliente tiene un descuento mejor,
+ *  la línea pierde la oferta (ver descuentoConCliente) y deja de contar como promoción. */
 export const ofertaAplicada = (l: { descuento?: number | null; oferta?: OfertaLinea | null }): boolean =>
-  !!l.oferta && l.oferta.pct > 0 && Math.abs((Number(l.descuento) || 0) - l.oferta.pct) < 0.005
+  !!l.oferta && (Number(l.descuento) || 0) > 0
 
 /** Nombre de la promoción tal como se imprime: la campaña o, si no tiene, "Oferta <tipo>". */
 export const nombreOferta = (o: Pick<OfertaLinea, 'campana' | 'tipo'>): string => (o.campana || 'Oferta ' + (o.tipo || '').toLowerCase()).trim()
@@ -31,9 +41,14 @@ export function mejorDeLosDos(precioCliente: number, descCliente: number, pvp: n
   return conOferta <= delCliente + 0.005 ? { precio: pvp, descuento: oferta.pct, oferta } : { precio: precioCliente, descuento: descCliente }
 }
 
-/** Al elegir o cambiar el cliente: la línea conserva la oferta si su descuento es igual o mayor al del cliente; si no, gana el del cliente. */
-export function descuentoConCliente(oferta: OfertaLinea | null | undefined, descCliente: number): { descuento: number; oferta?: OfertaLinea } {
-  return oferta && oferta.pct >= descCliente - 0.0001 ? { descuento: oferta.pct, oferta } : { descuento: descCliente }
+/** Al elegir o cambiar el cliente: la línea conserva la oferta si su descuento es igual o mayor al del cliente; si no, gana el del cliente.
+ *  Si la línea ya lleva la oferta cuenta el porcentaje que tenga ahora (el asesor lo puede haber editado). Si el asesor la dejó en 0
+ *  (la quitó), no se vuelve a poner sola. Si todavía no la lleva, se compara la de la campaña (`disponible`). */
+export function descuentoConCliente(l: { descuento: number; oferta?: OfertaLinea }, disponible: OfertaLinea | null, descCliente: number): { descuento: number; oferta?: OfertaLinea } {
+  const lleva = ofertaAplicada(l), quitada = !!l.oferta && !lleva
+  const oferta = lleva ? l.oferta as OfertaLinea : quitada ? null : disponible
+  const dOferta = lleva ? l.descuento : oferta ? oferta.pct : 0
+  return oferta && dOferta >= descCliente - 0.0001 ? { descuento: dOferta, oferta } : { descuento: descCliente }
 }
 
 /** El chip del selector de productos: lo que se ve de una oferta de Inventario, antes de aplicarla a una línea. */

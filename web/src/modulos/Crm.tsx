@@ -13,6 +13,8 @@ import { ClientesLista, Papelera, ConfirmarEliminar } from './CrmClientes'
 import RutasViaticos from './RutasViaticos'
 import CrmDocumento, { type Origen, type InfoGuardado } from './CrmDocumento'
 import { ProformaVisor, enriquecerItems, type DatosDoc } from '../proforma'
+import { cargarOfertasInv } from './ofertasInv'
+import { mapaOfertas, ofertaAplicada, ofertaDeLinea } from './ofertaLinea'
 import {
   ActividadReciente, CampoCaptura, DetalleEstado, EditorEtapas, FormEtapa, NotaConEvidencia, cargarActividad, esMovil, esNegociacion,
   estadoConIntento, leerVisto, subirCaptura, tipoObservacion, type GestionRef, type ModoEtapa,
@@ -120,7 +122,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
   const [clientes, setClientes] = useState(false)
   const [papelera, setPapelera] = useState(false)
   const [rutasViaticos, setRutasViaticos] = useState(false)
-  const [documento, setDocumento] = useState<{ modo: 'Cotización' | 'Venta'; origen: Origen; editar?: Record<string, any> | null; items?: Record<string, any>[] } | null>(() => { // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [documento, setDocumento] = useState<{ modo: 'Cotización' | 'Venta'; origen: Origen; editar?: Record<string, any> | null; items?: Record<string, any>[]; aplicarPromo?: boolean } | null>(() => { // eslint-disable-line @typescript-eslint/no-explicit-any
     // Viene del cotizador de Inventario: abre «Nueva cotización» con los productos ya cargados.
     try { const j = sessionStorage.getItem('vm_cot_pendiente'); if (j && empresa === 'VIMEDIC') { sessionStorage.removeItem('vm_cot_pendiente'); return { modo: 'Cotización', origen: null, items: JSON.parse(j) } } } catch { /* sin almacenamiento */ }
     return null
@@ -610,7 +612,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
         return (
           <Ficha g={ga} perfil={perfil} asesores={asesores} etapas={estados} colorEstado={colorEstado}
             cerrar={() => setAbierta(null)} cambiarEstado={cambiarEstado} recargar={cargar} aviso={aviso}
-            mod={mod} empresa={empresa} verProforma={setProforma} editarDoc={(row) => { setAbierta(null); setDocumento({ modo: 'Cotización', origen: null, editar: row }) }}
+            mod={mod} empresa={empresa} verProforma={setProforma} editarDoc={(row, aplicarPromo) => { setAbierta(null); setDocumento({ modo: 'Cotización', origen: null, editar: row, aplicarPromo }) }}
             facturar={() => abrirVenta(ga)} cotizar={() => cotizarDesde(ga)} clientes={() => abrirFichaCliente(ga)}
             seguimiento={() => setPaso({ g: refDe(ga), modo: 'registro', destino: ga.estado, titulo: 'Registrar seguimiento · ' + ga.estado, boton: 'Guardar seguimiento' })}
             duplicar={() => duplicar(ga)} chat={ga.conversacionId ? () => { setAbierta(null); setMensajes({ conversacion: ga.conversacionId }) } : undefined} />
@@ -621,7 +623,7 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
       {papelera && <Papelera empresa={empresa} cerrar={() => setPapelera(false)} alRestaurar={cargar} aviso={aviso} />}
       {rutasViaticos && <RutasViaticos perfil={perfil} cerrar={() => setRutasViaticos(false)} aviso={aviso} />}
       {graficos && <Suspense fallback={null}><CrmGraficos gestiones={filtradas} asesores={asesores} empresa={empresa} colores={COLOR_ESTADO} cerrar={() => setGraficos(false)} /></Suspense>}
-      {documento && <CrmDocumento empresa={empresa} editar={documento.editar} itemsIniciales={documento.items} modo={documento.modo} perfil={perfil} asesores={asesores} origen={documento.origen} cerrar={() => setDocumento(null)}
+      {documento && <CrmDocumento empresa={empresa} editar={documento.editar} itemsIniciales={documento.items} aplicarPromo={documento.aplicarPromo} modo={documento.modo} perfil={perfil} asesores={asesores} origen={documento.origen} cerrar={() => setDocumento(null)}
         guardado={(m, doc, info?: InfoGuardado) => {
           setDocumento(null); aviso(m); cargar(); setProforma(doc)
           // Proforma nueva: igual que el original, al cerrar la vista previa se pide registrar el seguimiento (cuándo volver a contactar).
@@ -691,7 +693,7 @@ function Tarjeta({ g, asesor, color, arrastrando, abrir, intento: abrirIntento, 
 function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado, recargar, aviso, facturar, cotizar, clientes, verProforma, editarDoc, mod, empresa, seguimiento, duplicar, chat }: {
   mod: string; empresa: 'VIMEDIC' | 'FEMEDICS'; seguimiento: () => void; duplicar: () => void; chat?: () => void
   g: Gestion; perfil: Perfil; asesores: Asesor[]; etapas: string[]; colorEstado: (e: string) => string
-  cerrar: () => void; cambiarEstado: (key: string, nuevo: string) => Promise<void>; recargar: () => void; aviso: (t: string) => void; facturar: () => void; cotizar: () => void; clientes: () => void; verProforma: (d: DatosDoc) => void; editarDoc: (row: Record<string, any>) => void // eslint-disable-line @typescript-eslint/no-explicit-any
+  cerrar: () => void; cambiarEstado: (key: string, nuevo: string) => Promise<void>; recargar: () => void; aviso: (t: string) => void; facturar: () => void; cotizar: () => void; clientes: () => void; verProforma: (d: DatosDoc) => void; editarDoc: (row: Record<string, any>, aplicarPromo?: boolean) => void // eslint-disable-line @typescript-eslint/no-explicit-any
 }) {
   const [versiones, setVersiones] = useState<{ id: string; version: number; fecha: string; usuario_texto: string | null; cambios: string[]; items: Record<string, any>[]; total: number; nota: string | null; cliente: Record<string, string> | null }[] | null>(null) // eslint-disable-line @typescript-eslint/no-explicit-any
   const [elim, setElim] = useState(false)
@@ -769,12 +771,12 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
   }, [g.tabla, g.id])
   useEffect(() => { cargarVersiones() }, [cargarVersiones])
 
-  async function editarProforma() {
+  async function editarProforma(aplicarPromo?: boolean) {
     const { data, error } = await supabase.from('cotizaciones').select('id,codigo,tipo_registro,nombre,identificacion,email,telefono,cliente_id,asesor_id,items,total,nota_cotizacion,medio_captacion_lead').eq('id', g.id).single()
     if (error || !data) { aviso('No se pudo abrir la proforma para editar: ' + (error?.message ?? '')); return }
     const row = data as Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
     row.items = await enriquecerItems((row.items ?? []) as never)
-    editarDoc(row)
+    editarDoc(row, aplicarPromo)
   }
 
   async function verVersion(v: NonNullable<typeof versiones>[number]) {
@@ -789,10 +791,21 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
     if (error || !data) { aviso('No se pudo cargar la proforma: ' + (error?.message ?? '')); return }
     const r = data as Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
     const venta = r.tipo_registro === 'Venta'
+    const items = await enriquecerItems(((r.items ?? []) as Record<string, any>[]).map((i) => ({ ...i, precio: Number(i.precio) || 0, cantidad: Number(i.cantidad) || 0, descuento: Number(i.descuento) || 0, iva: i.iva !== false })) as never) // eslint-disable-line @typescript-eslint/no-explicit-any
+    // Productos que están en una promoción vigente y esta proforma no lleva (Issue #41): se avisa en pantalla y, si se puede editar, se ofrece corregirla.
+    // No se agrega nada al documento: una etiqueta de promoción sin el precio de la promoción confundiría al cliente.
+    let promoPendiente: DatosDoc['promoPendiente']
+    if (!venta && empresa !== 'FEMEDICS') {
+      try {
+        const of = mapaOfertas(await cargarOfertasInv(false))
+        promoPendiente = items.flatMap((i) => { const o = ofertaDeLinea(of[i.id ?? ''] ?? of[i.codigo ?? '']); return o && !ofertaAplicada(i) ? [{ codigo: i.codigo ?? '', nombre: i.nombre, pct: o.pct, campana: o.campana }] : [] })
+      } catch { /* sin ofertas: no se avisa */ }
+    }
+    const puedeCorregir = g.tipo === 'Cotización' && g.estado !== 'Ganado' && puede(perfil, mod, 'editar')
     verProforma({
       codigo: r.codigo ?? g.codigo, fecha: new Date(r.fecha).toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric' }), tipo: venta ? 'Venta' : 'Cotización', empresa,
       cliente: { nombre: r.nombre, identificacion: r.identificacion, email: r.email, telefono: r.telefono }, asesor: asesor, nota: venta ? r.nota_venta : r.nota_cotizacion,
-      items: await enriquecerItems(((r.items ?? []) as Record<string, any>[]).map((i) => ({ ...i, precio: Number(i.precio) || 0, cantidad: Number(i.cantidad) || 0, descuento: Number(i.descuento) || 0, iva: i.iva !== false })) as never), // eslint-disable-line @typescript-eslint/no-explicit-any
+      items, promoPendiente: promoPendiente?.length ? promoPendiente : undefined, alAplicarPromo: promoPendiente?.length && puedeCorregir ? () => { void editarProforma(true) } : undefined,
       pagoEntrega: venta ? { pago: [r.estado_pago, r.metodo_pago].filter(Boolean).join(' · '), entrega: r.tipo_entrega ?? '', detalle: [r.direccion_entrega, r.fecha_entrega ? 'Fecha de entrega: ' + r.fecha_entrega : ''].filter(Boolean) } : null,
     })
   }
@@ -916,7 +929,7 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
           </button>
 
           {g.tabla === 'cotizaciones' && g.tipo === 'Cotización' && g.estado !== 'Ganado' && puede(perfil, mod, 'editar') && (
-            <button onClick={editarProforma} className="w-full text-sm font-bold py-2.5 rounded-xl border flex items-center justify-center gap-1.5" style={{ borderColor: 'var(--primary)', color: 'var(--primary)' }}><Pencil className="w-4 h-4" /> Editar proforma</button>
+            <button onClick={() => editarProforma()} className="w-full text-sm font-bold py-2.5 rounded-xl border flex items-center justify-center gap-1.5" style={{ borderColor: 'var(--primary)', color: 'var(--primary)' }}><Pencil className="w-4 h-4" /> Editar proforma</button>
           )}
           {g.tabla === 'cotizaciones' && (
             <button onClick={abrirProforma} className="w-full text-sm font-bold py-2.5 rounded-xl border flex items-center justify-center gap-1.5" style={{ borderColor: '#c0392b', color: '#c0392b' }}><FileText className="w-4 h-4" /> Ver proforma (PDF A4)</button>

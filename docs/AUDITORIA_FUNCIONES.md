@@ -88,6 +88,8 @@ Recuperado el 16-nov-2026 (#41): la promoción Black en los formularios de profo
 | `vmAplicarDescCliente_` | Si el cliente tiene descuento propio (DIS), se queda con el mejor de los dos | ✅ | `descuentoConCliente` (al agregar y al elegir o cambiar el cliente) |
 | `ofActivasMapa_`, `prQuedan_` | Una oferta de campaña (o con límite) deja de aplicar al agotarse el stock o las unidades; con varias ofertas del mismo producto gana la de mayor descuento | ✅ | `inv_ofertas_vigentes` (`quedan`, `apagada`) |
 | — | La oferta con la que se cotizó queda guardada en la línea (`items[].oferta`) | 🆕 | La proforma dice con qué promoción se cotizó aunque la campaña termine después |
+| — (pedido nuevo) | Porcentaje de la oferta editable en cada línea ("Desc. oferta %", con "Volver a 35 %"); en 0 se quita la oferta | 🆕 | `CrmDocumento.tsx`. La línea sigue siendo "promoción" con el % que lleve (la proforma imprime ese %); al elegir cliente se respeta el % editado |
+| — (pedido nuevo) | Proformas hechas antes de la promoción: al abrirlas, aviso en pantalla con los productos que están en promoción y no la llevan, y "Aplicar la promoción" abre la proforma para editar con la oferta ya puesta; cada línea también tiene su botón "Aplicar oferta" | 🆕 | `Crm.tsx` + `proforma.tsx` (el aviso no se imprime) + `CrmDocumento.tsx`. Se corrige por "Editar" para que quede en el historial de versiones |
 
 ---
 
