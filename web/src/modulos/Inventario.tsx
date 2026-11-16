@@ -11,7 +11,7 @@ import { puede } from '../permisos'
 import '../estilos/inventario-original.css'
 import { EditarMultimedia } from './InventarioMultimedia'
 import { imagenWebp, subirCatalogo } from './audiovisualMedios'
-import { aFemedics, cargarOfertasInv, dineroUsd, etiquetaOferta, fechaCorta, type OfertaInv } from './ofertasInv'
+import { aFemedics, cargarOfertasInv, dineroUsd, etiquetaOferta, fechaCorta, hoyEC, ofertaActiva, type OfertaInv } from './ofertasInv'
 import { ofertaDeLinea, pctTexto } from './ofertaLinea'
 import '../estilos/inventario-ofertas.css'
 // Pantalla "Ofertas vigentes" con el PDF: se descarga solo al abrirla.
@@ -580,13 +580,24 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
   const [ofertas, setOfertas] = useState<OfertaInv[]>([])
   const [soloOferta, setSoloOferta] = useState(false)
   const [verOfertas, setVerOfertas] = useState(false)
-  const cargarOfertas = useCallback(() => { cargarOfertasInv(false).then(setOfertas).catch(() => setOfertas([])) }, [])
+  const cargarOfertas = useCallback(() => { cargarOfertasInv(false).then(setOfertas).catch(() => undefined) }, [])
   useEffect(() => { const t = setTimeout(cargarOfertas, 350); return () => clearTimeout(t) }, [cargarOfertas])
+  // Cuando una oferta termina (pasa su fecha de fin, se pausa o cancela, o se queda sin unidades) todo vuelve a precio normal solo:
+  // se vuelve a leer cada 5 minutos y al volver a la pestaña, y el cambio de día se nota en menos de un minuto sin pedir nada.
+  const [hoy, setHoy] = useState(hoyEC)
+  useEffect(() => {
+    const dia = setInterval(() => setHoy(hoyEC()), 60000)
+    const releer = setInterval(cargarOfertas, 5 * 60000)
+    const alVolver = () => { if (document.visibilityState === 'visible') { setHoy(hoyEC()); cargarOfertas() } }
+    document.addEventListener('visibilitychange', alVolver)
+    return () => { clearInterval(dia); clearInterval(releer); document.removeEventListener('visibilitychange', alVolver) }
+  }, [cargarOfertas])
+  const ofActivas = useMemo(() => ofertas.filter((o) => ofertaActiva(o, hoy)), [ofertas, hoy])
   // El precio y la cinta del Inventario son los del público (PVP); las ofertas solo para DIS no se muestran aquí.
-  const ofMapa = useMemo(() => Object.fromEntries(ofertas.filter((o) => o.ganaPara.includes('PVP')).map((o) => [o.productoId, o])), [ofertas])
-  const ofMapaDis = useMemo(() => Object.fromEntries(ofertas.filter((o) => o.ganaPara.includes('DIS')).map((o) => [o.productoId, o])), [ofertas])
-  const nProdOferta = useMemo(() => new Set(ofertas.map((o) => o.productoId)).size, [ofertas])   // un producto con oferta PVP y otra DIS cuenta una vez
-  const idsOferta = useMemo(() => (soloOferta ? ofertas.map((o) => o.productoId) : null), [soloOferta, ofertas])
+  const ofMapa = useMemo(() => Object.fromEntries(ofActivas.filter((o) => o.ganaPara.includes('PVP')).map((o) => [o.productoId, o])), [ofActivas])
+  const ofMapaDis = useMemo(() => Object.fromEntries(ofActivas.filter((o) => o.ganaPara.includes('DIS')).map((o) => [o.productoId, o])), [ofActivas])
+  const nProdOferta = useMemo(() => new Set(ofActivas.map((o) => o.productoId)).size, [ofActivas])   // un producto con oferta PVP y otra DIS cuenta una vez
+  const idsOferta = useMemo(() => (soloOferta ? ofActivas.map((o) => o.productoId) : null), [soloOferta, ofActivas])
 
   const consulta = useCallback(() => {
     let q = supabase.from('productos').select(COLUMNAS, { count: 'exact' }).is('deleted_at', null)

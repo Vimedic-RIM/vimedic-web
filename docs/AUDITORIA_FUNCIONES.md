@@ -132,6 +132,12 @@ Pedido del usuario: actualizar CRM y Facturación y depurar lo que no exista (pr
   actualización volvieron a su estado real.
 - El stock de los productos se vuelve a tomar del Excel en la vuelta de Inventario.
 
+Corregido el 16-nov-2026 (urgente): cuando una oferta termina, todo vuelve a la normalidad.
+
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `ofActivasMapa_` | Una oferta deja de aplicarse al pasar su fecha de fin (vale hasta el final de ese día), al pausarse o cancelarse y al quedarse sin unidades (campaña o con límite) | ✅ corregido | `ofertasInv.ts` (`hoyEC`, `ofertaActiva`), `ofertaLinea.ts` (`ofertaDeLinea`, `mapaOfertas`) e `Inventario.tsx`. Antes la tarjeta del Inventario seguía mostrando la oferta cuando estaba apagada (sin unidades) y una pestaña abierta no se enteraba del fin hasta recargar. Ahora se vuelve a leer cada 5 minutos y al volver a la pestaña, y el cambio de día se aplica en menos de un minuto. Con la oferta terminada: sin cinta ni precio tachado, el botón vuelve al portapapeles y el texto de WhatsApp lleva el precio normal; cotización y venta tampoco la aplican (las ya guardadas conservan su precio) |
+
 Agregado el 16-nov-2026 (urgente): copia rápida del Inventario con la promoción (Black) para WhatsApp.
 
 | Función original | Qué hace | Estado | Dónde quedó |

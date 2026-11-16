@@ -99,3 +99,10 @@ export const dineroUsd = (v: number) => '$' + (Number(v) || 0).toLocaleString('e
 
 /** Cómo se llama la promoción al publicarla en un texto: "BLACK" si es de la campaña Black (lo que pidió Ventas); si no, "PROMOCIÓN" ("PROMO" en un botón). */
 export const etiquetaOferta = (o: Pick<OfertaInv, 'campana'>, corta = false): string => (/black/i.test(o.campana || '') ? 'BLACK' : corta ? 'PROMO' : 'PROMOCIÓN')
+
+/** Hoy en Ecuador (AAAA-MM-DD). La base cuenta los días en esta zona: una oferta vale hasta el final de su día de fin. */
+export const hoyEC = (): string => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Guayaquil' }).format(new Date())
+
+/** ¿La oferta sigue en pie en esa fecha? Termina al pasar su fecha de fin o al quedarse sin unidades (apagada); antes de su inicio todavía no empieza. */
+export const ofertaActiva = (o: Pick<OfertaInv, 'inicio' | 'fin' | 'apagada'>, hoy: string = hoyEC()): boolean =>
+  !o.apagada && !(o.fin && o.fin < hoy) && !(o.inicio && o.inicio > hoy)
