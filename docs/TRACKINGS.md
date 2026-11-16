@@ -56,15 +56,36 @@ la etapa del pedido muestra la acción que le toca:
 Las acciones rápidas aplican las mismas reglas que las pantallas. Cada escaneo queda en la bitácora del pedido.
 Modo **Continuo**: después de cada acción vuelve a la cámara para el siguiente pedido.
 
+## Mapa de proceso (Dashboard Ejecutivo)
+
+Sección **Proceso de pedidos**, justo después del Resumen. Usa el período del Dashboard y sus propios filtros
+(empresa, local/provincia, asesor). Los cálculos los hace la base (`trk_proceso`).
+
+- **Indicadores:** pedidos en curso, atrasados ahora, tiempo promedio venta → entrega (contra la suma de los
+  objetivos), % entregado a tiempo y errores del período.
+- **Mapa:** una caja por etapa con los pedidos que están ahí ahora, los atrasados, una barra con el tiempo
+  promedio de la etapa (la marca es el objetivo), % a tiempo y errores. Color + ícono + texto:
+  En tiempo / Al límite (hasta 25 % sobre el objetivo) / Con atraso / Sin datos aún.
+- **Cuello de botella:** la etapa con más pedidos atrasados ahora (o la más lenta frente a su objetivo).
+- **Detalle:** al tocar una etapa se listan sus pedidos actuales y los errores del período; cada uno abre el
+  pedido en Trackings. "Ver tabla" muestra todas las cifras en una tabla.
+- **Tendencia semanal:** ventas que entraron vs. pedidos entregados, y días de venta a entrega contra el objetivo.
+
+Criterios: "ahora" es la foto actual (no depende del período); el tiempo de una etapa se cuenta cuando el pedido
+sale de ella dentro del período; venta → entrega cuenta los pedidos entregados en el período.
+
 ## Permisos
 
 - `tracking` › ver: todos los pedidos. `tracking` › editar: configurar tiempos, cancelar pedidos.
 - Asesores (CRM / Femedics › ver): ven en Trackings sus propias ventas y las de su equipo; `ver_todos` ve todas.
 - Escáner: quien tenga ver en Trackings, Bodega, Logística, Servicio Técnico o Facturación.
+- Dashboard Ejecutivo › ver: ve el mapa de proceso y puede abrir cualquier pedido desde ahí (verlo y anotarle).
 
 ## Piezas
 
 - `supabase/migrations/20261116000000_seguimiento_pedidos.sql`: tablas, disparadores, cálculo de tiempos, RPC `trk_*`.
 - `supabase/migrations/20261116010000_seguimiento_escaner.sql`: `trk_escanear`, `trk_accion`.
+- `supabase/migrations/20261116020000_seguimiento_proceso.sql`: `trk_proceso` (mapa del Dashboard).
+- `supabase/migrations/20261116030000_seguimiento_ver_dashboard.sql`: el Dashboard puede abrir pedidos.
 - `supabase/functions/seguimiento/`: página pública.
-- `web/src/modulos/Tracking.tsx`, `Escanear.tsx`, `TrackingVenta.tsx`, `web/src/SeguimientoPublico.tsx`.
+- `web/src/modulos/Tracking.tsx`, `Escanear.tsx`, `TrackingVenta.tsx`, `DashboardProceso.tsx`, `web/src/SeguimientoPublico.tsx`.
