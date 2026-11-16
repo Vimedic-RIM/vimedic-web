@@ -10,14 +10,18 @@ import { imagen } from './inventarioUtil'
 import type { DatosDoc } from '../proforma'
 import { EtiquetasStockCotizacion, FranjaStock, marcoStock, useEstadoStock } from '../estadoStock'
 import { leerDatosEmpresa } from './CrmMeta'
+import { cargarOfertasInv, type OfertaInv } from './ofertasInv'
+import { descuentoConCliente, mejorDeLosDos, ofertaAplicada, ofertaDeLinea, textoChipOferta, textoChipOfertaInv, type OfertaLinea } from './ofertaLinea'
 
 type Asesor = { id: string; nombre: string }
 /** Lo que el CRM necesita saber al guardar (p. ej. para pedir el seguimiento de una proforma nueva). */
 export type InfoGuardado = { id: string; nuevo: boolean; modo: 'Cotización' | 'Venta'; nombre: string; total: number }
 export type Origen = { tabla: 'leads' | 'cotizaciones'; id: string; codigo: string; nombre: string; telefono: string; email: string; identificacion: string; medio: string; medioVenta?: string; clienteId?: string | null } | null
 type Prod = { id: string; codigo: string | null; nombre: string; pvp: number | null; precio_dis: number | null; aplica_iva: boolean; stock: number | null; imagen_url: string | null; reservaciones: string | null; descripcion: string | null; ficha_tecnica_url: string | null; drive_carpeta_url: string | null; categoria: { nombre: string } | null }
-type Linea = { base?: number; obj?: number; id: string; codigo: string; nombre: string; imagen: string; precio: number; cantidad: number; descuento: number; iva: boolean; observacion: string; categoria?: string; descripcion?: string; ficha?: string; carpeta?: string }
-type Cli = { ciudad?: string | null; asesor_id?: string | null; datos_venta?: Record<string, string> | null; id: string; nombre: string; identificacion: string | null; email: string | null; telefono: string | null; direccion: string | null; tipo_cliente: string | null; descuento_fijo: string | null }
+type Linea = { base?: number; obj?: number; id: string; codigo: string; nombre: string; imagen: string; precio: number; cantidad: number; descuento: number; iva: boolean; observacion: string; categoria?: string; descripcion?: string; ficha?: string; carpeta?: string
+  /** Oferta vigente con la que se agregó (Issue #41); la proforma la nombra mientras la línea lleve su descuento. */
+  oferta?: OfertaLinea }
+type Cli ={ ciudad?: string | null; asesor_id?: string | null; datos_venta?: Record<string, string> | null; id: string; nombre: string; identificacion: string | null; email: string | null; telefono: string | null; direccion: string | null; tipo_cliente: string | null; descuento_fijo: string | null }
 
 const MEDIOS: [string, string[]][] = [
   ['Web y catálogo VIMEDIC', ['🤖 Chat bot web', '📝 Cotización web', '📅 Visita web', '🔓 Desbloqueo precios y stock web', '🛒 Catálogo web', '🌐 Página web']],
@@ -32,7 +36,11 @@ const PLAZOS = ['5 DIAS', '15 DIAS', '30 DIAS', '45 DIAS', '60 DIAS', '90 DIAS',
 const TRANSPORTES = ['Empresa', 'Tramaco', 'Enetsa', 'Jhetro', 'Esmeraldeño', 'Terminal Terrestre', 'Servientrega']
 const dinero = (n: number) => '$' + n.toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const LOTE_PRODS = 24
-const limpiar = (t: string) => t.replace(/[,()%*\\"']/g, ' ').trim()
+/** Chip naranja de oferta, igual que el de la app original (selector de productos y carrito). */
+const ChipOferta = ({ texto, enCarrito }: { texto: string; enCarrito?: boolean }) => (
+  <p className={'text-[9px] font-extrabold px-1.5 py-0.5 rounded text-white leading-tight' + (enCarrito ? ' mt-0.5 inline-block' : '')} style={{ background: '#c2410c' }}>{texto}</p>
+)
+const limpiar =(t: string) => t.replace(/[,()%*\\"']/g, ' ').trim()
 
 /** Lista legible de lo que cambió entre dos versiones de una cotización. */
 function diferencias(prev: Record<string, any>[], sig: Linea[], extra: { notaPrev: string; nota: string; nombrePrev: string; nombre: string; totalPrev: number; total: number; medioPrev: string; medio: string }): string[] { // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -103,7 +111,32 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   }
   const [carrito, setCarrito] = useState<Linea[]>(() => ((ed?.items ?? itemsIniciales ?? []) as Record<string, any>[]).map((i) => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
     id: String(i.id), codigo: i.codigo ?? '', nombre: i.nombre, imagen: i.imagen ?? '', precio: Number(i.precio) || 0, cantidad: Number(i.cantidad) || 1, descuento: Number(i.descuento) || 0,
-    iva: i.iva !== false, observacion: i.observacion ?? '', base: i.base != null ? Number(i.base) : undefined, obj: i.obj != null ? Number(i.obj) : undefined, categoria: i.categoria ?? '', descripcion: i.descripcion ?? '', ficha: i.ficha ?? '', carpeta: i.carpeta ?? '' })))
+    iva: i.iva !== false, observacion: i.observacion ?? '', base: i.base != null ? Number(i.base) : undefined, obj: i.obj != null ? Number(i.obj) : undefined, categoria: i.categoria ?? '', descripcion: i.descripcion ?? '', ficha: i.ficha ?? '', carpeta: i.carpeta ?? '',
+    oferta: i.oferta && Number(i.oferta.pct) > 0 ? (i.oferta as OfertaLinea) : undefined })))
+
+  /* Ofertas vigentes (Issue #41), como la app original: chip en el selector, descuento automático al agregar el producto
+     (el asesor lo puede cambiar) y, si el cliente tiene descuento propio, se queda con el mejor de los dos.
+     Solo VIMEDIC: el CRM de FEMEDICS original no usaba ofertas y su precio se arma con otro plan. */
+  const [ofertas, setOfertas] = useState<Record<string, OfertaInv>>({})
+  useEffect(() => {
+    if (esFm) return
+    let vivo = true
+    cargarOfertasInv(false).then((l) => { if (vivo) setOfertas(Object.fromEntries(l.filter((o) => !o.apagada).map((o) => [o.productoId, o]))) }).catch(() => undefined)
+    return () => { vivo = false }
+  }, [esFm])
+  // Productos que llegan ya elegidos desde el cotizador de Inventario (documento nuevo): se les aplica la oferta una vez cargadas.
+  const ofertaInicial = useRef(false)
+  useEffect(() => {
+    if (ofertaInicial.current || ed || !itemsIniciales?.length || !Object.keys(ofertas).length) return
+    ofertaInicial.current = true
+    setCarrito((a) => a.map((l) => {
+      if (l.oferta) return l
+      const o = ofertaDeLinea(ofertas[l.id]); if (!o) return l
+      const m = mejorDeLosDos(l.precio, l.descuento, l.precio, o)   // la línea ya viene a su PVP
+      return m.oferta ? { ...l, precio: m.precio, descuento: m.descuento, oferta: m.oferta } : l
+    }))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ofertas])
   useEffect(() => {
     if (!ed?.cliente_id) return
     supabase.from('clientes').select('id,nombre,identificacion,email,telefono,direccion,tipo_cliente,descuento_fijo,datos_venta').eq('id', ed.cliente_id).single().then(({ data }) => { if (data) setCliente(data as Cli) })
@@ -192,7 +225,9 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     setCarrito((a) => {
       const i = a.findIndex((x) => x.id === p.id)
       if (i >= 0) return a.map((x, k) => (k === i ? { ...x, cantidad: x.cantidad + 1 } : x))
-      return [...a, { id: p.id, codigo: p.codigo ?? '', nombre: p.nombre, imagen: p.imagen_url ?? '', precio: esFm ? conObjetivo(precioBase(p, cliente), plan) : precioBase(p, cliente), base: esFm ? precioBase(p, cliente) : undefined, obj: esFm ? plan : undefined, cantidad: 1, descuento: descCliente(cliente), iva: p.aplica_iva !== false, observacion: '', categoria: p.categoria?.nombre ?? '', descripcion: p.descripcion ?? '', ficha: p.ficha_tecnica_url ?? '', carpeta: p.drive_carpeta_url ?? '' }]
+      // Oferta vigente: el cliente se queda con el mejor de los dos (la oferta o su descuento / precio de distribuidor).
+      const m = mejorDeLosDos(precioBase(p, cliente), descCliente(cliente), Number(p.pvp) || 0, esFm ? null : ofertaDeLinea(ofertas[p.id]))
+      return [...a, { id: p.id, codigo: p.codigo ?? '', nombre: p.nombre, imagen: p.imagen_url ?? '', precio: esFm ? conObjetivo(precioBase(p, cliente), plan) : m.precio, base: esFm ? precioBase(p, cliente) : undefined, obj: esFm ? plan : undefined, cantidad: 1, descuento: m.descuento, oferta: m.oferta, iva: p.aplica_iva !== false, observacion: '', categoria: p.categoria?.nombre ?? '', descripcion: p.descripcion ?? '', ficha: p.ficha_tecnica_url ?? '', carpeta: p.drive_carpeta_url ?? '' }]
     })
   }
   const cambiar = (idx: number, c: Partial<Linea>) => setCarrito((a) => a.map((x, k) => (k === idx ? { ...x, ...c } : x)))
@@ -226,7 +261,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     if (faltan.length) { setError('Falta: ' + faltan.join(', ') + '.'); return }
     setGuardando(true); setError('')
     const ahora = new Date().toISOString()
-    const items = carrito.map((i) => ({ base: i.base, obj: i.obj, categoria: i.categoria, descripcion: i.descripcion, ficha: i.ficha, carpeta: i.carpeta, id: i.id, codigo: i.codigo, nombre: i.nombre, imagen: i.imagen, precio: i.precio, cantidad: i.cantidad, descuento: i.descuento, iva: i.iva, observacion: i.observacion }))
+    const items = carrito.map((i) => ({ base: i.base, obj: i.obj, categoria: i.categoria, descripcion: i.descripcion, ficha: i.ficha, carpeta: i.carpeta, id: i.id, codigo: i.codigo, nombre: i.nombre, imagen: i.imagen, precio: i.precio, cantidad: i.cantidad, descuento: i.descuento, iva: i.iva, observacion: i.observacion, oferta: ofertaAplicada(i) ? i.oferta : undefined }))
     const datos: Record<string, unknown> = {
       tipo_registro: modo, cliente_id: cliente?.id ?? null, lead_sin_cliente: !cliente, nombre,
       identificacion: cliente?.identificacion ?? (lead.identificacion || null), email: cliente?.email ?? (lead.email.trim() || null), telefono: cliente?.telefono ?? (lead.telefono.trim() || null),
@@ -310,7 +345,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
       codigo: (datos.codigo as string | undefined) ?? codigoFinal, fecha: new Date().toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric' }), tipo: modo, empresa,
       cliente: { nombre, identificacion: cliente?.identificacion ?? lead.identificacion, email: cliente?.email ?? lead.email, telefono: cliente?.telefono ?? lead.telefono },
       asesor: asesores.find((a) => a.id === asesorId)?.nombre ?? perfil.nombre, nota: nota.trim() || null,
-      items: carrito.map((i) => ({ id: i.id, codigo: i.codigo, nombre: i.nombre, imagen: i.imagen, categoria: i.categoria, descripcion: i.descripcion, ficha: i.ficha, carpeta: i.carpeta, precio: i.precio, cantidad: i.cantidad, descuento: i.descuento, iva: i.iva, observacion: i.observacion })),
+      items: carrito.map((i) => ({ id: i.id, codigo: i.codigo, nombre: i.nombre, imagen: i.imagen, categoria: i.categoria, descripcion: i.descripcion, ficha: i.ficha, carpeta: i.carpeta, precio: i.precio, cantidad: i.cantidad, descuento: i.descuento, iva: i.iva, observacion: i.observacion, oferta: ofertaAplicada(i) ? i.oferta : undefined })),
       pagoEntrega: esVenta ? { pago: pago + (tipoPago ? ' · ' + tipoPago : '') + (plazo ? ' · Plazo: ' + plazo : ''), entrega, detalle: resumenEntrega } : null,
     }, { id: idFinal, nuevo: eraNuevo, modo, nombre, total: Math.round(total * 100) / 100 })
   }
@@ -329,7 +364,12 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   function elegirCliente(c: Cli) {
     if (ajeno(c)) { alert('"' + c.nombre + '" ya está asignado a ' + (nombreAsesor(c.asesor_id) || 'otro asesor') + '.\n\nNo puedes editarlo ni generar cotización/venta para este cliente.'); return }
     setCliente(c); setBusca(''); setRes([]); setLeadAbierto(false); setFichaOculta(window.innerWidth < 1024)
-    setCarrito((a) => a.map((l) => ({ ...l, descuento: descCliente(c) }))); aplicarDv(c)
+    // La línea conserva su oferta si da igual o más descuento que el del cliente; si no, gana el del cliente (como el original).
+    const dCli = descCliente(c)
+    setCarrito((a) => a.map((l) => {
+      const r = descuentoConCliente(l.oferta ?? (ed || esFm ? null : ofertaDeLinea(ofertas[l.id])), dCli)
+      return { ...l, descuento: r.descuento, oferta: r.oferta }
+    })); aplicarDv(c)
   }
   function quitarCliente() { setCliente(null); setFichaOculta(false) }
   function usarLead() {
@@ -622,7 +662,8 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
                     <p className="text-[9px] font-mono-spec text-slate-400 truncate">{p.codigo}</p>
                     <p className="text-[11px] font-semibold text-slate-800 leading-snug line-clamp-2">{p.nombre}</p>
                     <EtiquetasStockCotizacion stock={p.stock} e={estStock?.[p.id]} />
-                    {p.reservaciones && <p className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-50 text-red-700 border border-red-200 leading-tight">🔴 {p.reservaciones}</p>}
+                    {ofertas[p.id] && <ChipOferta texto={textoChipOfertaInv(ofertas[p.id])} />}
+                    {p.reservaciones &&<p className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-50 text-red-700 border border-red-200 leading-tight">🔴 {p.reservaciones}</p>}
                     <p className="text-[11px] font-bold mt-auto" style={{ color: 'var(--acc-d)' }}>{dinero(base)} <span className="text-[9px] font-normal text-slate-400">{p.aplica_iva === false ? 'IVA 0%' : '+ IVA'}</span></p>
                     {base > 0 && <p className="text-[9px] text-slate-400 leading-tight">{p.aplica_iva === false ? 'No aplica IVA' : dinero(Math.round(base * 1.15 * 100) / 100) + ' IVA incluido'}</p>}
                   </div>
@@ -659,6 +700,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
               <div className="flex-grow min-w-0">
                 <p className="text-xs font-bold text-slate-800 truncate" title={i.nombre}>{i.nombre}</p>
                 <p className="text-[10px] text-slate-400">{i.descuento ? <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: '#7c3aed1A', color: '#7c3aed' }}>Desc: {i.descuento}%</span> : null} <b className="text-slate-600">{dinero(i.precio * i.cantidad * (1 - i.descuento / 100))}</b></p>
+                {ofertaAplicada(i) && i.oferta && <ChipOferta enCarrito texto={textoChipOferta(i.oferta, true)} />}
               </div>
               <div className="ns-qty shrink-0">
                 <button onClick={() => i.cantidad <= 1 ? setCarrito((a) => a.filter((_, k) => k !== idx)) : cambiar(idx, { cantidad: i.cantidad - 1 })} aria-label="Menos">−</button>

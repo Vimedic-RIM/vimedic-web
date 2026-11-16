@@ -11,12 +11,20 @@ export type OfertaInv = {
   precio: number
   descuento: number; iva: boolean; tipo: string; inicio: string | null; fin: string | null; proxima: boolean
   texto: string; regalo: string; combo: string; campana: string
+  /** Límite de unidades de la oferta (0 = sin límite) y unidades que le quedan (null = se desconoce el stock). */
+  limite: number; quedan: number | null
+  deCampana: boolean
+  /** Oferta de campaña (o con límite) a la que ya no le quedan unidades: no se debe aplicar al cotizar (regla de ofActivasMapa_ del original). */
+  apagada: boolean
 }
 
 export async function cargarOfertasInv(proximas = false): Promise<OfertaInv[]> {
   const { data, error } = await supabase.rpc('inv_ofertas_vigentes', { p_proximas: proximas })
   if (error) throw new Error(error.message)
-  return ((data as OfertaInv[]) ?? []).map((o) => ({ ...o, pvp: Number(o.pvp) || 0, precio: Number(o.precio) || 0, descuento: Number(o.descuento) || 0, stock: Number(o.stock) || 0 }))
+  return ((data as OfertaInv[]) ?? []).map((o) => ({
+    ...o, pvp: Number(o.pvp) || 0, precio: Number(o.precio) || 0, descuento: Number(o.descuento) || 0, stock: Number(o.stock) || 0,
+    limite: Number(o.limite) || 0, quedan: o.quedan == null ? null : Number(o.quedan), deCampana: !!o.deCampana, apagada: !!o.apagada,
+  }))
 }
 
 const r2 = (n: number) => Math.round(n * 100) / 100
@@ -47,11 +55,34 @@ export function agruparOfertas(l: OfertaInv[]): GrupoOfertas[] {
   return [...m.values()].sort((a, b) => (a.orden ?? 1e9) - (b.orden ?? 1e9) || normalizar(a.categoria).localeCompare(normalizar(b.categoria), 'es'))
 }
 
-/** "Válido hasta 16/12/2026" si todas terminan el mismo día; si no, cada producto muestra la suya. */
-export function textoVigencia(l: OfertaInv[]): string {
+/** Fecha límite que ve el cliente en el PDF (Issue #40): la real de cada oferta, otra que se elige a mano (no cambia la oferta en el
+ *  sistema, solo lo que dice el PDF) o ninguna. */
+export type LimiteFecha = { modo: 'real' | 'otra' | 'ocultar'; fecha: string }
+export const LIMITE_REAL: LimiteFecha = { modo: 'real', fecha: '' }
+/** La fecha límite que se imprime para una oferta, o null si no se muestra ninguna. */
+export function limiteDe(finReal: string | null | undefined, lim: LimiteFecha = LIMITE_REAL): string | null {
+  if (lim.modo === 'ocultar') return null
+  if (lim.modo === 'otra') return lim.fecha || null
+  return finReal || null
+}
+
+/** "Válido hasta 16/12/2026" si todas terminan el mismo día; si no, cada producto muestra la suya. Con otra fecha o sin fecha, según el modo. */
+export function textoVigencia(l: OfertaInv[], lim: LimiteFecha = LIMITE_REAL): string {
+  if (lim.modo === 'ocultar') return ''
+  if (lim.modo === 'otra') return lim.fecha ? 'Válido hasta el ' + fechaCorta(lim.fecha) : ''
   const fines = [...new Set(l.map((o) => o.fin).filter(Boolean))]
   return fines.length === 1 ? 'Válido hasta el ' + fechaCorta(fines[0]) : fines.length ? 'Vigencia indicada en cada producto' : ''
 }
 
-export const fechaCorta =(s: string | null | undefined) => (s ? s.slice(8, 10) + '/' + s.slice(5, 7) + '/' + s.slice(0, 4) : '')
+/** Nombres de las campañas de estas ofertas, sin repetir y en orden alfabético. */
+export const campanasDe = (l: OfertaInv[]): string[] => [...new Set(l.map((o) => o.campana).filter(Boolean))].sort((a, b) => normalizar(a).localeCompare(normalizar(b), 'es'))
+
+/** Nombre de archivo seguro: "Black Sales 2026" → "Black-Sales-2026". */
+export const slugArchivo = (s: string): string => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) || 'Ofertas'
+
+/** Fecha local "YYYY-MM-DD" (la de Ecuador, la del equipo del usuario). */
+export const ymdLocal = (d: Date): string => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+export const sumarDias = (ymd: string, n: number): string => { const [y, m, d] = ymd.split('-').map(Number); return ymdLocal(new Date(y, m - 1, d + n)) }
+
+export const fechaCorta = (s: string | null | undefined) => (s ? s.slice(8, 10) + '/' + s.slice(5, 7) + '/' + s.slice(0, 4) : '')
 export const dineroUsd = (v: number) => '$' + (Number(v) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })

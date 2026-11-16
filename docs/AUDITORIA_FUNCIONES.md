@@ -79,6 +79,16 @@ Para activar en el uso real (no se puede hacer desde la app):
 - Zernio → Webhooks: apuntar a `https://<proyecto>.supabase.co/functions/v1/crm-mensajes?webhook=1` y guardar el secreto como `webhookSecret` en la integración de Zernio. Hacerlo solo al pasar a producción: hoy el webhook apunta a la app de Apps Script.
 - Leads de Meta: falta la entrada automática (webhook de Meta Lead Ads). El reparto ya funciona con cualquier lead que entre con `origen_tipo = 'meta'`. Pasa a la vuelta de Marketing.
 
+Recuperado el 16-nov-2026 (#41): la promoción Black en los formularios de proforma y de venta. El primer repaso del CRM no lo vio.
+
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `vmOfertaChipHtml_` | Chip naranja "OFERTA -30% · Black Sales 2026 · hasta 16/12" en el selector de productos y "OFERTA APLICADA" en el carrito | ✅ | `CrmDocumento.tsx` (proforma y venta de VIMEDIC; en FEMEDICS no, el original tampoco lo usaba) |
+| `vmAplicarOferta_` | Al agregar el producto se aplica sola la oferta como descuento; el asesor la puede cambiar | ✅ | `ofertaLinea.ts` (`mejorDeLosDos`) y `CrmDocumento.tsx`; también para los productos que llegan del cotizador de Inventario |
+| `vmAplicarDescCliente_` | Si el cliente tiene descuento propio (DIS), se queda con el mejor de los dos | ✅ | `descuentoConCliente` (al agregar y al elegir o cambiar el cliente) |
+| `ofActivasMapa_`, `prQuedan_` | Una oferta de campaña (o con límite) deja de aplicar al agotarse el stock o las unidades; con varias ofertas del mismo producto gana la de mayor descuento | ✅ | `inv_ofertas_vigentes` (`quedan`, `apagada`) |
+| — | La oferta con la que se cotizó queda guardada en la línea (`items[].oferta`) | 🆕 | La proforma dice con qué promoción se cotizó aunque la campaña termine después |
+
 ---
 
 ## 2. Facturación — Issue #21 (cierra #6)
@@ -119,6 +129,12 @@ Pedido del usuario: actualizar CRM y Facturación y depurar lo que no exista (pr
 - Las pruebas de qa habían modificado cotizaciones reales (convertidas en venta, etapas cambiadas): con la
   actualización volvieron a su estado real.
 - El stock de los productos se vuelve a tomar del Excel en la vuelta de Inventario.
+
+Recuperado el 16-nov-2026 (#41): la etiqueta de promoción en la proforma.
+
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `generateInternalQuotePDFBase_` (Documentos.gs, `enPromo`) | Si el producto está con una oferta vigente y la línea lleva descuento: etiqueta con el nombre de la campaña y el % junto al nombre, "PRECIO NORMAL" tachado y "PRECIO PROMOCIÓN" en los totales | ✅ | `proforma.tsx` (proforma y comprobante de venta). Más exacto que el original: solo se marca si el descuento de la línea es el de la oferta (con otro descuento, p. ej. el del cliente, no se dice que es promoción) |
 
 ---
 
@@ -267,7 +283,7 @@ Pantallas: `Inventario.html` (20 funciones de servidor) y `Movimientos.html` (5)
 | `guardarOrdenInventario` | Ordenar arrastrando | ✅ | `inv_guardar_orden` |
 | `vmInvEstadoStock` | En revisión, en reparación, por llegar | ✅ | `inv_estado_stock` |
 | etiqueta `p.oferta` ("OFERTA -X % · $precio") | Oferta vigente en la tarjeta y el detalle del producto | ✅ (16-nov, #39) | `inv_ofertas_vigentes` + `Inventario.tsx`; se había perdido en la migración |
-| — (pedido nuevo, #39) | Filtro "Solo con oferta" y pantalla "Ofertas vigentes": elegir categorías y productos y descargar PDF (catálogo con fotos o lista compacta, VIMEDIC/FEMEDICS, con o sin IVA, versión interna, compartir) | 🆕 | `InventarioOfertas.tsx`, `ofertasPdf.ts` |
+| — (pedido nuevo, #39) | Filtro "Solo con oferta" y pantalla "Ofertas vigentes": elegir categorías y productos y descargar PDF (catálogo con fotos o lista compacta con foto pequeña de cada producto, VIMEDIC/FEMEDICS, con o sin IVA, versión interna, compartir). #40: fecha límite que ve el cliente (la real, otra o ninguna) y el nombre de la campaña como título | 🆕 | `InventarioOfertas.tsx`, `ofertasPdf.ts` |
 | `vmProductoEliminar`, `vmPapeleraListar/Restaurar` | Eliminar y papelera | ✅ | `PapeleraProductos` |
 | `getCategoriasCatalogo`, `guardarCategoriaCatalogo` | Categorías del catálogo | ✅ | `GestionCategorias` (#10) |
 | `ft*` (ficha técnica), `dt*` (documentos técnicos) | Ficha automática y documentos | ✅ | Marketing › Biblioteca (#7, #11) |
