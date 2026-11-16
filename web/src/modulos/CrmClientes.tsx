@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Copy, MessageCircle, Phone, Search, Trash2, UserPlus, UserRoundPlus, X } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
+import { palabras } from '../busqueda'
 import { puede } from '../permisos'
 import { conservarCursor, nombrePropio, nombrePropioFinal } from '../formatoNombres'
 
@@ -110,7 +111,7 @@ export function ClientesLista({ perfil, asesores, cerrar, aviso, empresa, abrirN
     const t = q.trim().replace(/[,()%*\\]/g, ' ')
     let consulta = supabase.from('clientes').select(COLS, { count: 'exact' }).is('deleted_at', null).eq('empresa', empresa)
     if (t) {
-      for (const p of t.split(/\s+/)) consulta = consulta.or(`nombre.ilike.%${p}%,identificacion.ilike.%${p}%,email.ilike.%${p}%,telefono.ilike.%${p}%`)
+      for (const p of palabras(t)) consulta = consulta.ilike('busqueda', `%${p}%`)   // sin tildes ni mayúsculas
     } else consulta = consulta.in('asesor_id', [perfil.id, ...asistidos])   // los míos y, si soy asistente de gerencia, los de la Alta Dirección
     consulta.order('nombre').range(0, t ? 49 : 19).then(({ data, count }) => { setLista((data as Cliente[]) ?? []); setTotal(count ?? 0) })
   }, [q, perfil.id, asistidos.join(',')])   // eslint-disable-line react-hooks/exhaustive-deps

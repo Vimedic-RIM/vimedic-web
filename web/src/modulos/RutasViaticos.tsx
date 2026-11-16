@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Check, MapPin, Plus, Route, Trash2, Wallet, X, XCircle } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
+import { palabras } from '../busqueda'
 import '../estilos/comun.css'
 import { puede } from '../permisos'
 
@@ -107,7 +108,10 @@ function NuevaRuta({ perfil, cerrar, creado, aviso }: { perfil: Perfil; cerrar: 
   function buscar(texto: string) {
     setBusqueda({ texto, res: [] })
     if (texto.trim().length < 2) return
-    supabase.from('clientes').select('id,nombre').ilike('nombre', `%${texto.trim()}%`).is('deleted_at', null).limit(8)
+    const ws = palabras(texto); if (!ws.length) return
+    let c = supabase.from('clientes').select('id,nombre').is('deleted_at', null)
+    for (const w of ws) c = c.ilike('busqueda', `%${w}%`)   // sin tildes ni mayúsculas
+    c.limit(8)
       .then(({ data }) => setBusqueda((b) => (b ? { ...b, res: (data as { id: string; nombre: string }[]) ?? [] } : b)))
   }
   function elegir(c: { id: string; nombre: string }) {

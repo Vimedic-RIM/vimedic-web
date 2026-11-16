@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Archive, BookOpen, Calendar, CalendarCheck, CalendarPlus, Check, CheckCheck, ClipboardList, Cpu, FileCheck2, FileText, Gauge, GraduationCap, Hammer, History, Hourglass, Lightbulb, List, ListChecks, MapPin, MessageCircle, PackageOpen, Package, Pencil, Phone, Play, Plus, PlugZap, RefreshCw, RotateCcw, Save, ScanSearch, Search, ShieldAlert, Stethoscope, User, UserPlus, Users, Wrench, X, XCircle, BadgeCheck, Camera } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
+import { palabras } from '../busqueda'
 import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
 import { descargarInforme, TITULOS, type OrdenDoc, type EquipoDoc } from './servicioInforme'
@@ -342,7 +343,9 @@ function RegistrarEquipo({ aviso, cerrar, listo }: { aviso: (t: string) => void;
       const txt = q.trim().replace(/[,()%*\\"']/g, ' ')
       const { data, error } = await supabase.from('facturas').select('id,codigo,numero_contifico,fecha_facturacion,identificacion,items,cliente:clientes(nombre)').is('deleted_at', null).eq('estado', 'Facturado').or(`codigo.ilike.%${txt}%,numero_contifico.ilike.%${txt}%,identificacion.ilike.%${txt}%`).order('fecha_facturacion', { ascending: false }).limit(25)
       if (error) { aviso(error.message); return }
-      const porCliente = await supabase.from('facturas').select('id,codigo,numero_contifico,fecha_facturacion,identificacion,items,cliente:clientes!inner(nombre)').is('deleted_at', null).eq('estado', 'Facturado').ilike('clientes.nombre', `%${txt}%`).limit(25)
+      let qCli = supabase.from('facturas').select('id,codigo,numero_contifico,fecha_facturacion,identificacion,items,cliente:clientes!inner(nombre)').is('deleted_at', null).eq('estado', 'Facturado')
+      for (const w of palabras(txt)) qCli = qCli.ilike('clientes.busqueda', `%${w}%`)   // sin tildes ni mayúsculas
+      const porCliente = await qCli.limit(25)
       const filas = [...(data ?? []), ...(porCliente.data ?? [])] as unknown as { id: string; codigo: string; numero_contifico: string; fecha_facturacion: string; items: Record<string, unknown>[]; cliente: { nombre: string } | null }[]
       const vistos = new Set<string>()
       setRes(filas.filter((x) => !vistos.has(x.id) && vistos.add(x.id)).map((x) => {

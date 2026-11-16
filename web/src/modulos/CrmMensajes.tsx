@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ExternalLink, Image as ImageIcon, MessageCircle, Paperclip, RefreshCw, Search, Send, Sparkles, X } from 'lucide-react'
 import { supabase } from '../supabase'
+import { coincide } from '../busqueda'
 import '../estilos/crm-extra.css'
 
 /* =====================================================================
@@ -100,7 +101,7 @@ export default function CrmMensajes({ empresa, inicial, cerrar, aviso }: { empre
 
   const lista = useMemo(() => {
     const t = q.trim().toLowerCase()
-    return (convs ?? []).filter((c) => (!canal || c.canal === canal) && (!solo || (solo === 'sinLeer' ? c.sinLeer > 0 : !c.asesorId)) && (!t || (c.nombre + ' ' + c.ultimo + ' ' + c.asesor).toLowerCase().includes(t)))
+    return (convs ?? []).filter((c) => (!canal || c.canal === canal) && (!solo || (solo === 'sinLeer' ? c.sinLeer > 0 : !c.asesorId)) && (!t || coincide(c.nombre + ' ' + c.ultimo + ' ' + c.asesor, t)))
   }, [convs, q, canal, solo])
   const canales = useMemo(() => [...new Set((convs ?? []).map((c) => c.canal))], [convs])
   const totalSinLeer = (convs ?? []).reduce((n, c) => n + (c.sinLeer > 0 ? 1 : 0), 0)

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { FileText, Mail, MapPin, MessageCircle, Phone, RefreshCw, Search, Trash2, UserPlus, Users, X } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
+import { palabras } from '../busqueda'
 import { puede } from '../permisos'
 import { ConfirmarEliminar } from './CrmClientes'
 import '../estilos/clientes.css'
@@ -13,7 +14,6 @@ const money = (n: number) => '$' + (Number(n) || 0).toLocaleString('es-EC', { mi
 const ent = (n: number) => (Number(n) || 0).toLocaleString('es-EC')
 const dfecha = (t: string | null | undefined) => { if (!t) return '—'; const d = new Date(t); return isNaN(d.getTime()) ? String(t) : d.toLocaleDateString('es-EC', { day: '2-digit', month: 'short', year: 'numeric' }) }
 const iniciales = (n: string) => String(n || '?').trim().split(/\s+/).slice(0, 2).map((x) => x[0] || '').join('').toUpperCase() || '?'
-const limpiar = (t: string) => t.replace(/[,()%*\\"']/g, ' ').trim()
 const PAGINA = 60
 const FILTROS: [string, string, keyof Kpis][] = [['todos', 'Todos', 'clientes'], ['compras', 'Con compras', 'con_compras'], ['cotizan', 'Solo cotizaron', 'solo_cotizaron'], ['inactivos', 'Sin actividad 6 meses', 'inactivos'], ['nuevos', 'Sin gestiones', 'sin_gestiones']]
 const CAMPOS: { k: string; col: string; t: string; tipo?: 'tel' | 'correo' | 'fecha' | 'id' | 'sel-tipo' | 'sel-asesor' | 'sel-responsable' | 'lectura' }[] = [
@@ -54,7 +54,7 @@ export default function Clientes({ perfil, aviso }: { perfil: Perfil; aviso: (t:
     const n = ++peticion.current
     setCargando(true)
     let c = supabase.from('v_clientes_lista').select('id,identificacion,nombre,institucion,ciudad,telefono,email,asesor,registro,total_cotizaciones,total_ventas,monto_ventas,ultima_actividad', { count: 'exact' })
-    for (const w of limpiar(qDeb).split(/\s+/).filter(Boolean)) c = c.or(`nombre.ilike.%${w}%,identificacion.ilike.%${w}%,institucion.ilike.%${w}%,ciudad.ilike.%${w}%,telefono.ilike.%${w}%,email.ilike.%${w}%,asesor.ilike.%${w}%`)
+    for (const w of palabras(qDeb)) c = c.ilike('busqueda', `%${w}%`)   // sin tildes ni mayúsculas (incluye nombre, cédula, institución, ciudad, teléfono, correo y asesor)
     if (fAse) c = c.eq('asesor', fAse)
     if (filtro === 'compras') c = c.gt('total_ventas', 0)
     else if (filtro === 'cotizan') c = c.eq('total_ventas', 0).gt('total_cotizaciones', 0)

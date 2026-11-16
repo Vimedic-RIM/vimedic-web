@@ -7,6 +7,7 @@ import {
   Users, UserX, Wallet, X, CircleX, Pencil, Megaphone, Building2,
 } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
+import { palabras } from '../busqueda'
 import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
 import { ClientesLista, Papelera, ConfirmarEliminar } from './CrmClientes'
@@ -1107,12 +1108,12 @@ function NuevaGestion({ perfil, asesores, cerrar, guardado, empresa }: { empresa
   }
 
   useEffect(() => {
-    const q = busca.trim().replace(/[,()%*\\]/g, ' ')
-    if (q.length < 2) { setResultados([]); return }
+    const ws = palabras(busca)
+    if (ws.join('').length < 2) { setResultados([]); return }
     const t = setTimeout(() => {
-      supabase.from('clientes').select('id,nombre,identificacion,email,telefono').is('deleted_at', null).eq('empresa', empresa)
-        .or(`nombre.ilike.%${q}%,identificacion.ilike.%${q}%,email.ilike.%${q}%`).limit(8)
-        .then(({ data }) => setResultados((data as ClienteRes[]) ?? []))
+      let c = supabase.from('clientes').select('id,nombre,identificacion,email,telefono').is('deleted_at', null).eq('empresa', empresa)
+      for (const w of ws) c = c.ilike('busqueda', `%${w}%`)   // sin tildes ni mayúsculas
+      c.limit(8).then(({ data }) => setResultados((data as ClienteRes[]) ?? []))
     }, 250)
     return () => clearTimeout(t)
   }, [busca])

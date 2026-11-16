@@ -4,6 +4,7 @@ import {
   ShoppingCart, StickyNote, Truck, User, Warehouse, X,
 } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
+import { palabras, sinTildes } from '../busqueda'
 import { puede } from '../permisos'
 import { FormularioCliente, type Cliente as ClienteFicha } from './CrmClientes'
 import { imagen } from './inventarioUtil'
@@ -13,13 +14,14 @@ import { leerDatosEmpresa } from './CrmMeta'
 import { conservarCursor, nombrePropio, nombrePropioFinal } from '../formatoNombres'
 import { cargarOfertasInv, type OfertaInv } from './ofertasInv'
 import { descuentoConCliente, mapaOfertas, mejorDeLosDos, nombreOferta, ofertaAplicada, ofertaDeLinea, pctTexto, textoChipOferta, textoChipOfertaInv, type OfertaLinea } from './ofertaLinea'
+import { precioParaCliente, usaPrecioDis } from './precioCliente'
 
 type Asesor = { id: string; nombre: string }
 /** Lo que el CRM necesita saber al guardar (p. ej. para pedir el seguimiento de una proforma nueva). */
 export type InfoGuardado = { id: string; nuevo: boolean; modo: 'Cotización' | 'Venta'; nombre: string; total: number }
 export type Origen = { tabla: 'leads' | 'cotizaciones'; id: string; codigo: string; nombre: string; telefono: string; email: string; identificacion: string; medio: string; medioVenta?: string; clienteId?: string | null; asesorId?: string | null } | null
 type Prod = { id: string; codigo: string | null; nombre: string; pvp: number | null; precio_dis: number | null; aplica_iva: boolean; stock: number | null; imagen_url: string | null; reservaciones: string | null; descripcion: string | null; ficha_tecnica_url: string | null; drive_carpeta_url: string | null; categoria: { nombre: string } | null }
-type Linea = { base?: number; obj?: number; id: string; codigo: string; nombre: string; imagen: string; precio: number; cantidad: number; descuento: number; iva: boolean; observacion: string; categoria?: string; descripcion?: string; ficha?: string; carpeta?: string
+type Linea = { pvp?: number; dis?: number; base?: number; obj?: number; id: string; codigo: string; nombre: string; imagen: string; precio: number; cantidad: number; descuento: number; iva: boolean; observacion: string; categoria?: string; descripcion?: string; ficha?: string; carpeta?: string
   /** Oferta vigente con la que se agregó (Issue #41); la proforma la nombra mientras la línea lleve su descuento. */
   oferta?: OfertaLinea }
 type Cli ={ ciudad?: string | null; asesor_id?: string | null; datos_venta?: Record<string, string> | null; id: string; nombre: string; identificacion: string | null; email: string | null; telefono: string | null; direccion: string | null; tipo_cliente: string | null; descuento_fijo: string | null }
@@ -124,6 +126,8 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
      (el asesor lo puede cambiar) y, si el cliente tiene descuento propio, se queda con el mejor de los dos.
      Solo VIMEDIC: el CRM de FEMEDICS original no usaba ofertas y su precio se arma con otro plan. */
   const [ofertas, setOfertas] = useState<Record<string, OfertaInv>>({})
+  const carritoRef = useRef(carrito); carritoRef.current = carrito
+  const ofertasRef = useRef(ofertas); ofertasRef.current = ofertas
   useEffect(() => {
     if (esFm) return
     let vivo = true
@@ -209,8 +213,9 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     const q = limpiar(busca)
     if (q.length < 2) { setRes([]); return }
     const t = setTimeout(() => {
-      supabase.from('clientes').select('id,nombre,identificacion,email,telefono,direccion,ciudad,asesor_id,tipo_cliente,descuento_fijo,datos_venta').is('deleted_at', null).eq('empresa', empresa)
-        .or(`nombre.ilike.%${q}%,identificacion.ilike.%${q}%,email.ilike.%${q}%,telefono.ilike.%${q}%,ciudad.ilike.%${q}%,institucion.ilike.%${q}%`).order('nombre').limit(15).then(({ data }) => setRes(((data as Cli[]) ?? []).sort((a, b) => Number(ajeno(a)) - Number(ajeno(b)))))
+      let c = supabase.from('clientes').select('id,nombre,identificacion,email,telefono,direccion,ciudad,asesor_id,tipo_cliente,descuento_fijo,datos_venta').is('deleted_at', null).eq('empresa', empresa)
+      for (const w of palabras(q)) c = c.ilike('busqueda', `%${w}%`)   // sin tildes ni mayúsculas: "jose" encuentra a "José"
+      c.order('nombre').limit(15).then(({ data }) => setRes(((data as Cli[]) ?? []).sort((a, b) => Number(ajeno(a)) - Number(ajeno(b)))))
     }, 250)
     return () => clearTimeout(t)
   }, [busca])
@@ -233,11 +238,12 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     setProds((a) => [...a, ...d.filter((x) => !a.some((y) => y.id === x.id))]); setHayMas(d.length === LOTE_PRODS); setCargandoMas(false)
   }
 
-  /* descuento del cliente: DIS+VIP usa precio distribuidor, DIS+% descuenta ese % del PVP */
-  function descCliente(c: Cli | null) { if (esFm) return 0; return c?.tipo_cliente === 'DIS' && /^\d+$/.test(c.descuento_fijo ?? '') ? Number(c.descuento_fijo) : 0 }
+  /* Precio del cliente (precioCliente.ts, reglas de la app original): DIS con 5/10/15 % descuenta ese % del PVP; DIS VIP o sin nivel paga el
+     precio DIS de cada producto (se ve el PVP con el % que equivale); PVP sin descuento. FEMEDICS no tiene DIS. */
   const r2 = (n: number) => Math.round((Number(n) + Number.EPSILON) * 100) / 100
   const conObjetivo = (base: number, obj: number) => r2(base / (1 - Math.min(90, Math.max(0, obj)) / 100))
-  function precioBase(p: Prod, c: Cli | null) { if (esFm) return Number(p.pvp) || 0; return c?.tipo_cliente === 'DIS' && c.descuento_fijo === 'VIP' && Number(p.precio_dis) > 0 ? Number(p.precio_dis) : Number(p.pvp) || 0 }
+  const precioBase = (p: Prod) => Number(p.pvp) || 0   // precio de lista
+  const delCliente = (pvp: number, dis: number, c: Cli | null) => (esFm ? { precio: pvp, descuento: 0 } : precioParaCliente(pvp, dis, c))
 
   function aplicarDv(c: Cli) {
     const d = c.datos_venta as Record<string, any> | null | undefined // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -252,9 +258,10 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     setCarrito((a) => {
       const i = a.findIndex((x) => x.id === p.id)
       if (i >= 0) return a.map((x, k) => (k === i ? { ...x, cantidad: x.cantidad + 1 } : x))
-      // Oferta vigente: el cliente se queda con el mejor de los dos (la oferta o su descuento / precio de distribuidor).
-      const m = mejorDeLosDos(precioBase(p, cliente), descCliente(cliente), Number(p.pvp) || 0, esFm ? null : ofertaDeLinea(ofertas[p.id]))
-      return [...a, { id: p.id, codigo: p.codigo ?? '', nombre: p.nombre, imagen: p.imagen_url ?? '', precio: esFm ? conObjetivo(precioBase(p, cliente), plan) : m.precio, base: esFm ? precioBase(p, cliente) : undefined, obj: esFm ? plan : undefined, cantidad: 1, descuento: m.descuento, oferta: m.oferta, iva: p.aplica_iva !== false, observacion: '', categoria: p.categoria?.nombre ?? '', descripcion: p.descripcion ?? '', ficha: p.ficha_tecnica_url ?? '', carpeta: p.drive_carpeta_url ?? '' }]
+      // El cliente se queda con lo mejor de los dos: su descuento / precio DIS o la oferta vigente.
+      const pvp = precioBase(p), dis = Number(p.precio_dis) || 0, pc = delCliente(pvp, dis, cliente)
+      const m = mejorDeLosDos(pc.precio, pc.descuento, pvp, esFm ? null : ofertaDeLinea(ofertas[p.id]))
+      return [...a, { id: p.id, codigo: p.codigo ?? '', nombre: p.nombre, imagen: p.imagen_url ?? '', precio: esFm ? conObjetivo(pvp, plan) : m.precio, base: esFm ? pvp : undefined, obj: esFm ? plan : undefined, pvp, dis, cantidad: 1, descuento: m.descuento, oferta: m.oferta, iva: p.aplica_iva !== false, observacion: '', categoria: p.categoria?.nombre ?? '', descripcion: p.descripcion ?? '', ficha: p.ficha_tecnica_url ?? '', carpeta: p.drive_carpeta_url ?? '' }]
     })
   }
   const cambiar = (idx: number, c: Partial<Linea>) => setCarrito((a) => a.map((x, k) => (k === idx ? { ...x, ...c } : x)))
@@ -395,14 +402,32 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     if (ajeno(c)) { alert('"' + c.nombre + '" ya está asignado a ' + (nombreAsesor(c.asesor_id) || 'otro asesor') + '.\n\nNo puedes editarlo ni generar cotización/venta para este cliente.'); return }
     setCliente(c); setBusca(''); setRes([]); setLeadAbierto(false); setFichaOculta(window.innerWidth < 1024)
     if (!ed && deGerencia(c.asesor_id)) setAsesorId(c.asesor_id as string)   // cliente de un jefe: la cotización/venta sale a nombre del jefe
-    // La línea conserva su oferta si da igual o más descuento que el del cliente; si no, gana el del cliente (como el original).
-    const dCli = descCliente(c)
-    setCarrito((a) => a.map((l) => {
-      const r = descuentoConCliente(l, l.oferta || ed || esFm ? null : ofertaDeLinea(ofertas[l.id]), dCli)
-      return { ...l, descuento: r.descuento, oferta: r.oferta }
-    })); aplicarDv(c)
+    // Cada línea queda con lo que le corresponde a este cliente (su descuento fijo, el precio DIS del producto o la oferta si da más). Al abrir una
+    // proforma guardada con su mismo cliente no se recalcula nada: se respetan los precios y descuentos con los que se guardó.
+    if (!(ed && c.id === ed.cliente_id)) aplicarClienteALineas(c)
+    aplicarDv(c)
   }
   function quitarCliente() { setCliente(null); setFichaOculta(false) }
+  /** Al elegir o cambiar el cliente: precio y descuento de cada línea. Las líneas que no traen el precio DIS (proformas guardadas o duplicadas) lo piden
+   *  a Inventario, solo si el cliente lo necesita. Una línea con el precio cambiado a mano (lejos del de lista) no se toca. */
+  async function aplicarClienteALineas(c: Cli) {
+    const extra: Record<string, { pvp: number; dis: number }> = {}
+    if (!esFm && usaPrecioDis(c)) {
+      const ids = carritoRef.current.filter((l) => l.dis === undefined).map((l) => l.id)
+      if (ids.length) {
+        const { data } = await supabase.from('productos').select('id,pvp,precio_dis').in('id', ids)
+        for (const x of (data ?? []) as { id: string; pvp: number | null; precio_dis: number | null }[]) extra[x.id] = { pvp: Number(x.pvp) || 0, dis: Number(x.precio_dis) || 0 }
+      }
+    }
+    setCarrito((a) => a.map((l) => {
+      const pvp = l.pvp ?? extra[l.id]?.pvp, dis = l.dis ?? extra[l.id]?.dis, lista = pvp ?? l.precio
+      if (pvp !== undefined && Math.abs(l.precio - pvp) >= 0.11) return { ...l, pvp, dis }   // precio cambiado a mano o ya ajustado: no se toca
+      const cl = delCliente(lista, dis ?? 0, c)
+      // La línea conserva su oferta si da igual o más descuento que el del cliente; si no, gana el del cliente (como el original).
+      const r = descuentoConCliente(l, l.oferta || ed || esFm ? null : ofertaDeLinea(ofertasRef.current[l.id]), cl.descuento)
+      return { ...l, pvp, dis, descuento: r.descuento, oferta: r.oferta, precio: pvp !== undefined ? (r.oferta ? lista : cl.precio) : l.precio }
+    }))
+  }
   function usarLead() {
     const tel = lead.telefono.trim(), vacio = /^\+?593$/.test(tel.replace(/\s/g, ''))
     if (!lead.nombre.trim() && (!tel || vacio) && !lead.email.trim()) { alert('Ingresa al menos un dato (nombre, teléfono o email).'); return }
@@ -421,7 +446,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     if (idCli) { recargarCliente(idCli); return }
     const ident = soloDig(lead.identificacion), mail = lead.email.trim().toLowerCase(), tel = soloDig(lead.telefono).slice(-9)
     const nom = lead.nombre.trim().replace(/[,()%*\\"']/g, ' ').replace(/\s+/g, ' ')
-    const filtros = [ident.length >= 10 ? 'identificacion.eq.' + ident : '', /@/.test(mail) ? 'email.ilike.' + mail : '', tel.length === 9 ? 'telefono.ilike.%' + tel : '', nom.length >= 4 ? 'nombre.ilike.' + nom : ''].filter(Boolean)
+    const filtros = [ident.length >= 10 ? 'identificacion.eq.' + ident : '', /@/.test(mail) ? 'email.ilike.' + mail : '', tel.length === 9 ? 'telefono.ilike.%' + tel : '', nom.length >= 4 ? 'busqueda.ilike.%' + sinTildes(nom) + '%' : ''].filter(Boolean)
     if (!filtros.length) return
     supabase.from('clientes').select('id,nombre,identificacion,email,telefono,direccion,ciudad,asesor_id,tipo_cliente,descuento_fijo,datos_venta').is('deleted_at', null).eq('empresa', empresa).or(filtros.join(',')).limit(10).then(({ data }) => {
       const lista = (data as Cli[] | null) ?? []
@@ -687,7 +712,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
           <div className="ns-pgrid grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3 gap-2">
             {prods.map((p) => {
               const n = carrito.find((x) => x.id === p.id)?.cantidad ?? 0
-              const base = precioBase(p, cliente)
+              const lista = precioBase(p), pc = delCliente(lista, Number(p.precio_dis) || 0, cliente), base = r2(pc.precio * (1 - pc.descuento / 100))   // lo que paga este cliente
               return (
                 <button key={p.id} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => agregar(p)} style={marcoStock(estStock?.[p.id])} className={'ns-prod group text-left bg-white border border-slate-200 rounded-2xl overflow-hidden hover:shadow-md transition flex flex-col ' + (n ? 'is-added' : '')}>
                   <div className="relative aspect-[4/3] bg-slate-50">
@@ -703,6 +728,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
                     {ofertas[p.id] && <ChipOferta texto={textoChipOfertaInv(ofertas[p.id])} />}
                     {p.reservaciones &&<p className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-50 text-red-700 border border-red-200 leading-tight">🔴 {p.reservaciones}</p>}
                     <p className="text-[11px] font-bold mt-auto" style={{ color: 'var(--acc-d)' }}>{dinero(base)} <span className="text-[9px] font-normal text-slate-400">{p.aplica_iva === false ? 'IVA 0%' : '+ IVA'}</span></p>
+                    {pc.descuento > 0 && cliente && <p className="text-[9px] font-bold leading-tight" style={{ color: '#7c3aed' }}>{etiquetaDis(cliente)} −{pctTexto(pc.descuento)}% · PVP {dinero(lista)}</p>}
                     {base > 0 && <p className="text-[9px] text-slate-400 leading-tight">{p.aplica_iva === false ? 'No aplica IVA' : dinero(Math.round(base * 1.15 * 100) / 100) + ' IVA incluido'}</p>}
                   </div>
                 </button>

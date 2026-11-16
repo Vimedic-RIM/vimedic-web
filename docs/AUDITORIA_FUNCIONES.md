@@ -132,6 +132,13 @@ Pedido del usuario: actualizar CRM y Facturación y depurar lo que no exista (pr
   actualización volvieron a su estado real.
 - El stock de los productos se vuelve a tomar del Excel en la vuelta de Inventario.
 
+Corregido el 16-nov-2026 (urgente): cotización/venta con clientes DIS y búsqueda de clientes sin tildes ni mayúsculas.
+
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `esTipoClienteDIS_`, `calcularDescuentoParaCliente_`, `vmAplicarDescCliente_`, `vmDisExacto_` | Cliente DIS: nivel 5/10/15 = ese % sobre el PVP; VIP y DIS "a secas" (sin nivel) = precio DIS de cada producto, mostrado como PVP con el % exacto al centavo (si no cuadra, se mueve el precio unitario unos centavos) | ✅ corregido | `modulos/precioCliente.ts` y `CrmDocumento.tsx`. Antes solo el VIP usaba el precio DIS (y como precio sin descuento): los 249 clientes DIS sin nivel (de 263) se cotizaban a PVP, y al elegir el cliente después de agregar productos no recibían su precio. Con 2.359 productos de QA: 2.277 cuadran al centavo, 270 con ajuste de centavos (igual que el original), 78 sin precio DIS utilizable. Al abrir una proforma guardada con su mismo cliente ya no se recalcula nada. La tarjeta de producto muestra lo que paga el cliente y "DIS −X% · PVP" |
+| (mejora pedida) | Los buscadores de clientes no distinguen tildes ni mayúsculas ("jose" encuentra a "José", "munoz" a "Muñoz": en QA 35 → 55 y 0 → 13 resultados) | ✅ | Columna generada `clientes.busqueda` (texto normalizado + índice trigram), `public.sin_tildes()` y `web/src/busqueda.ts`. Formulario de cotización/venta, lista de Clientes del CRM, módulo Clientes (incluye al asesor), nueva gestión, Rutas y Viáticos, Servicio Técnico (factura por cliente), bandeja de mensajes y reparto de Meta |
+
 Agregado el 16-nov-2026 (urgente): rol "Asistente Comercial Gerencia" — cotizaciones y ventas de la Alta Dirección.
 
 | Función original | Qué hace | Estado | Dónde quedó |

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Building2, Megaphone, RefreshCw, Search, TriangleAlert, X } from 'lucide-react'
 import { supabase } from '../supabase'
+import { coincide } from '../busqueda'
 
 /* =====================================================================
    CRM — Reparto de clientes potenciales de Meta (vmLeadsMetaPanel /
@@ -51,7 +52,7 @@ export function RepartoMeta({ empresa, cerrar, aviso, cambio }: { empresa: 'VIME
 
   const historial = useMemo(() => {
     const t = q.trim().toLowerCase()
-    return (p?.historial ?? []).filter((x) => (!soloSin || !x.asesor_id) && (!t || [x.nombre, x.asesor, x.ciudad, x.codigo, x.telefono].join(' ').toLowerCase().includes(t)))
+    return (p?.historial ?? []).filter((x) => (!soloSin || !x.asesor_id) && (!t || coincide([x.nombre, x.asesor, x.ciudad, x.codigo, x.telefono].join(' '), t)))
   }, [p, q, soloSin])
   const siguiente = p?.reparto.find((a) => a.siguiente)
 
