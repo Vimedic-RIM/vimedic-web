@@ -22,4 +22,6 @@ export type Perfil = {
   permisos: Record<string, string[]>
   /** Tiene personal a su cargo (ve la bandeja de Solicitudes del personal). */
   es_jefe?: boolean
+  /** Rol "Asistente Comercial Gerencia": ids de la Alta Dirección cuyo trabajo comercial gestiona ([] si no lo es). */
+  asiste_a?: string[]
 }

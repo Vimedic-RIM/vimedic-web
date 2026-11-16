@@ -105,14 +105,15 @@ export function ClientesLista({ perfil, asesores, cerrar, aviso, empresa, abrirN
   // Acceso directo de la barra lateral: "Nuevo cliente" abre el formulario de una vez.
   useEffect(() => { if (abrirNuevo) { setEditar('nuevo'); consumirAbrirNuevo?.() } }, [abrirNuevo]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const asistidos = perfil.asiste_a ?? []
   const buscar = useCallback(() => {
     const t = q.trim().replace(/[,()%*\\]/g, ' ')
     let consulta = supabase.from('clientes').select(COLS, { count: 'exact' }).is('deleted_at', null).eq('empresa', empresa)
     if (t) {
       for (const p of t.split(/\s+/)) consulta = consulta.or(`nombre.ilike.%${p}%,identificacion.ilike.%${p}%,email.ilike.%${p}%,telefono.ilike.%${p}%`)
-    } else consulta = consulta.eq('asesor_id', perfil.id)
+    } else consulta = consulta.in('asesor_id', [perfil.id, ...asistidos])   // los míos y, si soy asistente de gerencia, los de la Alta Dirección
     consulta.order('nombre').range(0, t ? 49 : 19).then(({ data, count }) => { setLista((data as Cliente[]) ?? []); setTotal(count ?? 0) })
-  }, [q, perfil.id])
+  }, [q, perfil.id, asistidos.join(',')])   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { const t = setTimeout(buscar, 250); return () => clearTimeout(t) }, [buscar])
 
   return (

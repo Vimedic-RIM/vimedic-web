@@ -132,6 +132,13 @@ Pedido del usuario: actualizar CRM y Facturación y depurar lo que no exista (pr
   actualización volvieron a su estado real.
 - El stock de los productos se vuelve a tomar del Excel en la vuelta de Inventario.
 
+Agregado el 16-nov-2026 (urgente): rol "Asistente Comercial Gerencia" — cotizaciones y ventas de la Alta Dirección.
+
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| (necesidad nueva, no existía en Apps Script) | Quien asiste a los jefes gestiona TODO lo comercial de la Alta Dirección (leads, clientes, cotizaciones, ventas y su seguimiento) a su nombre, sin ver el resto del CRM | ✅ agregado | Migración `20261116070000_rol_asistente_comercial_gerencia.sql`: rol de sistema con los permisos de un Asesor; `app.gerencia_asistida()`; políticas **adicionales** en `leads`, `cotizaciones` y `clientes` (ver y editar lo asignado a la Alta Dirección); `app.trk_ve` incluye a los asistidos; `mi_perfil()` trae `asiste_a`. NO se tocó `es_yo_o_subordinado` (Rutas y Viáticos no se abren). Los jefes = rol CRM "Alta Dirección"; el asistente = rol CRM "Asistente Comercial Gerencia". Pruebas: `supabase/tests/asistente_gerencia.sql` (24 casos) |
+| Formularios de Cotización/Venta y lista de Clientes | El cliente de un jefe ya no se bloquea ("ya está asignado a otro asesor"); la proforma/venta sale a nombre del jefe (por el cliente o por la gestión de origen); el selector de asesor pone primero a la Alta Dirección; la lista de Clientes incluye los de los jefes | ✅ agregado | `CrmDocumento.tsx` (`deGerencia`, `ajeno`, `elegirCliente`, selector), `CrmClientes.tsx`, `Crm.tsx` (`origen.asesorId`), `supabase.ts` (`Perfil.asiste_a`). Se asigna en Empleados → Rol |
+
 Corregido el 16-nov-2026: el formato de los nombres en los formularios se había perdido.
 
 | Función original | Qué hace | Estado | Dónde quedó |

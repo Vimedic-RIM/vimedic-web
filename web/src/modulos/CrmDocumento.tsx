@@ -17,7 +17,7 @@ import { descuentoConCliente, mapaOfertas, mejorDeLosDos, nombreOferta, ofertaAp
 type Asesor = { id: string; nombre: string }
 /** Lo que el CRM necesita saber al guardar (p. ej. para pedir el seguimiento de una proforma nueva). */
 export type InfoGuardado = { id: string; nuevo: boolean; modo: 'Cotización' | 'Venta'; nombre: string; total: number }
-export type Origen = { tabla: 'leads' | 'cotizaciones'; id: string; codigo: string; nombre: string; telefono: string; email: string; identificacion: string; medio: string; medioVenta?: string; clienteId?: string | null } | null
+export type Origen = { tabla: 'leads' | 'cotizaciones'; id: string; codigo: string; nombre: string; telefono: string; email: string; identificacion: string; medio: string; medioVenta?: string; clienteId?: string | null; asesorId?: string | null } | null
 type Prod = { id: string; codigo: string | null; nombre: string; pvp: number | null; precio_dis: number | null; aplica_iva: boolean; stock: number | null; imagen_url: string | null; reservaciones: string | null; descripcion: string | null; ficha_tecnica_url: string | null; drive_carpeta_url: string | null; categoria: { nombre: string } | null }
 type Linea = { base?: number; obj?: number; id: string; codigo: string; nombre: string; imagen: string; precio: number; cantidad: number; descuento: number; iva: boolean; observacion: string; categoria?: string; descripcion?: string; ficha?: string; carpeta?: string
   /** Oferta vigente con la que se agregó (Issue #41); la proforma la nombra mientras la línea lleve su descuento. */
@@ -85,7 +85,9 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   const [cliente, setCliente] = useState<Cli | null>(null)
   const [lead, setLead] = useState({ nombre: ed?.nombre ?? origen?.nombre ?? '', telefono: ed?.telefono ?? origen?.telefono ?? '', email: ed?.email ?? origen?.email ?? '', identificacion: ed?.identificacion ?? origen?.identificacion ?? '' })
   const veTodos = puede(perfil, 'crm', 'ver_todos') || puede(perfil, 'femedics', 'ver_todos')
-  const ajeno = (c: Cli) => !veTodos && !!c.asesor_id && c.asesor_id !== perfil.id
+  // Asistente Comercial Gerencia: los clientes, leads y proformas de la Alta Dirección también son suyos de gestionar (asiste_a viene de mi_perfil).
+  const deGerencia = (id?: string | null) => !!id && !!perfil.asiste_a?.includes(id)
+  const ajeno = (c: Cli) => !veTodos && !!c.asesor_id && c.asesor_id !== perfil.id && !deGerencia(c.asesor_id)
   const [leadCiudad, setLeadCiudad] = useState<string>(ed?.ciudad ?? '')
   const [leadAbierto, setLeadAbierto] = useState(false)
   const [leadListo, setLeadListo] = useState(!!(ed?.nombre ?? origen?.nombre))
@@ -96,7 +98,8 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   // Con qué medio llegó el lead (se conserva aunque la venta se cierre por otro medio).
   const medioLead = ed?.medio_captacion_lead || origen?.medio || ''
   const [nota, setNota] = useState<string>(ed?.nota_cotizacion ?? '')
-  const [asesorId, setAsesorId] = useState<string>(ed?.asesor_id ?? perfil.id)
+  // El documento queda a nombre del asesor elegido: si la asistente parte de un lead/gestión de un jefe, sale a nombre del jefe.
+  const [asesorId, setAsesorId] = useState<string>(ed?.asesor_id ?? (deGerencia(origen?.asesorId) ? origen!.asesorId! : perfil.id))
 
   /* productos */
   const [qp, setQp] = useState('')
@@ -391,6 +394,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   function elegirCliente(c: Cli) {
     if (ajeno(c)) { alert('"' + c.nombre + '" ya está asignado a ' + (nombreAsesor(c.asesor_id) || 'otro asesor') + '.\n\nNo puedes editarlo ni generar cotización/venta para este cliente.'); return }
     setCliente(c); setBusca(''); setRes([]); setLeadAbierto(false); setFichaOculta(window.innerWidth < 1024)
+    if (!ed && deGerencia(c.asesor_id)) setAsesorId(c.asesor_id as string)   // cliente de un jefe: la cotización/venta sale a nombre del jefe
     // La línea conserva su oferta si da igual o más descuento que el del cliente; si no, gana el del cliente (como el original).
     const dCli = descCliente(c)
     setCarrito((a) => a.map((l) => {
@@ -656,8 +660,15 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
       <section className="ns-sec">
         <header><span className="ns-num"><StickyNote className="w-3 h-3" /></span><h4>{esVenta ? 'Nota importante para esta venta' : 'Nota importante para esta proforma'}</h4><span className="ml-auto text-[10px] text-slate-400">{esVenta ? 'interna' : 'aparece en el PDF'}</span></header>
         <textarea rows={4} value={nota} onChange={(e) => setNota(e.target.value)} placeholder={esVenta ? 'Independiente de la cotización; no aparece en el PDF de proforma...' : 'Condiciones, tiempos de entrega, garantía...'} className="ns-input" />
-        <label className="block mt-2"><span className="ns-label">Asesor</span>
-          <select className="ns-input" value={asesorId} onChange={(e) => setAsesorId(e.target.value)}>{asesores.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}</select></label>
+        <label className="block mt-2"><span className="ns-label">{perfil.asiste_a?.length ? 'Asesor (a su nombre queda la ' + (esVenta ? 'venta' : 'proforma') + ')' : 'Asesor'}</span>
+          <select className="ns-input" value={asesorId} onChange={(e) => setAsesorId(e.target.value)}>
+            {perfil.asiste_a?.length
+              ? <>
+                  <optgroup label="Alta Dirección">{asesores.filter((a) => deGerencia(a.id)).map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}</optgroup>
+                  <optgroup label="Equipo">{asesores.filter((a) => !deGerencia(a.id)).map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}</optgroup>
+                </>
+              : asesores.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+          </select></label>
       </section>
     </div>
   )
