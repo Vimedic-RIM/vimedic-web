@@ -2,6 +2,12 @@
    Se lee con la función inv_ofertas_vigentes (sin costo ni margen), no con la tabla ofertas. */
 import { supabase } from '../supabase'
 
+/** A quién se da la oferta: clientes PVP, distribuidores (DIS) o ambos. */
+export type Publico = 'PVP' | 'DIS' | 'AMBOS'
+export type TipoCli = 'PVP' | 'DIS'
+/** Texto corto para etiquetas. */
+export const textoPublico = (p: Publico): string => (p === 'PVP' ? 'Clientes PVP' : p === 'DIS' ? 'Distribuidores DIS' : 'PVP y DIS')
+
 export type OfertaInv = {
   ofertaId: string; codigoOferta: string | null; productoId: string; codigo: string; nombre: string; marca: string
   categoriaId: string | null; categoria: string; catOrden: number | null; img: string; publico: boolean; stock: number
@@ -16,6 +22,8 @@ export type OfertaInv = {
   deCampana: boolean
   /** Oferta de campaña (o con límite) a la que ya no le quedan unidades: no se debe aplicar al cotizar (regla de ofActivasMapa_ del original). */
   apagada: boolean
+  /** A quién la configuraron y para qué tipos de cliente es la que se aplica (un producto puede tener una oferta distinta para PVP y otra para DIS). */
+  aplicaA: Publico; ganaPara: TipoCli[]
 }
 
 export async function cargarOfertasInv(proximas = false): Promise<OfertaInv[]> {
@@ -24,6 +32,7 @@ export async function cargarOfertasInv(proximas = false): Promise<OfertaInv[]> {
   return ((data as OfertaInv[]) ?? []).map((o) => ({
     ...o, pvp: Number(o.pvp) || 0, precio: Number(o.precio) || 0, descuento: Number(o.descuento) || 0, stock: Number(o.stock) || 0,
     limite: Number(o.limite) || 0, quedan: o.quedan == null ? null : Number(o.quedan), deCampana: !!o.deCampana, apagada: !!o.apagada,
+    aplicaA: o.aplicaA === 'PVP' || o.aplicaA === 'DIS' ? o.aplicaA : 'AMBOS', ganaPara: Array.isArray(o.ganaPara) && o.ganaPara.length ? o.ganaPara : ['PVP', 'DIS'],
   }))
 }
 

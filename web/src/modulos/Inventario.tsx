@@ -556,7 +556,9 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
   const [verOfertas, setVerOfertas] = useState(false)
   const cargarOfertas = useCallback(() => { cargarOfertasInv(false).then(setOfertas).catch(() => setOfertas([])) }, [])
   useEffect(() => { const t = setTimeout(cargarOfertas, 350); return () => clearTimeout(t) }, [cargarOfertas])
-  const ofMapa = useMemo(() => Object.fromEntries(ofertas.map((o) => [o.productoId, o])), [ofertas])
+  // El precio y la cinta del Inventario son los del público (PVP); las ofertas solo para DIS no se muestran aquí.
+  const ofMapa = useMemo(() => Object.fromEntries(ofertas.filter((o) => o.ganaPara.includes('PVP')).map((o) => [o.productoId, o])), [ofertas])
+  const nProdOferta = useMemo(() => new Set(ofertas.map((o) => o.productoId)).size, [ofertas])   // un producto con oferta PVP y otra DIS cuenta una vez
   const idsOferta = useMemo(() => (soloOferta ? ofertas.map((o) => o.productoId) : null), [soloOferta, ofertas])
 
   const consulta = useCallback(() => {
@@ -750,7 +752,7 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
                     <p className="px-4 pt-1 pb-2 text-[9px] font-bold uppercase tracking-wider text-slate-400">Ofertas</p>
                     <button type="button" onClick={() => setSoloOferta((v) => !v)} className={'w-full px-4 py-2.5 flex items-center gap-3 text-left hover:bg-slate-50 transition-colors ' + (soloOferta ? 'inv-of-on' : '')}>
                       <span className="w-8 h-8 rounded-lg inv-of-ico flex items-center justify-center shrink-0"><BadgePercent className="w-4 h-4" /></span>
-                      <span className="min-w-0 flex-1"><b className="block text-xs text-slate-700">Solo con oferta vigente</b><small className="block text-[10px] text-slate-400">{ofertas.length} producto{ofertas.length === 1 ? '' : 's'} en oferta</small></span>
+                      <span className="min-w-0 flex-1"><b className="block text-xs text-slate-700">Solo con oferta vigente</b><small className="block text-[10px] text-slate-400">{nProdOferta} producto{nProdOferta === 1 ? '' : 's'} en oferta</small></span>
                       {soloOferta && <Check className="w-4 h-4 shrink-0" style={{ color: '#c2410c' }} />}
                     </button>
                   </div>
@@ -819,7 +821,7 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
                 <div className="p-2 inv-mas">
                   <button type="button" onClick={() => { setPos({ left: Math.max(12, window.innerWidth - 312), top: pos.top }); setMenu('filtros') }}><SlidersHorizontal /><span>Filtros y orden<small>Categoría, importación y orden</small></span>{hayFiltros && <Check className="ok" />}</button>
                   <button type="button" onClick={() => cambiarVista(vista === 'tabla' ? 'tarjetas' : 'tabla')}>{vista === 'tabla' ? <LayoutGrid /> : <Table2 />}<span>{vista === 'tabla' ? 'Ver en tarjetas' : 'Ver en tabla'}<small>Ahora: {vista === 'tabla' ? 'tabla' : 'tarjetas'}</small></span></button>
-                  <button type="button" onClick={() => { setMenu(null); setVerOfertas(true) }}><BadgePercent style={{ color: '#c2410c' }} /><span>Ofertas vigentes<small>Elegir productos y descargar PDF</small></span>{ofertas.length > 0 && <b className="inv-of-n">{ofertas.length}</b>}</button>
+                  <button type="button" onClick={() => { setMenu(null); setVerOfertas(true) }}><BadgePercent style={{ color: '#c2410c' }} /><span>Ofertas vigentes<small>Elegir productos y descargar PDF</small></span>{nProdOferta > 0 && <b className="inv-of-n">{nProdOferta}</b>}</button>
                   {crear && <button type="button" onClick={() => { setMenu(null); setForm('nuevo') }}><Plus /><span>Agregar producto</span></button>}
                   {editar && <button type="button" onClick={() => { setMenu(null); setMostrarInactivos((v) => !v) }}><EyeOff /><span>Mostrar productos inactivos</span>{mostrarInactivos && <Check className="ok" />}</button>}
                   {editar && <button type="button" disabled={reordenando} onClick={() => { setMenu(null); iniciarOrden() }}><Move /><span>Reordenar productos</span></button>}
@@ -832,7 +834,7 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
           </div>
 
           <div className="flex items-center gap-1 shrink-0 ml-auto inv-solo-pc">
-            <button type="button" onClick={() => setVerOfertas(true)} className="inv-of-btn" title="Ofertas vigentes: elegir productos y descargar el PDF"><BadgePercent /><span>Ofertas</span>{ofertas.length > 0 && <b>{ofertas.length}</b>}</button>
+            <button type="button" onClick={() => setVerOfertas(true)} className="inv-of-btn" title="Ofertas vigentes: elegir productos y descargar el PDF"><BadgePercent /><span>Ofertas</span>{nProdOferta > 0 && <b>{nProdOferta}</b>}</button>
             <div className="relative" data-menu>
               <button type="button" onClick={(e) => abrirMenu(e, 'vista')} className="w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors" title="Cambiar vista">
                 {vista === 'tabla' ? <Table2 className="w-4 h-4" /> : <LayoutGrid className="w-4 h-4" />}
@@ -897,7 +899,7 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
             <span className="w-9 h-9 rounded-xl text-white flex items-center justify-center shrink-0" style={{ background: '#c2410c' }}><BadgePercent className="w-4 h-4" /></span>
             <div className="min-w-0 flex-1 inv-of-filtro-txt">
               <p className="text-[13px] font-bold text-slate-800">Productos con oferta vigente</p>
-              <p className="text-[11.5px] text-slate-500">{ofertas.length} producto{ofertas.length === 1 ? '' : 's'} en oferta · el precio tachado es el normal</p>
+              <p className="text-[11.5px] text-slate-500">{nProdOferta} producto{nProdOferta === 1 ? '' : 's'} en oferta · el precio tachado es el normal</p>
             </div>
             <button type="button" onClick={() => setVerOfertas(true)} className="text-[11px] font-bold px-3 py-1.5 rounded-lg text-white flex items-center gap-1" style={{ background: '#c2410c' }}><Download className="w-3.5 h-3.5" />Elegir y descargar PDF</button>
             <button type="button" onClick={() => setSoloOferta(false)} className="text-[11px] font-bold px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 bg-white hover:bg-slate-50 flex items-center gap-1"><X className="w-3.5 h-3.5" />Quitar filtro</button>

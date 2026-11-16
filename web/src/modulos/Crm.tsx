@@ -8,13 +8,14 @@ import {
 } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { palabras } from '../busqueda'
+import { esDis } from './precioCliente'
 import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
 import { ClientesLista, Papelera, ConfirmarEliminar } from './CrmClientes'
 import RutasViaticos from './RutasViaticos'
 import CrmDocumento, { type Origen, type InfoGuardado } from './CrmDocumento'
 import { ProformaVisor, enriquecerItems, type DatosDoc } from '../proforma'
-import { cargarOfertasInv } from './ofertasInv'
+import { cargarOfertasInv, type TipoCli } from './ofertasInv'
 import { mapaOfertas, ofertaAplicada, ofertaDeLinea } from './ofertaLinea'
 import {
   ActividadReciente, CampoCaptura, DetalleEstado, EditorEtapas, FormEtapa, NotaConEvidencia, cargarActividad, esMovil, esNegociacion,
@@ -798,7 +799,10 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
     let promoPendiente: DatosDoc['promoPendiente']
     if (!venta && empresa !== 'FEMEDICS') {
       try {
-        const of = mapaOfertas(await cargarOfertasInv(false))
+        // La promoción depende del tipo de cliente: un distribuidor (DIS) solo recibe las de DIS o de ambos; sin cliente se toma como PVP.
+        let tipo: TipoCli = 'PVP'
+        if (g.clienteId) { const { data: cl } = await supabase.from('clientes').select('tipo_cliente').eq('id', g.clienteId).maybeSingle(); if (esDis(cl as { tipo_cliente?: string } | null)) tipo = 'DIS' }
+        const of = mapaOfertas(await cargarOfertasInv(false), tipo)
         promoPendiente = items.flatMap((i) => { const o = ofertaDeLinea(of[i.id ?? ''] ?? of[i.codigo ?? '']); return o && !ofertaAplicada(i) ? [{ codigo: i.codigo ?? '', nombre: i.nombre, pct: o.pct, campana: o.campana }] : [] })
       } catch { /* sin ofertas: no se avisa */ }
     }

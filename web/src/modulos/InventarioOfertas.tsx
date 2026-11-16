@@ -16,6 +16,8 @@ export default function OfertasVigentes({ perfil, femedics, ambas, cerrar }: { p
   const [error, setError] = useState('')
   const [proximas, setProximas] = useState(false)
   const [sinStock, setSinStock] = useState(false)
+  // Las ofertas se dan por tipo de cliente: PVP, DIS o ambos. Aquí se elige para quién es la lista (y el PDF).
+  const [publico, setPublico] = useState<'TODOS' | 'PVP' | 'DIS'>('TODOS')
   const [q, setQ] = useState('')
   const [sel, setSel] = useState<Set<string>>(new Set())
   const [cerradas, setCerradas] = useState<Set<string>>(new Set())
@@ -45,7 +47,7 @@ export default function OfertasVigentes({ perfil, femedics, ambas, cerrar }: { p
 
   // Una oferta de campaña (o con límite) sin unidades se "apaga sola" (regla del original): no se publica salvo que se pida incluirlas.
   const disponible = (o: OfertaInv) => o.stock > 0 && !o.apagada
-  const base = useMemo(() => (lista ?? []).filter((o) => sinStock || disponible(o)), [lista, sinStock])
+  const base = useMemo(() => (lista ?? []).filter((o) => (sinStock || disponible(o)) && (publico === 'TODOS' || o.ganaPara.includes(publico))), [lista, sinStock, publico])
   const campanas = useMemo(() => campanasDe(base), [base])
   const visibles = useMemo(() => {
     const w = normalizar(q).split(/\s+/).filter(Boolean)
@@ -86,6 +88,8 @@ export default function OfertasVigentes({ perfil, femedics, ambas, cerrar }: { p
           <div className="io-chips">
             <button type="button" className={'io-chip' + (proximas ? ' on' : '')} onClick={() => setProximas((v) => !v)} aria-pressed={proximas}>{proximas && <Check />}Incluir próximas</button>
             <button type="button" className={'io-chip' + (sinStock ? ' on' : '')} onClick={() => setSinStock((v) => !v)} aria-pressed={sinStock} title={ocultosSinStock ? `${ocultosSinStock} sin stock o agotadas` : undefined}>{sinStock && <Check />}Incluir sin stock{ocultosSinStock ? ` (${ocultosSinStock})` : ''}</button>
+            <span className="io-chips-sep" aria-hidden="true" />
+            {([['TODOS', 'Todos'], ['PVP', 'Para PVP'], ['DIS', 'Para DIS']] as const).map(([k, t]) => <button key={k} type="button" className={'io-chip' + (publico === k ? ' on' : '')} onClick={() => setPublico(k)} aria-pressed={publico === k} title={k === 'TODOS' ? 'Ofertas para clientes PVP y para distribuidores' : k === 'PVP' ? 'Solo lo que se ofrece a clientes PVP' : 'Solo lo que se ofrece a distribuidores (DIS)'}>{publico === k && <Check />}{t}</button>)}
           </div>
         </div>
 
@@ -146,7 +150,7 @@ export default function OfertasVigentes({ perfil, femedics, ambas, cerrar }: { p
           </div>
         </footer>
 
-        {hoja && <HojaPdf elegidos={elegidos} perfil={perfil} empresa={empresa} setEmpresa={setEmpresa} soloFemedics={soloFemedics} cerrar={() => setHoja(false)} />}
+        {hoja && <HojaPdf elegidos={elegidos} perfil={perfil} empresa={empresa} setEmpresa={setEmpresa} soloFemedics={soloFemedics} publico={publico} cerrar={() => setHoja(false)} />}
       </div>
     </div>
   )
@@ -167,6 +171,7 @@ function Item({ o, on, alternar, femedics, multi }: { o: OfertaInv; on: boolean;
         <span className="io-precios"><s>{dineroUsd(antes)}</s><b>{dineroUsd(ahora)}</b><small>{o.iva ? '+ IVA' : 'IVA 0%'}</small></span>
         <span className="io-meta">
           {multi && o.campana && <span className="io-tag camp">{o.campana}</span>}
+          {o.aplicaA !== 'AMBOS' && <span className={'io-tag pub ' + (o.aplicaA === 'DIS' ? 'dis' : 'pvp')}>{o.aplicaA === 'DIS' ? 'Solo DIS' : 'Solo PVP'}</span>}
           {o.proxima && <span className="io-tag prox">Empieza el {fechaCorta(o.inicio).slice(0, 5)}</span>}
           {o.fin && <span>Hasta el {fechaCorta(o.fin)}</span>}
           <span className={o.stock > 0 ? 'st' : 'st0'}>{o.stock > 0 ? `${o.stock} en stock` : 'Sin stock'}</span>
@@ -177,8 +182,8 @@ function Item({ o, on, alternar, femedics, multi }: { o: OfertaInv; on: boolean;
   )
 }
 
-function HojaPdf({ elegidos, perfil, empresa, setEmpresa, soloFemedics, cerrar }: {
-  elegidos: OfertaInv[]; perfil: Perfil; empresa: Empresa; setEmpresa: (e: Empresa) => void; soloFemedics: boolean; cerrar: () => void
+function HojaPdf({ elegidos, perfil, empresa, setEmpresa, soloFemedics, publico, cerrar }: {
+  elegidos: OfertaInv[]; perfil: Perfil; empresa: Empresa; setEmpresa: (e: Empresa) => void; soloFemedics: boolean; publico: 'TODOS' | 'PVP' | 'DIS'; cerrar: () => void
 }) {
   const [formato, setFormato] = useState<OpcionesPdf['formato']>(() => (leer('vm_of_pdf_formato') === 'lista' ? 'lista' : 'fotos'))
   const [conIva, setConIva] = useState(() => leer('vm_of_pdf_iva') !== 'no')
@@ -217,7 +222,7 @@ function HojaPdf({ elegidos, perfil, empresa, setEmpresa, soloFemedics, cerrar }
     guardar('vm_of_pdf_formato', formato); guardar('vm_of_pdf_iva', conIva ? 'si' : 'no'); if (telefono.trim()) guardar('vm_of_pdf_tel', telefono.trim())
     guardar('vm_of_pdf_limite', limMod === 'ocultar' ? 'ocultar' : 'real')   // "otra fecha" no se recuerda: caduca
     try {
-      const r = await generarPdfOfertas(elegidos, { formato, empresa, conIva, interna, titulo, nombre: nombre.trim(), telefono: telefono.trim(), limite: { modo: limMod, fecha: limFecha } }, setProg)
+      const r = await generarPdfOfertas(elegidos, { formato, empresa, conIva, interna, publico, titulo, nombre: nombre.trim(), telefono: telefono.trim(), limite: { modo: limMod, fecha: limFecha } }, setProg)
       // El nombre del archivo lleva el de la campaña: así se ve al compartirlo por WhatsApp o correo.
       const archivo = new File([r.blob], `${slugArchivo(titulo)}-${empresa}${interna ? '-INTERNO' : ''}-${hoyYmd()}.pdf`, { type: 'application/pdf' })
       soltarUrl(); urlRef.current = URL.createObjectURL(r.blob)
@@ -293,6 +298,11 @@ function HojaPdf({ elegidos, perfil, empresa, setEmpresa, soloFemedics, cerrar }
           <label className="io-campo"><span>WhatsApp (pie de página)</span><input value={telefono} maxLength={30} inputMode="tel" placeholder="Ej.: 099 123 4567" onChange={(e) => setTelefono(e.target.value)} /></label>
         </div>
 
+        {publico === 'TODOS' && elegidos.some((o) => o.aplicaA !== 'AMBOS') && (
+          <p className="io-aviso" role="alert"><TriangleAlert />
+            <span>Esta lista mezcla ofertas solo para PVP y solo para DIS. Para enviarla a un cliente, elige arriba «Para PVP» o «Para DIS» y genera el PDF de ese tipo de cliente.</span>
+          </p>
+        )}
         <p className="io-prog" role="status">{prog}{res && !prog ? `PDF listo: ${res.paginas} página${res.paginas === 1 ? '' : 's'}${res.sinFoto - res.fallidas > 0 ? ` · ${res.sinFoto - res.fallidas} producto${res.sinFoto - res.fallidas === 1 ? '' : 's'} sin imagen en el inventario` : ''}.` : ''}</p>
         {res && res.fallidas > 0 && (
           <p className="io-aviso" role="alert"><TriangleAlert />

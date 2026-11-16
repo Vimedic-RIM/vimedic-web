@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, AlertTriangle, BadgePercent, Boxes, Check, Copy, Download, FileDown, Flag, Flame, Gift, LineChart, Medal, Megaphone, MessageCircle, Package, PackagePlus, Pause, Play, RefreshCw, RotateCcw, Search, ShieldAlert, SlidersHorizontal, Sparkles, Tag, Trash2, Trophy, Users, WandSparkles, X, XCircle, Zap, Mail, PartyPopper, type LucideIcon } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
+import { textoPublico, type Publico } from './ofertasInv'
 import { puede } from '../permisos'
 import { LOGO_BLANCO } from '../catalogoAssets'
 import { ConfirmarEliminar } from './CrmClientes'
@@ -21,7 +22,7 @@ export type Prod = {
 }
 type Oferta = {
   id: string; codigo: string; productoId: string; producto: string; tipo: string; descuento: number; precio: number; pvp: number; costo: number; margen: number; inicio: string; fin: string; estadoManual: string; texto: string; comboCon: string; regalo: string; grupo: string
-  stockInicial: number; objetivo: number; creado: string; creadoPor: string; actualizado: string; estado: string; historial: { f: string; por: string; n: string }[]; vendidas: number; recuperado: number; diasActiva: number
+  aplicaA: Publico; stockInicial: number; objetivo: number; creado: string; creadoPor: string; actualizado: string; estado: string; historial: { f: string; por: string; n: string }[]; vendidas: number; recuperado: number; diasActiva: number
 }
 const R2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
 const money = (n: number) => '$' + (Number(n) || 0).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -148,7 +149,7 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
     setCargando(true)
     const [a, o, r, c, pc] = await Promise.all([
       supabase.rpc('of_analisis'),
-      supabase.from('ofertas').select('id,codigo,producto_id,tipo,descuento_pct,precio_oferta,pvp_base,costo,margen_pct,inicio,fin,estado,texto_cliente,combo_con,regalo,grupo,stock_inicial,unidades_objetivo,historial,created_at,updated_at,creador:empleados!ofertas_creado_por_fkey(nombre),producto:productos!ofertas_producto_id_fkey(nombre)').is('deleted_at', null).order('created_at', { ascending: false }).limit(1000),
+      supabase.from('ofertas').select('id,codigo,producto_id,tipo,descuento_pct,precio_oferta,pvp_base,costo,margen_pct,inicio,fin,estado,texto_cliente,combo_con,regalo,grupo,aplica_a,stock_inicial,unidades_objetivo,historial,created_at,updated_at,creador:empleados!ofertas_creado_por_fkey(nombre),producto:productos!ofertas_producto_id_fkey(nombre)').is('deleted_at', null).order('created_at', { ascending: false }).limit(1000),
       supabase.from('v_ofertas_resultados').select('oferta_id,vendidas,recuperado,dias'),
       supabase.from('ofertas_config').select('id,valor').is('deleted_at', null).limit(1),
       supabase.from('promo_campanas').select('id,codigo,nombre,inicio,fin,descripcion,items').eq('estado', 'En aprobación').is('deleted_at', null).limit(200),
@@ -162,7 +163,7 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
     const lista: Oferta[] = ((o.data ?? []) as unknown as Record<string, any>[]).map((x) => { // eslint-disable-line @typescript-eslint/no-explicit-any
       const rr = res.get(x.id)
       const of: Oferta = { id: x.id, codigo: x.codigo ?? '', productoId: x.producto_id, producto: x.producto?.nombre ?? '', tipo: x.tipo ?? '', descuento: Number(x.descuento_pct) || 0, precio: Number(x.precio_oferta) || 0, pvp: Number(x.pvp_base) || 0, costo: Number(x.costo) || 0, margen: Number(x.margen_pct) || 0,
-        inicio: x.inicio ?? '', fin: x.fin ?? '', estadoManual: x.estado ?? '', texto: x.texto_cliente ?? '', comboCon: x.combo_con ?? '', regalo: x.regalo ?? '', grupo: x.grupo ?? '', stockInicial: x.stock_inicial ?? 0, objetivo: x.unidades_objetivo ?? 0,
+        inicio: x.inicio ?? '', fin: x.fin ?? '', estadoManual: x.estado ?? '', texto: x.texto_cliente ?? '', comboCon: x.combo_con ?? '', regalo: x.regalo ?? '', grupo: x.grupo ?? '', aplicaA: x.aplica_a === 'PVP' || x.aplica_a === 'DIS' ? x.aplica_a : 'AMBOS', stockInicial: x.stock_inicial ?? 0, objetivo: x.unidades_objetivo ?? 0,
         creado: x.created_at, creadoPor: x.creador?.nombre ?? '', actualizado: x.updated_at, estado: '', historial: Array.isArray(x.historial) ? x.historial : [], vendidas: rr?.vendidas ?? 0, recuperado: Number(rr?.recuperado) || 0, diasActiva: rr?.dias ?? 0 }
       of.estado = estadoDe(of); return of
     })
@@ -194,7 +195,7 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
   const ofertaDe = (p: Prod) => ofertas.find((o) => o.id === p.ofertaId) ?? null
 
   /* Guardar una oferta (con las mismas reglas del original) */
-  async function guardarOferta(d: { id?: string; p: Prod; tipo: string; desc: number; ini: string; fin: string; texto: string; comboCon: string; regalo: string; objetivo: string }): Promise<string> {
+  async function guardarOferta(d: { id?: string; p: Prod; tipo: string; desc: number; ini: string; fin: string; texto: string; comboCon: string; regalo: string; objetivo: string; publico: Publico }): Promise<string> {
     const { p } = d
     if (!(p.pvp > 0)) throw new Error('El producto no tiene PVP: ponle precio en Inventario antes de crear la oferta.')
     const tipo = TIPOS.includes(d.tipo) ? d.tipo : 'Precio especial'
@@ -211,21 +212,21 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
     const fin = d.fin || ymd(new Date(ini + 'T12:00:00').getTime() + cfg.diasOferta * DIA)
     if (fin < ini) throw new Error('La fecha de fin es anterior al inicio.')
     if (new Date(fin).getTime() - new Date(ini).getTime() > 366 * DIA) throw new Error('Una oferta puede durar máximo un año.')
-    const choca = ofertas.find((o) => o.id !== d.id && o.productoId === p.id && (o.estado === 'Activa' || o.estado === 'Programada') && o.inicio <= fin && (!o.fin || o.fin >= ini))
+    const choca = ofertas.find((o) => o.id !== d.id && o.productoId === p.id && (o.aplicaA === 'AMBOS' || d.publico === 'AMBOS' || o.aplicaA === d.publico) && (o.estado === 'Activa' || o.estado === 'Programada') && o.inicio <= fin && (!o.fin || o.fin >= ini))
     if (choca) throw new Error(`Este producto ya tiene la oferta ${choca.codigo} (${choca.estado.toLowerCase()}) en esas fechas. Edítala o finalízala primero.`)
     const margen = p.costo > 0 ? Math.round((precio - p.costo) / precio * 1000) / 10 : null
     const campos = { producto_id: p.id, tipo, descuento_pct: desc, precio_oferta: precio, pvp_base: p.pvp, costo: p.costo || null, margen_pct: margen, inicio: ini, fin, texto_cliente: d.texto.replace(/[<>]/g, '').slice(0, 400) || null,
-      combo_con: tipo === 'Combo' ? d.comboCon.slice(0, 40) : null, regalo: tipo === 'Regalo' ? d.regalo.slice(0, 160) : null, unidades_objetivo: Math.max(0, Math.round(Number(d.objetivo))) || null, actualizado_por: perfil.id }
+      combo_con: tipo === 'Combo' ? d.comboCon.slice(0, 40) : null, regalo: tipo === 'Regalo' ? d.regalo.slice(0, 160) : null, unidades_objetivo: Math.max(0, Math.round(Number(d.objetivo))) || null, aplica_a: d.publico, actualizado_por: perfil.id }
     const ahora = new Date().toISOString()
     if (d.id) {
       const ex = ofertas.find((o) => o.id === d.id); if (!ex) throw new Error('La oferta no existe.')
       if (ex.estado === 'Finalizada' || ex.estado === 'Cancelada') throw new Error(`Una oferta ${ex.estado.toLowerCase()} no se edita: crea una nueva.`)
-      const hist = [...ex.historial, { f: ahora, por: perfil.nombre, n: `Editada: ${tipo} ${desc} % hasta ${fechaC(fin)}` }].slice(-30)
+      const hist = [...ex.historial, { f: ahora, por: perfil.nombre, n: `Editada: ${tipo} ${desc} % hasta ${fechaC(fin)} · ${textoPublico(d.publico)}` }].slice(-30)
       const { error } = await supabase.from('ofertas').update({ ...campos, historial: hist }).eq('id', d.id); if (error) throw new Error(error.message)
       return d.id
     }
     const id = crypto.randomUUID()
-    const { error } = await supabase.from('ofertas').insert({ id, codigo: `OF-${ahora.slice(2, 10).replace(/-/g, '')}-${id.slice(0, 4).toUpperCase()}`, ...campos, grupo: grupoTexto(p), stock_inicial: p.stock, historial: [{ f: ahora, por: perfil.nombre, n: `Creada: ${tipo} ${desc} %` }], creado_por: perfil.id })
+    const { error } = await supabase.from('ofertas').insert({ id, codigo: `OF-${ahora.slice(2, 10).replace(/-/g, '')}-${id.slice(0, 4).toUpperCase()}`, ...campos, grupo: grupoTexto(p), stock_inicial: p.stock, historial: [{ f: ahora, por: perfil.nombre, n: `Creada: ${tipo} ${desc} % · ${textoPublico(d.publico)}` }], creado_por: perfil.id })
     if (error) throw new Error(error.message)
     return id
   }
@@ -324,7 +325,7 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
         let creadas = 0; const errores: string[] = []
         for (const p of P.filter((x) => sel.has(x.id))) {
           const e = p.estrategia, ini = ymd(Date.now())
-          try { await guardarOferta({ p, tipo: e.tipo, desc: e.descuento, ini, fin: ymd(Date.now() + e.dias * DIA), texto: textoBase(p, e), comboCon: e.comboCon, regalo: e.regalo, objetivo: '' }); creadas++ } catch (err) { errores.push(`${p.codigo}: ${(err as Error).message}`) }
+          try { await guardarOferta({ p, tipo: e.tipo, desc: e.descuento, ini, fin: ymd(Date.now() + e.dias * DIA), texto: textoBase(p, e), comboCon: e.comboCon, regalo: e.regalo, objetivo: '', publico: 'AMBOS' }); creadas++ } catch (err) { errores.push(`${p.codigo}: ${(err as Error).message}`) }
         }
         setHoja(null); setPlan(false); setSel(new Set()); aviso(`${creadas} oferta(s) creadas${errores.length ? ` · ${errores.length} no se pudieron` : ''}`); if (errores.length) setTimeout(() => aviso(errores[0]), 2900); cargar() }} />}
       {hoja === 'pdf' && <PdfHoja productos={tab === 'opor' ? filtrados : ofertasVis.filter((o) => tab !== 'res' || o.estado !== 'Programada').map((o) => ({ ...(P.find((p) => p.id === o.productoId) ?? productoDesdeOferta(o)), pdfOferta: o } as Prod & { pdfOferta: Oferta }))} ofertas={ofertas} cerrar={() => setHoja(null)} />}
@@ -629,7 +630,7 @@ function ListaOfertas({ ofertas, prods, abrir }: { ofertas: Oferta[]; prods: Pro
       return (
         <div key={o.id} className="of-row" onClick={() => abrir(o)} style={{ cursor: 'pointer' }}>
           <div className="ph" style={{ width: 56, height: 56 }}>{p?.img ? <img loading="lazy" src={p.img} alt="" /> : <Package />}</div>
-          <div className="min-w-0"><div className="flex gap-1.5 flex-wrap items-center"><span className={'pill e-' + o.estado}>{o.estado}</span><span className="pill" style={{ background: '#fff7ed', color: '#c2410c' }}>{o.tipo} -{o.descuento}%</span><span className="text-[10.5px] text-slate-400 mono">{o.codigo}</span></div>
+          <div className="min-w-0"><div className="flex gap-1.5 flex-wrap items-center"><span className={'pill e-' + o.estado}>{o.estado}</span><span className="pill" style={{ background: '#fff7ed', color: '#c2410c' }}>{o.tipo} -{o.descuento}%</span>{o.aplicaA !== 'AMBOS' && <span className="pill" style={{ background: o.aplicaA === 'DIS' ? '#f5f3ff' : '#ecfeff', color: o.aplicaA === 'DIS' ? '#6d28d9' : '#0e7490' }}>{o.aplicaA === 'DIS' ? 'Solo DIS' : 'Solo PVP'}</span>}<span className="text-[10.5px] text-slate-400 mono">{o.codigo}</span></div>
             <p className="font-bold text-[13.5px] text-slate-800 truncate mt-1">{o.producto}</p><p className="text-[11.5px] text-slate-500">{money(o.precio)} <s>{money(o.pvp)}</s> · {fechaC(o.inicio)} → {fechaC(o.fin)} · {o.creadoPor}</p></div>
           <div className="col-span-2 md:col-span-1"><p className="text-[11px] text-slate-500 mb-1">Vendidas <b className="text-slate-800">{o.vendidas} de {meta}</b></p><div className="prog"><i style={{ width: pct + '%' }} /></div></div>
           <div className="col-span-2 md:col-span-1"><p className="text-[11px] text-slate-500 mb-1">Recuperado <b className="text-slate-800">{money0(o.recuperado)}</b> · tiempo {Math.round(tPct)}%</p><div className="prog"><i style={{ width: tPct + '%', background: '#f59e0b' }} /></div></div>
@@ -663,14 +664,14 @@ function Resultados({ ofertas: O }: { ofertas: Oferta[] }) {
 }
 
 /* ============================ Panel del producto ============================ */
-type FormO = { tipo: string; desc: number; ini: string; fin: string; texto: string; combo: string; regalo: string; obj: string }
+type FormO = { tipo: string; desc: number; ini: string; fin: string; texto: string; combo: string; regalo: string; obj: string; publico: Publico }
 function Drawer({ p, o, cfg, puedeEditar, puedeCrear, puedeEliminar, aviso, cerrar, guardar, estado, refrescar }: { p: Prod; o: Oferta | null; cfg: Cfg; puedeEditar: boolean; puedeCrear: boolean; puedeEliminar: boolean; aviso: (t: string) => void; cerrar: () => void
-  guardar: (d: { id?: string; tipo: string; desc: number; ini: string; fin: string; texto: string; comboCon: string; regalo: string; objetivo: string }) => Promise<string>; estado: (o: Oferta, a: 'pausar' | 'reanudar' | 'finalizar' | 'cancelar' | 'eliminar', m?: string) => Promise<void>; refrescar: () => Promise<void> }) {
+  guardar: (d: { id?: string; tipo: string; desc: number; ini: string; fin: string; texto: string; comboCon: string; regalo: string; objetivo: string; publico: Publico }) => Promise<string>; estado: (o: Oferta, a: 'pausar' | 'reanudar' | 'finalizar' | 'cancelar' | 'eliminar', m?: string) => Promise<void>; refrescar: () => Promise<void> }) {
   const e = p.estrategia
   const [on, setOn] = useState(false)
   useEffect(() => { const t = requestAnimationFrame(() => setOn(true)); const k = (ev: KeyboardEvent) => { if (ev.key === 'Escape') cerrar() }; document.addEventListener('keydown', k); return () => { cancelAnimationFrame(t); document.removeEventListener('keydown', k) } }, [cerrar])
   const editable = !o || ['Activa', 'Programada', 'Pausada'].includes(o.estado)
-  const [f, setF] = useState<FormO>(() => (o ? { tipo: o.tipo, desc: o.descuento, ini: o.inicio, fin: o.fin, texto: o.texto, combo: o.comboCon, regalo: o.regalo, obj: o.objetivo ? String(o.objetivo) : '' } : { tipo: e.tipo, desc: e.descuento, ini: ymd(Date.now()), fin: ymd(Date.now() + e.dias * DIA), texto: textoBase(p, e), combo: e.comboCon, regalo: e.regalo, obj: '' }))
+  const [f, setF] = useState<FormO>(() => (o ? { tipo: o.tipo, desc: o.descuento, ini: o.inicio, fin: o.fin, texto: o.texto, combo: o.comboCon, regalo: o.regalo, obj: o.objetivo ? String(o.objetivo) : '', publico: o.aplicaA } : { tipo: e.tipo, desc: e.descuento, ini: ymd(Date.now()), fin: ymd(Date.now() + e.dias * DIA), texto: textoBase(p, e), combo: e.comboCon, regalo: e.regalo, obj: '', publico: 'AMBOS' }))
   const [ocupado, setOcupado] = useState(false)
   const [confirma, setConfirma] = useState<'pausar' | 'reanudar' | 'finalizar' | 'cancelar' | 'eliminar' | null>(null)
   const maxDesc = p.pvp > 0 && p.costo > 0 ? Math.max(0, Math.floor((1 - p.costo * (1 + cfg.margenMinimo / 100) / p.pvp) * 100)) : 35
@@ -704,6 +705,9 @@ function Drawer({ p, o, cfg, puedeEditar, puedeCrear, puedeEliminar, aviso, cerr
             {!editable ? <p className="text-sm text-slate-500">Esta oferta ya terminó. Crea una nueva desde la lista.</p> : (
               <>
                 <label className="lbl">Tipo</label><div className="seg mb-3">{TIPOS.map((t) => <button key={t} className={t === f.tipo ? 'on' : ''} onClick={() => setF((v) => ({ ...v, tipo: t }))}>{t}</button>)}</div>
+                <label className="lbl">Se da a</label>
+                <div className="seg mb-1">{([['AMBOS', 'PVP y DIS'], ['PVP', 'Solo clientes PVP'], ['DIS', 'Solo distribuidores DIS']] as const).map(([k, t]) => <button key={k} className={k === f.publico ? 'on' : ''} onClick={() => setF((v) => ({ ...v, publico: k }))}>{t}</button>)}</div>
+                <p className="text-[11.5px] text-slate-500 mb-3">Al cotizar o vender, el sistema la pone sola solo a los clientes de este tipo: un cliente PVP recibe las de PVP o ambos; un distribuidor DIS, las de DIS o ambos (y se queda con lo mejor entre su precio DIS y la oferta).</p>
                 <label className="lbl">Descuento: <b>{f.desc}%</b> <span className="font-normal text-slate-400">(máx. {maxDesc}%)</span></label>
                 <input type="range" min={0} max={Math.max(1, maxDesc)} step={1} value={Math.min(f.desc, Math.max(1, maxDesc))} onChange={(x) => setF((v) => ({ ...v, desc: +x.target.value }))} />
                 <div className="flex items-end justify-between mt-2"><div><span className="precio-n">{money(precio)}</span> <span className="precio-a">{money(p.pvp)}</span><p className="text-[11px] text-slate-500">+ IVA · ahorro {money(p.pvp - precio)} por unidad</p></div><div className="text-right text-[12px]"><b>Recupera {money0(precio * p.stock)}</b><br /><span className="text-slate-500">{p.stock} u.</span></div></div>
@@ -716,7 +720,7 @@ function Drawer({ p, o, cfg, puedeEditar, puedeCrear, puedeEliminar, aviso, cerr
                 <label className="block mt-3"><span className="lbl">Meta de unidades (opcional)</span><input className="inp" type="number" min={0} inputMode="numeric" value={f.obj} placeholder={String(p.stock)} onChange={set('obj')} /></label>
                 <div className="flex gap-2 mt-4 flex-wrap">
                   {o && puedeEditar && <>{o.estado === 'Pausada' ? <button className="btn btn-sm" onClick={() => setConfirma('reanudar')}><Play />Reanudar</button> : <button className="btn btn-sm" onClick={() => setConfirma('pausar')}><Pause />Pausar</button>}<button className="btn btn-sm" onClick={() => setConfirma('finalizar')}><Flag />Finalizar hoy</button><button className="btn btn-sm" onClick={() => setConfirma('cancelar')}><XCircle />Cancelar</button>{puedeEliminar && <button className="btn btn-sm" onClick={() => setConfirma('eliminar')}><Trash2 />Eliminar</button>}</>}
-                  {puedeGuardar && <button className="btn btn-p flex-1" disabled={ocupado} onClick={async () => { setOcupado(true); try { await guardar({ id: o?.id, tipo: f.tipo, desc: f.desc, ini: f.ini, fin: f.fin, texto: f.texto, comboCon: f.combo, regalo: f.regalo, objetivo: f.obj }); cerrar() } catch (err) { aviso((err as Error).message) } setOcupado(false) }}>{ocupado ? <span className="spin" /> : <><Check />{o ? 'Guardar cambios' : 'Publicar oferta'}</>}</button>}
+                  {puedeGuardar && <button className="btn btn-p flex-1" disabled={ocupado} onClick={async () => { setOcupado(true); try { await guardar({ id: o?.id, tipo: f.tipo, desc: f.desc, ini: f.ini, fin: f.fin, texto: f.texto, comboCon: f.combo, regalo: f.regalo, objetivo: f.obj, publico: f.publico }); cerrar() } catch (err) { aviso((err as Error).message) } setOcupado(false) }}>{ocupado ? <span className="spin" /> : <><Check />{o ? 'Guardar cambios' : 'Publicar oferta'}</>}</button>}
                 </div></>
             )}</div>
           {o && <Kit p={p} o={o} aviso={aviso} />}

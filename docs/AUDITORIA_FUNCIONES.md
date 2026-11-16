@@ -132,6 +132,13 @@ Pedido del usuario: actualizar CRM y Facturación y depurar lo que no exista (pr
   actualización volvieron a su estado real.
 - El stock de los productos se vuelve a tomar del Excel en la vuelta de Inventario.
 
+Agregado el 16-nov-2026 (urgente): ofertas por tipo de cliente (PVP, DIS o ambos), puestas solas en cotización y venta.
+
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| (mejora pedida; el original daba la oferta a todos) | Cada oferta y cada campaña dice a quién se da: clientes PVP, distribuidores DIS o ambos (por defecto ambos: lo que ya existía no cambia). Un producto puede tener una oferta distinta para cada tipo. En cotización y venta la oferta se pone sola solo al tipo de cliente elegido (sin cliente = PVP); al cambiar de cliente se quita la que no le corresponde; un DIS se queda con lo mejor entre su precio DIS y la oferta | ✅ agregado | Migración `20261116090000_ofertas_publico_pvp_dis.sql`: `ofertas.aplica_a`, `promo_campanas.aplica_a`, trigger que hereda de la campaña al aprobar, `ofertas_aplicar_publico` y `inv_ofertas_vigentes` con `aplicaA`/`ganaPara`. Pruebas en `supabase/tests/ofertas_publico.sql` (15 casos). Front: `CrmDocumento.tsx`, `Crm.tsx` (aviso de promoción faltante), `ofertaLinea.ts`, `ofertasInv.ts` |
+| Pantallas | Ofertas: selector "Se da a" en cada oferta y etiqueta "Solo PVP / Solo DIS". Marketing › Promociones: "Se da a" al crear la campaña y en su detalle (cambia también las ofertas ya creadas). Inventario › Ofertas vigentes: filtro Todos / Para PVP / Para DIS y el PDF sale para cada tipo de cliente | ✅ agregado | `Ofertas.tsx`, `MarketingExtra.tsx`, `InventarioOfertas.tsx`, `ofertasPdf.ts`, `Inventario.tsx` (la cinta de precio sigue siendo la del público: PVP) |
+
 Corregido el 16-nov-2026 (urgente): cotización/venta con clientes DIS y búsqueda de clientes sin tildes ni mayúsculas.
 
 | Función original | Qué hace | Estado | Dónde quedó |

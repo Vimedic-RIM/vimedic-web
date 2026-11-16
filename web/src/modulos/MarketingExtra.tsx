@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, ArrowLeft, BadgePercent, Check, FileDown, FolderUp, Megaphone, Package, Plus, Search, Send, Sparkles, Trash2, Users, X, XCircle } from 'lucide-react'
 import { InversionAnuncios } from './MarketingAnuncios'
 import { supabase, type Perfil } from '../supabase'
+import { textoPublico, type Publico } from './ofertasInv'
 import { puede } from '../permisos'
 import { imagen as imgUrl } from './inventarioUtil'
 import { armarProductos, CFG_DEF, ChipsStockProceso, GRUPOS, meses, useEstadoStock, type EstadoStock, type Prod } from './Ofertas'
@@ -272,7 +273,7 @@ type ItemPromo = {
   id: string; desc?: number | null; descPropuesto?: number | null; unidades?: number | null; nota?: string; ofertaId?: string
   estadoAprobacion?: 'Pendiente' | 'Aprobado' | 'Rechazado'; descAprobado?: number; revisadoPor?: string; fechaRevision?: string; motivoRechazo?: string
 }
-type Camp = { id: string; codigo: string | null; nombre: string; inicio: string | null; fin: string | null; estado: string; items: ItemPromo[]; combos: unknown[]; preventa: boolean; comentario: string | null; descripcion: string | null; historial: Hist[] }
+type Camp = { id: string; codigo: string | null; nombre: string; inicio: string | null; fin: string | null; estado: string; items: ItemPromo[]; combos: unknown[]; preventa: boolean; comentario: string | null; descripcion: string | null; historial: Hist[]; aplica_a?: Publico }
 const COLOR_P: Record<string, [string, string]> = { Borrador: ['#64748b', '#f1f5f9'], 'En aprobación': ['#a16207', '#fff8eb'], Devuelta: ['#c2410c', '#fff1e6'], Aprobada: ['#04896f', '#ecfaf5'], Rechazada: ['#c0392b', '#fdecea'], Cancelada: ['#64748b', '#f1f5f9'] }
 
 export function Promociones({ perfil, aviso }: { perfil: Perfil; aviso: (t: string) => void }) {
@@ -283,7 +284,7 @@ export function Promociones({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
   const crear = puede(perfil, 'marketing', 'crear'), aprobar = puede(perfil, 'marketing', 'aprobar')
   const puedeEliminar = puede(perfil, 'marketing', 'eliminar') || puede(perfil, 'promociones', 'eliminar')
   const cargar = useCallback(() => {
-    supabase.from('promo_campanas').select('id,codigo,nombre,inicio,fin,estado,items,combos,preventa,comentario,descripcion,historial').is('deleted_at', null).order('inicio', { ascending: false }).limit(200)
+    supabase.from('promo_campanas').select('id,codigo,nombre,inicio,fin,estado,items,combos,preventa,comentario,descripcion,historial,aplica_a').is('deleted_at', null).order('inicio', { ascending: false }).limit(200)
       .then(({ data, error }) => { if (error) setError(error.message); else { setError(''); setLista((data as unknown as Camp[]) ?? []) } })
   }, [])
   useEffect(() => { cargar() }, [cargar])
@@ -335,7 +336,7 @@ export function Promociones({ perfil, aviso }: { perfil: Perfil; aviso: (t: stri
   if (error) return <div className="card p-6 text-sm text-amber-800 bg-amber-50 border-amber-200">{error}</div>
   if (!lista) return <p className="text-xs text-slate-400">Cargando…</p>
   // La campaña abierta ocupa toda el área de Marketing (con su barra superior y menú lateral a la vista).
-  if (abierta) return <DetalleCampana c={abierta} perfil={perfil} aprobar={aprobar} editar={crear} puedeEliminar={puedeEliminar} cerrar={() => { setAbierta(null); cargar() }} mover={mover} eliminar={eliminar} actualizarCampo={actualizarCampo} />
+  if (abierta) return <DetalleCampana c={abierta} perfil={perfil} aprobar={aprobar} editar={crear} puedeEliminar={puedeEliminar} cerrar={() => { setAbierta(null); cargar() }} mover={mover} eliminar={eliminar} actualizarCampo={actualizarCampo} aviso={aviso} />
   return (
     <section>
       <div className="flex items-center gap-2 mb-4"><p className="text-xs text-slate-500 mr-auto">{lista.length} campaña{lista.length === 1 ? '' : 's'}</p>
@@ -367,10 +368,11 @@ const ORDENES_PROMO: [string, string][] = [
   ['pvp', 'PVP (mayor a menor)'], ['margen', 'Margen (mayor a menor)'], ['nombre', 'Nombre (A-Z)'],
 ]
 
-function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mover, eliminar, actualizarCampo }: {
+function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mover, eliminar, actualizarCampo, aviso }: {
   c: Camp; perfil: Perfil; aprobar: boolean; editar: boolean; puedeEliminar: boolean; cerrar: () => void
   mover: (c: Camp, estado: string, comentario?: string) => void; eliminar: (c: Camp) => void
   actualizarCampo: (c: Camp, campos: Partial<Pick<Camp, 'nombre' | 'inicio' | 'fin' | 'items' | 'estado' | 'descripcion'>>) => Promise<void> | void
+  aviso: (t: string) => void
 }) {
   const [com, setCom] = useState('')
   const [verTablero, setVerTablero] = useState(false)
@@ -379,6 +381,14 @@ function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mov
   const [inicioEd, setInicioEd] = useState(c.inicio ?? '')
   const [finEd, setFinEd] = useState(c.fin ?? '')
   const [descEd, setDescEd] = useState(c.descripcion ?? '')
+  // A quién se da la campaña (PVP, DIS o ambos): cambia la campaña y todas sus ofertas ya creadas; las que se aprueben después la heredan.
+  const [publico, setPublico] = useState<Publico>(c.aplica_a ?? 'AMBOS')
+  async function cambiarPublico(v: Publico) {
+    const antes = publico; setPublico(v)
+    const { data, error } = await supabase.rpc('ofertas_aplicar_publico', { p_campana_id: c.id, p_aplica_a: v })
+    if (error) { setPublico(antes); aviso('No se pudo cambiar: ' + error.message); return }
+    aviso('Campaña para ' + textoPublico(v).toLowerCase() + (Number(data) > 0 ? ' · ' + Number(data) + ' oferta' + (Number(data) === 1 ? '' : 's') + ' actualizada' + (Number(data) === 1 ? '' : 's') : '') + '.')
+  }
   function guardarDescripcion() {
     const limpio = descEd.trim()
     if (limpio === (c.descripcion ?? '')) { setDescEd(limpio); return }
@@ -581,8 +591,15 @@ function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mov
                   <textarea className="inp w-full mt-1 font-normal" rows={3} maxLength={300} value={descEd} onChange={(e) => setDescEd(e.target.value)} onBlur={guardarDescripcion}
                     placeholder="Qué busca esta campaña (objetivo, público, canal)…" />
                   <span className="block text-right text-[10px] font-normal text-slate-400">{descEd.length}/300</span></label>
+                <label className="block text-[11px] font-bold text-slate-500">Se da a
+                  <select className="inp w-full mt-1 font-normal" value={publico} onChange={(e) => cambiarPublico(e.target.value as Publico)}>
+                    <option value="AMBOS">Clientes PVP y distribuidores (DIS)</option>
+                    <option value="PVP">Solo clientes PVP</option>
+                    <option value="DIS">Solo distribuidores (DIS)</option>
+                  </select>
+                  <span className="block text-[10px] font-normal text-slate-400 mt-0.5">Cambia también las ofertas ya creadas de esta campaña. Al cotizar o vender, la oferta se pone sola solo al tipo de cliente elegido.</span></label>
               </>
-            ) : <><p className="text-xs text-slate-600">{fecha(c.inicio)} → {fecha(c.fin)}</p>{c.descripcion && <p className="text-xs text-slate-600 mt-1">{c.descripcion}</p>}</>}
+            ) : <><p className="text-xs text-slate-600">{fecha(c.inicio)} → {fecha(c.fin)}</p>{c.descripcion && <p className="text-xs text-slate-600 mt-1">{c.descripcion}</p>}<p className="text-xs text-slate-600 mt-1">Se da a: {textoPublico(c.aplica_a ?? 'AMBOS')}</p></>}
           </div>
 
           <div className="card p-4">
@@ -1002,10 +1019,11 @@ function AgregarProductos({ excluir, analisis, est, agregar }: { excluir: string
 
 function NuevaCampana({ perfil, cerrar, hecho, aviso }: { perfil: Perfil; cerrar: () => void; hecho: () => void; aviso: (t: string) => void }) {
   const [n, setN] = useState(''); const [ini, setIni] = useState(''); const [fin, setFin] = useState(''); const [pre, setPre] = useState(false); const [desc, setDesc] = useState('')
+  const [publico, setPublico] = useState<Publico>('AMBOS')
   async function guardar() {
     if (!n.trim() || !ini || !fin) { aviso('Completa nombre y fechas.'); return }
     if (fin < ini) { aviso('La fecha final es anterior al inicio.'); return }
-    const { error } = await supabase.from('promo_campanas').insert({ id: crypto.randomUUID(), codigo: 'PR-' + crypto.randomUUID().slice(0, 6).toUpperCase(), nombre: n.trim(), descripcion: desc.trim() || null, inicio: ini, fin, preventa: pre, estado: 'Borrador', historial: [{ fecha: new Date().toISOString(), por: perfil.nombre, accion: 'Creada' }], actualizado_por: perfil.id })
+    const { error } = await supabase.from('promo_campanas').insert({ id: crypto.randomUUID(), codigo: 'PR-' + crypto.randomUUID().slice(0, 6).toUpperCase(), nombre: n.trim(), descripcion: desc.trim() || null, inicio: ini, fin, preventa: pre, aplica_a: publico, estado: 'Borrador', historial: [{ fecha: new Date().toISOString(), por: perfil.nombre, accion: 'Creada' }], actualizado_por: perfil.id })
     if (error) aviso('No se pudo crear: ' + error.message); else hecho()
   }
   return (
@@ -1015,6 +1033,12 @@ function NuevaCampana({ perfil, cerrar, hecho, aviso }: { perfil: Perfil; cerrar
       <div className="grid grid-cols-2 gap-3"><label className="block text-[11px] font-bold text-slate-500">Inicio<input type="date" className="inp w-full mt-1" value={ini} onChange={(e) => setIni(e.target.value)} /></label>
         <label className="block text-[11px] font-bold text-slate-500">Fin<input type="date" className="inp w-full mt-1" value={fin} onChange={(e) => setFin(e.target.value)} /></label></div>
       <label className="flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" checked={pre} onChange={(e) => setPre(e.target.checked)} />Con preventa</label>
+      <label className="block text-[11px] font-bold text-slate-500">Se da a
+        <select className="inp w-full mt-1 font-normal" value={publico} onChange={(e) => setPublico(e.target.value as Publico)}>
+          <option value="AMBOS">Clientes PVP y distribuidores (DIS)</option>
+          <option value="PVP">Solo clientes PVP</option>
+          <option value="DIS">Solo distribuidores (DIS)</option>
+        </select></label>
     </Ventana>
   )
 }

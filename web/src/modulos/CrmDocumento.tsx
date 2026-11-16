@@ -12,9 +12,9 @@ import type { DatosDoc } from '../proforma'
 import { EtiquetasStockCotizacion, FranjaStock, marcoStock, useEstadoStock } from '../estadoStock'
 import { leerDatosEmpresa } from './CrmMeta'
 import { conservarCursor, nombrePropio, nombrePropioFinal } from '../formatoNombres'
-import { cargarOfertasInv, type OfertaInv } from './ofertasInv'
-import { descuentoConCliente, mapaOfertas, mejorDeLosDos, nombreOferta, ofertaAplicada, ofertaDeLinea, pctTexto, textoChipOferta, textoChipOfertaInv, type OfertaLinea } from './ofertaLinea'
-import { precioParaCliente, usaPrecioDis } from './precioCliente'
+import { cargarOfertasInv, type OfertaInv, type TipoCli } from './ofertasInv'
+import { descuentoConCliente, mapaOfertas, mejorDeLosDos, nombreOferta, ofertaAplicada, ofertaDeLinea, ofertaValidaPara, pctTexto, textoChipOferta, textoChipOfertaInv, type OfertaLinea } from './ofertaLinea'
+import { esDis, precioParaCliente, usaPrecioDis } from './precioCliente'
 
 type Asesor = { id: string; nombre: string }
 /** Lo que el CRM necesita saber al guardar (p. ej. para pedir el seguimiento de una proforma nueva). */
@@ -125,13 +125,17 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   /* Ofertas vigentes (Issue #41), como la app original: chip en el selector, descuento automático al agregar el producto
      (el asesor lo puede cambiar) y, si el cliente tiene descuento propio, se queda con el mejor de los dos.
      Solo VIMEDIC: el CRM de FEMEDICS original no usaba ofertas y su precio se arma con otro plan. */
-  const [ofertas, setOfertas] = useState<Record<string, OfertaInv>>({})
+  // Las ofertas se dan por tipo de cliente (PVP, DIS o ambos): se ve y se aplica solo la que le toca al cliente elegido (sin cliente = PVP).
+  const [listaOfertas, setListaOfertas] = useState<OfertaInv[]>([])
+  const mapas = useMemo(() => ({ PVP: mapaOfertas(listaOfertas, 'PVP'), DIS: mapaOfertas(listaOfertas, 'DIS') }), [listaOfertas])
+  const tipoDe = (c: Cli | null): TipoCli => (!esFm && esDis(c) ? 'DIS' : 'PVP')
+  const ofertas = mapas[tipoDe(cliente)]
   const carritoRef = useRef(carrito); carritoRef.current = carrito
-  const ofertasRef = useRef(ofertas); ofertasRef.current = ofertas
+  const mapasRef = useRef(mapas); mapasRef.current = mapas
   useEffect(() => {
     if (esFm) return
     let vivo = true
-    cargarOfertasInv(false).then((l) => { if (vivo) setOfertas(mapaOfertas(l)) }).catch(() => undefined)
+    cargarOfertasInv(false).then((l) => { if (vivo) setListaOfertas(l) }).catch(() => undefined)
     return () => { vivo = false }
   }, [esFm])
   // Abierta desde el aviso de la proforma ("Aplicar la promoción"): se aplica a las líneas que no la llevan, salvo que el cliente
@@ -424,7 +428,9 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
       if (pvp !== undefined && Math.abs(l.precio - pvp) >= 0.11) return { ...l, pvp, dis }   // precio cambiado a mano o ya ajustado: no se toca
       const cl = delCliente(lista, dis ?? 0, c)
       // La línea conserva su oferta si da igual o más descuento que el del cliente; si no, gana el del cliente (como el original).
-      const r = descuentoConCliente(l, l.oferta || ed || esFm ? null : ofertaDeLinea(ofertasRef.current[l.id]), cl.descuento)
+      // La oferta que traía la línea se quita si no es para este tipo de cliente (una de PVP no va a un distribuidor, ni al revés).
+      const tipo = tipoDe(c), l0 = ofertaValidaPara(l.oferta, tipo) ? l : { ...l, oferta: undefined }
+      const r = descuentoConCliente(l0, l0.oferta || ed || esFm ? null : ofertaDeLinea(mapasRef.current[tipo][l.id]), cl.descuento)
       return { ...l, pvp, dis, descuento: r.descuento, oferta: r.oferta, precio: pvp !== undefined ? (r.oferta ? lista : cl.precio) : l.precio }
     }))
   }

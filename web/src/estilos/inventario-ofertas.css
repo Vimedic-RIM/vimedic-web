@@ -109,6 +109,9 @@
 .io-tag.prox{background:#eff6ff;color:#1e40af}
 .io-tag.camp{background:#fff7ed;color:#9a3412}
 .io-tag.priv{background:#f1f5f9;color:#475569}
+.io-tag.pub.pvp{background:#ecfeff;color:#0e7490}
+.io-tag.pub.dis{background:#f5f3ff;color:#6d28d9}
+.io-chips-sep{display:inline-block;width:1px;height:20px;background:#e2e8f0;margin:0 4px;align-self:center}
 .io-pie{flex:0 0 auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 16px;padding-bottom:max(10px,env(safe-area-inset-bottom));background:#fff;border-top:1px solid #e2e8f0;box-shadow:0 -6px 18px -12px rgba(11,37,69,.25)}
 .io-cuenta{flex:1 1 200px;min-width:0;font-size:13px;color:#334155}
 .io-cuenta b{font:700 18px 'Space Grotesk',sans-serif;color:#0b2545}

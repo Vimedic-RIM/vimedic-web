@@ -6,6 +6,8 @@ import { agruparOfertas, campanasDe, fechaCorta, LIMITE_REAL, limiteDe, normaliz
 
 export type OpcionesPdf = {
   formato: 'fotos' | 'lista'; empresa: 'VIMEDIC' | 'FEMEDICS'; conIva: boolean; interna: boolean
+  /** Para qué tipo de cliente es la lista (la portada lo dice): clientes PVP, distribuidores (DIS) o todos. */
+  publico?: 'TODOS' | 'PVP' | 'DIS'
   /** Título de la portada: por defecto el nombre de la campaña (ej. "Black Sales 2026"). */
   titulo: string; nombre: string; telefono: string
   /** Fecha límite que ve el cliente: la real de cada oferta, otra elegida a mano u oculta. Solo cambia el PDF, no la oferta. */
@@ -119,7 +121,7 @@ export async function generarPdfOfertas(items: OfertaInv[], op: OpcionesPdf, pro
     doc.setTextColor(255, 255, 255); doc.text(titulo, 14, 41)
     const n = items.length, c = grupos.length
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...CLARO)
-    const sub = doc.splitTextToSize(limpiarPdf([`${n} producto${n === 1 ? '' : 's'} en oferta`, `${c} categoría${c === 1 ? '' : 's'}`, multiCamp ? 'Campañas: ' + camps.join(', ') : '', textoVigencia(items, lim)].filter(Boolean).join('  ·  ')), 182) as string[]
+    const sub = doc.splitTextToSize(limpiarPdf([`${n} producto${n === 1 ? '' : 's'} en oferta`, `${c} categoría${c === 1 ? '' : 's'}`, multiCamp ? 'Campañas: ' + camps.join(', ') : '', op.publico === 'PVP' ? 'Precios para clientes PVP' : op.publico === 'DIS' ? 'Precios para distribuidores (DIS)' : '', textoVigencia(items, lim)].filter(Boolean).join('  ·  ')), 182) as string[]
     const subL = sub.slice(0, 2)
     doc.text(subL, 14, subL.length > 1 ? 47 : 48.5)
   }
