@@ -96,7 +96,7 @@ function Foto({ ruta, ancho = 86 }: { ruta: string; ancho?: number }) {
 
 /* ============================ Pantalla principal ============================ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default function ServicioTecnico({ perfil, aviso }: { perfil: Perfil; aviso: (t: string) => void }) {
+export default function ServicioTecnico({ perfil, aviso, abrir, limpiarAbrir }: { perfil: Perfil; aviso: (t: string) => void; abrir?: string; limpiarAbrir?: () => void }) {
   const [ordenes, setOrdenes] = useState<Orden[] | null>(null)
   const [equipos, setEquipos] = useState<Equipo[] | null>(null)
   const [tecnicos, setTecnicos] = useState<Tecnico[]>([])
@@ -104,6 +104,8 @@ export default function ServicioTecnico({ perfil, aviso }: { perfil: Perfil; avi
   const [tab, setTab] = useState('inventario')
   const [q, setQ] = useState('')
   const [panel, setPanel] = useState<{ tipo: 'orden' | 'equipo' | 'producto'; id: string } | null>(null)
+  // Enlace directo (#serviciotecnico/<id de la orden>), p. ej. desde el escáner de pedidos.
+  useEffect(() => { if (abrir) { setPanel({ tipo: 'orden', id: abrir }); limpiarAbrir?.() } }, [abrir, limpiarAbrir])
   const [hoja, setHoja] = useState<{ k: 'nueva' | 'registrar' | 'tecnico'; eq?: Equipo; tec?: Tecnico } | null>(null)
   const [sync, setSync] = useState(false)
   const editar = puede(perfil, 'servicio_tecnico', 'editar')

@@ -21,7 +21,7 @@ const MODULOS: { k: string; t: string }[] = [
   { k: 'facturacion', t: 'Facturación' }, { k: 'agenda', t: 'Mi Agenda' }, { k: 'empleados', t: 'Empleados' }, { k: 'dashboard', t: 'Dashboard Ejecutivo' },
   { k: 'marketing', t: 'Marketing' }, { k: 'catalogos', t: 'Catálogos' }, { k: 'ofertas', t: 'Ofertas y Liquidación' }, { k: 'promociones', t: 'Promociones' },
   { k: 'documentos_tecnicos', t: 'Documentos técnicos' }, { k: 'bodega', t: 'Bodega' }, { k: 'logistica', t: 'Logística' }, { k: 'importaciones', t: 'Importaciones' },
-  { k: 'servicio_tecnico', t: 'Servicio Técnico' }, { k: 'talento_humano', t: 'Talento Humano' }, { k: 'financiero', t: 'Financiero' }, { k: 'seguridad', t: 'Seguridad y Auditoría' }, { k: 'basedatos', t: 'Bases de Datos' },
+  { k: 'servicio_tecnico', t: 'Servicio Técnico' }, { k: 'tracking', t: 'Trackings' }, { k: 'talento_humano', t: 'Talento Humano' }, { k: 'financiero', t: 'Financiero' }, { k: 'seguridad', t: 'Seguridad y Auditoría' }, { k: 'basedatos', t: 'Bases de Datos' },
 ]
 const ACCIONES = ['ver', 'crear', 'editar', 'eliminar', 'aprobar', 'exportar', 'ver_todos', 'ver_costos', 'respaldar', 'restaurar', 'administrar']
 const ALCANCES: [string, string][] = [['propio', 'Propio'], ['departamento', 'Departamento'], ['subordinados', 'Subordinados'], ['organizacion', 'Organización']]

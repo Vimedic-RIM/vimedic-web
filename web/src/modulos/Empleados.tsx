@@ -29,6 +29,7 @@ const TOGGLES: Tog[] = [
   { k: 'clientes', t: 'Acceso a Clientes', d: 'Ficha completa de cada cliente: datos, cotizaciones, facturas, productos e historial. Crear, editar y eliminar se dan en "Qué puede hacer en cada módulo".', mod: 'clientes' },
   { k: 'bodega', t: 'Acceso a Bodega', d: 'Despacho de ventas: series, fotos/videos de evidencia y novedades.', mod: 'bodega' },
   { k: 'logistica', t: 'Acceso a Logística', d: 'Envíos, entregas y seguimiento de pedidos.', mod: 'logistica' },
+  { k: 'tracking', t: 'Acceso a Trackings', d: 'Seguimiento de pedidos por etapa, atrasos y errores. Con "editar" configura los tiempos objetivo.', mod: 'tracking' },
   { k: 'serviciotecnico', t: 'Acceso a Servicio Técnico', d: 'Órdenes de servicio, mantenimientos e instalaciones.', mod: 'servicio_tecnico' },
   { k: 'documentostecnicos', t: 'Subir documentos técnicos', d: 'Manuales, hojas de datos, certificados y registros de cada equipo, sin acceso al resto de Servicio Técnico.', mod: 'documentos_tecnicos' },
   { k: 'talentohumano', t: 'Acceso a Talento Humano', d: 'Personal, solicitudes, permisos y capacitaciones.', mod: 'talento_humano' },
@@ -54,7 +55,7 @@ const FONDOS: Record<string, React.CSSProperties> = {
 const MODS_ACC: [string, string][] = [
   ['crm', 'CRM Vimedic'], ['clientes', 'Clientes'], ['femedics', 'Femedics CRM'], ['inventario', 'Inventario'], ['movimientos', 'Movimientos'], ['facturacion', 'Facturación'],
   ['agenda', 'Agenda'], ['empleados', 'Empleados'], ['marketing', 'Marketing'], ['catalogos', 'Catálogos'], ['ofertas', 'Ofertas y Liquidación'], ['bodega', 'Bodega'],
-  ['logistica', 'Logística'], ['importaciones', 'Importaciones'], ['servicio_tecnico', 'Servicio Técnico'], ['documentos_tecnicos', 'Documentos técnicos'],
+  ['logistica', 'Logística'], ['tracking', 'Trackings'], ['importaciones', 'Importaciones'], ['servicio_tecnico', 'Servicio Técnico'], ['documentos_tecnicos', 'Documentos técnicos'],
   ['talento_humano', 'Talento Humano'], ['financiero', 'Financiero'],
 ]
 /* Tabla unificada de permisos: un interruptor de "Acceso al módulo" (TOGGLES) se combina en la

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { PanelAvisos, useAvisos } from './Avisos'
 import {
   AlarmClock, BadgeDollarSign, Bell, CalendarPlus, ChevronDown, ChevronUp, CirclePlus, CloudUpload, FilePlus2, LayoutDashboard,
-  LayoutGrid, LogOut, MessageCircle, PackagePlus, PenLine, Pin, Search, Settings, ShieldCheck, SlidersHorizontal, UserPlus, X, type LucideIcon,
+  LayoutGrid, LogOut, MessageCircle, PackagePlus, PenLine, Pin, ScanLine, Search, Settings, ShieldCheck, SlidersHorizontal, UserPlus, X, type LucideIcon,
 } from 'lucide-react'
 import { supabase, type Perfil } from './supabase'
 import { puede } from './permisos'
@@ -15,7 +15,7 @@ import './estilos/rail.css'
 
 const GRUPOS: [string, string[]][] = [
   ['Comercial', ['crm', 'clientes', 'femedics', 'marketing', 'catalogos', 'ofertas', 'agenda', 'dashboard']],
-  ['Operaciones', ['inventario', 'movimientos', 'adquisiciones', 'bodega', 'logistica', 'serviciotecnico', 'importaciones', 'articulos']],
+  ['Operaciones', ['inventario', 'movimientos', 'adquisiciones', 'bodega', 'logistica', 'tracking', 'serviciotecnico', 'importaciones', 'articulos']],
   ['Administración', ['facturacion', 'financiero', 'empleados', 'talentohumano', 'solicitudes', 'seguridad', 'basedatos']],
   ['Personal', ['miperfil']],
 ]
@@ -33,6 +33,7 @@ const ACCIONES: Record<string, Accion> = {
   ingreso: { label: 'Nuevo ingreso', sub: 'Compra a proveedor', icono: PackagePlus, permiso: 'importaciones', c: '#0e7490' },
   publicacion: { label: 'Nueva publicación', sub: 'Copy con IA y programar', icono: PenLine, permiso: 'marketing', c: '#e1306c' },
   audiovisual: { label: 'Subir material', sub: 'Fotos y videos del día', icono: CloudUpload, permiso: 'marketing', c: '#c98a1f' },
+  escanear: { label: 'Escanear pedido', sub: 'QR de la guía', icono: ScanLine, permiso: 'escanear', c: '#0c4a5e' },
 }
 const ORDEN_ACCIONES = Object.keys(ACCIONES)
 

@@ -1,6 +1,6 @@
 import {
   BookOpen, CalendarCheck, ChartNoAxesCombined, Contact, Database, Kanban, Landmark, Megaphone, Package,
-  Inbox, PackagePlus, ReceiptText, UserRound, Ship, ShieldCheck, Tag, Truck, UsersRound, Users, Warehouse, Wrench,
+  Inbox, MapPinned, PackagePlus, ReceiptText, ScanLine, UserRound, Ship, ShieldCheck, Tag, Truck, UsersRound, Users, Warehouse, Wrench,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -22,6 +22,8 @@ export const MODULOS: Record<string, Modulo> = {
   empleados: { id: 'empleados', label: 'Empleados', desc: 'Directorio, permisos y organigrama.', icono: UsersRound, permiso: 'empleados', c: '#7c3aed', listo: true },
   bodega: { id: 'bodega', label: 'Bodega', desc: 'Despacho de ventas: series, evidencias y novedades.', icono: Warehouse, permiso: 'bodega', c: '#9a6a12', listo: true },
   logistica: { id: 'logistica', label: 'Logística', desc: 'Entregas, seguimiento del cliente y postventa.', icono: Truck, permiso: 'logistica', c: '#0f766e', listo: true },
+  tracking: { id: 'tracking', label: 'Trackings', desc: 'Seguimiento de cada pedido por etapa: atrasos, errores, tiempos objetivo y enlace para el cliente.', icono: MapPinned, permiso: 'tracking', c: '#0c4a5e', listo: true },
+  escanear: { id: 'escanear', label: 'Escanear pedido', desc: 'Abre la cámara, lee el QR de la guía y registra el paso que le toca a tu área.', icono: ScanLine, permiso: 'escanear', c: '#0e7490', listo: true },
   serviciotecnico: { id: 'serviciotecnico', label: 'Servicio Técnico', desc: 'Órdenes, mantenimientos, instalaciones e informes técnicos.', icono: Wrench, permiso: 'servicio_tecnico', c: '#b45309', listo: true },
   talentohumano: { id: 'talentohumano', label: 'Talento Humano', desc: 'Personal, solicitudes, permisos y capacitaciones.', icono: Contact, permiso: 'talento_humano', c: '#be185d', listo: true },
   importaciones: { id: 'importaciones', label: 'Importaciones', desc: 'Compras al exterior, embarque, aduana, costeo y recepción.', icono: Ship, permiso: 'importaciones', c: '#1d4ed8', listo: true },
@@ -41,6 +43,6 @@ export const MODULOS: Record<string, Modulo> = {
 // Orden por defecto de Mi Espacio (igual que la app original).
 export const ORDEN_MODULOS = [
   'miperfil', 'crm', 'clientes', 'marketing', 'inventario', 'agenda', 'facturacion', 'dashboard', 'movimientos', 'femedics', 'bodega',
-  'logistica', 'serviciotecnico', 'talentohumano', 'importaciones', 'articulos', 'adquisiciones', 'financiero', 'catalogos',
+  'logistica', 'tracking', 'escanear', 'serviciotecnico', 'talentohumano', 'importaciones', 'articulos', 'adquisiciones', 'financiero', 'catalogos',
   'ofertas', 'empleados', 'solicitudes', 'seguridad', 'basedatos',
 ]

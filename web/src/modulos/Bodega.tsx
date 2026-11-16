@@ -89,7 +89,7 @@ const faltanSeriesMsg = (d: Despacho): string => {
 }
 
 /* ============================ Pantalla principal ============================ */
-export default function Bodega({ perfil, aviso }: { perfil: Perfil; aviso: (t: string) => void }) {
+export default function Bodega({ perfil, aviso, abrir, limpiarAbrir }: { perfil: Perfil; aviso: (t: string) => void; abrir?: string; limpiarAbrir?: () => void }) {
   const [lista, setLista] = useState<Despacho[] | null>(null)
   const [error, setError] = useState('')
   const [vista, setVista] = useState<'tablero' | 'lista'>(() => lsGet('bd:vista') || (window.innerWidth < 768 ? 'lista' : 'tablero'))
@@ -100,6 +100,8 @@ export default function Bodega({ perfil, aviso }: { perfil: Perfil; aviso: (t: s
   const [kpi, setKpi] = useState('')
   const [verTodosDesp, setVerTodosDesp] = useState(false)
   const [abierto, setAbierto] = useState<{ id: string; despachar?: boolean } | null>(null)
+  // Enlace directo (#bodega/<id>), p. ej. desde el escáner de pedidos.
+  useEffect(() => { if (abrir) { setAbierto({ id: abrir }); limpiarAbrir?.() } }, [abrir, limpiarAbrir])
   const [hoja, setHoja] = useState<'serie' | 'traer' | null>(null)
   const [mov, setMov] = useState<string | null>(null)
   const [arrastrando, setArrastrando] = useState<string | null>(null)

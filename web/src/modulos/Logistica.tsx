@@ -10,7 +10,8 @@ const TRANSPORTISTAS = ['Servientrega', 'Tramaco', 'Enetsa', 'Jhetro', 'Esmerald
 const MOTIVOS_NO = ['Cliente ausente', 'Dirección errada o incompleta', 'Cliente rechazó el pedido', 'No se pudo ingresar (permiso / seguridad)', 'Producto dañado en tránsito', 'Otro']
 const TIPOS_INCIDENCIA = ['Daño en tránsito', 'Pérdida', 'Retraso del transportista', 'Dirección incorrecta', 'Otro']
 const VENTANAS = ['Mañana (8:00-12:00)', 'Tarde (13:00-17:00)', 'Todo el día']
-const PUBLICO = 'https://vimedic.com.ec'
+// Seguimiento del pedido: página pública de esta misma app (qa.vimedic.com.ec o app.vimedic.com.ec), con el mismo QR de la guía.
+const PUBLICO = window.location.origin
 type Evento = { fecha: string; por: string; nota: string; publico: boolean; clave?: string }
 type Incidencia = { id: string; tipo: string; detalle: string; foto: string; fecha: string; por: string; resuelta: boolean; resolucion?: string; resueltaPor?: string }
 type Prod = { key: string; id: string; nombre: string; cantidad: number; series?: string[] }
@@ -71,13 +72,15 @@ function Firma({ lienzo, limpiar }: { lienzo: React.RefObject<HTMLCanvasElement>
 const firmaPng = (c: HTMLCanvasElement | null) => { if (!c || !c.dataset.firmado) return ''; const k = Math.min(1, 420 / c.width), t = document.createElement('canvas'); t.width = Math.round(c.width * k); t.height = Math.round(c.height * k); const x = t.getContext('2d')!; x.fillStyle = '#fff'; x.fillRect(0, 0, t.width, t.height); x.drawImage(c, 0, 0, t.width, t.height); return t.toDataURL('image/png') }
 
 /* ============================ Pantalla principal ============================ */
-export default function Logistica({ perfil, aviso }: { perfil: Perfil; aviso: (t: string) => void }) {
+export default function Logistica({ perfil, aviso, abrir, limpiarAbrir }: { perfil: Perfil; aviso: (t: string) => void; abrir?: string; limpiarAbrir?: () => void }) {
   const [lista, setLista] = useState<Entrega[] | null>(null)
   const [error, setError] = useState('')
   const [equipo, setEquipo] = useState<string[]>([])
   const [tab, setTab] = useState('confirmar')
   const [q, setQ] = useState('')
   const [abierto, setAbierto] = useState<string | null>(null)
+  // Enlace directo (#logistica/<id de la entrega>), p. ej. desde el escáner de pedidos.
+  useEffect(() => { if (abrir) { setAbierto(abrir); limpiarAbrir?.() } }, [abrir, limpiarAbrir])
   const yaPostventa = useRef(false)
   const editar = puede(perfil, 'logistica', 'editar')
 

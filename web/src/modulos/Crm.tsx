@@ -20,6 +20,7 @@ import {
 import { FichaCliente } from './Clientes'
 import { EditorDatosEmpresa, RepartoMeta } from './CrmMeta'
 import CrmMensajes from './CrmMensajes'
+import { SeguimientoVenta } from './TrackingVenta'
 import '../estilos/crm-original.css'
 // Gráficos del CRM: se descargan solo cuando se abren (chart.js es pesado).
 const CrmGraficos = lazy(() => import('./CrmGraficos'))
@@ -920,6 +921,7 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
           {g.tabla === 'cotizaciones' && (
             <button onClick={abrirProforma} className="w-full text-sm font-bold py-2.5 rounded-xl border flex items-center justify-center gap-1.5" style={{ borderColor: '#c0392b', color: '#c0392b' }}><FileText className="w-4 h-4" /> Ver proforma (PDF A4)</button>
           )}
+          {g.tabla === 'cotizaciones' && g.estado === 'Ganado' && <SeguimientoVenta cotizacionId={g.id} cliente={g.nombre} telefono={g.telefono} aviso={aviso} />}
           {comprobante && (
             <a href={comprobante.url} target="_blank" rel="noopener noreferrer" className="w-full text-sm font-bold py-2.5 rounded-xl border flex items-center justify-center gap-1.5" style={{ borderColor: '#16a34a', color: '#16a34a' }}><ImagePlus className="w-4 h-4" /> Ver comprobante de transferencia</a>
           )}
