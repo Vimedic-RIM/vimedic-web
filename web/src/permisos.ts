@@ -10,6 +10,7 @@ export function puede(perfil: Perfil, modulo: string, accion: string): boolean {
   if (modulo === 'escanear') return perfil.es_superadmin || ['tracking', 'bodega', 'logistica', 'servicio_tecnico', 'facturacion'].some((m) => !!perfil.permisos?.[m]?.includes('ver'))
     || ['crm', 'femedics'].some((m) => !!perfil.permisos?.[m]?.includes('ver_todos'))
   // Trackings: el asesor del CRM ve el seguimiento de sus propias ventas (la base filtra cuáles); configurar tiempos sigue siendo solo de "tracking".
-  if (modulo === 'tracking' && accion === 'ver' && ['crm', 'femedics'].some((m) => !!perfil.permisos?.[m]?.includes('ver'))) return true
+  // El Dashboard Ejecutivo también abre los pedidos desde su mapa de proceso.
+  if (modulo === 'tracking' && accion === 'ver' && ['crm', 'femedics', 'dashboard'].some((m) => !!perfil.permisos?.[m]?.includes('ver'))) return true
   return perfil.es_superadmin || !!perfil.permisos?.[modulo]?.includes(accion)
 }

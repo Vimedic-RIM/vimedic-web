@@ -11,6 +11,7 @@ import {
 } from '../graficos'
 import ECMAP from '../datos/ecuador.json'
 import '../estilos/dashboard.css'
+import DashboardProceso from './DashboardProceso'
 
 /* ============================ Datos ============================ */
 type Item = [string, number, number, string, string]   // nombre, unidades, subtotal, categoría, código
@@ -706,7 +707,7 @@ function SecTabla({ c }: { c: Ctx }) {
 
 /* ============================ Pantalla ============================ */
 const NAV: [string, string, typeof LayoutGrid][] = [
-  ['sec-resumen', 'Resumen', LayoutGrid], ['sec-ventas', 'Ventas', LineChart], ['sec-productos', 'Análisis de productos', Package], ['sec-equipo', 'Equipo comercial', Award], ['sec-clientes', 'Clientes y ciudades', Users],
+  ['sec-resumen', 'Resumen', LayoutGrid], ['sec-proceso', 'Proceso de pedidos', Workflow], ['sec-ventas', 'Ventas', LineChart], ['sec-productos', 'Análisis de productos', Package], ['sec-equipo', 'Equipo comercial', Award], ['sec-clientes', 'Clientes y ciudades', Users],
   ['sec-marketing', 'Marketing', Megaphone], ['sec-agenda', 'Agenda audiovisual', Clapperboard], ['sec-crm', 'CRM', Filter], ['sec-tabla', 'Detalle de ventas', Table],
 ]
 export default function Dashboard({ perfil }: { perfil: Perfil; aviso: (t: string) => void }) {
@@ -747,6 +748,7 @@ export default function Dashboard({ perfil }: { perfil: Perfil; aviso: (t: strin
       </header>
       <main className="max-w-[1600px] mx-auto px-4 sm:pr-6 sm:pl-[76px] pt-5 pb-24 sm:pb-8 space-y-4">
         <Seccion id="sec-resumen" alto={220}><SecResumen c={ctx} /></Seccion>
+        <Seccion id="sec-proceso" alto={360}><DashboardProceso desde={desde} hasta={hasta} version={version} /></Seccion>
         <Seccion id="sec-ventas"><SecVentas c={ctx} /></Seccion>
         <Seccion id="sec-productos"><SecProductos c={ctx} /></Seccion>
         <Seccion id="sec-equipo"><SecEquipo c={ctx} /></Seccion>
