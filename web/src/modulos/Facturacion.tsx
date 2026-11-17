@@ -12,6 +12,7 @@ import { logoDocDataUrl } from '../documentoMarca'
 import { cargarPlantillas } from '../plantillas'
 import { htmlGuiaDespacho } from './documentosEntrega'
 import { fechaDeTexto, fechaLarga, htmlActa, htmlGuia, pdfDeHtml, sumarMeses, tamanoGuia, type DatosGuia } from './documentosFacturacion'
+import { VisorDocumento, cuerpoDe, documentoCompleto, guardarDocumento, leerDocumento, type DocVisor } from './VisorDocumento'
 import '../estilos/facturacion.css'
 
 /* ============================ Tipos y utilidades ============================ */
@@ -80,6 +81,8 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
   const [guiaEnvio, setGuiaEnvio] = useState<Fila | null>(null)
   const [guiaDespacho, setGuiaDespacho] = useState<Fila | null>(null)
   const [acta, setActa] = useState<Fila | null>(null)
+  // Visor del documento (acta, guías): se ve e imprime dentro de la app, como la proforma.
+  const [visor, setVisor] = useState<DocVisor | null>(null)
   const [obsequioModal, setObsequioModal] = useState<Fila | null>(null)
   const [editarProd, setEditarProd] = useState<Fila | null>(null)
   const filtrosRef = useRef<HTMLDivElement>(null)
@@ -209,9 +212,18 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
       })
     }
     if (qa === 'verFactura' && r.facturaUrl) return abrir(r.facturaUrl)
-    if (qa === 'verActa' && r.actaUrl) return abrirDelBucket(r.actaUrl)
-    if (qa === 'verGuiaEnvio' && r.guiaEnvioUrl) return abrirDelBucket(r.guiaEnvioUrl)
-    if (qa === 'verGuiaDespacho' && r.guiaDespachoUrl) return abrirDelBucket(r.guiaDespachoUrl)
+    /* Documentos guardados en HTML: se abren en el visor (Imprimir / Descargar PDF). Los PDF anteriores de Drive, en otra pestaña. */
+    const verDoc = (ruta: string, titulo: string, archivo: string, editar?: () => void) => {
+      if (/^https?:\/\//i.test(ruta) || !ruta.endsWith('.html')) return abrirDelBucket(ruta)
+      setVisor({ titulo, html: '', archivo, editar })
+      leerDocumento(ruta)
+        .then((html) => { const c = cuerpoDe(html); setVisor((v) => (v && v.titulo === titulo ? { ...v, html, pdf: c ? () => pdfDeHtml(c) : undefined } : v)) })
+        .catch((e) => setVisor((v) => (v && v.titulo === titulo ? { ...v, error: 'No se pudo abrir el documento: ' + (e as Error).message } : v)))
+    }
+    const nom = (t: string) => t.replace(/[^\w.-]+/g, '_')
+    if (qa === 'verActa' && r.actaUrl) return verDoc(r.actaUrl, 'Acta de entrega · Factura ' + (r.numeroFactura || r.id), 'Acta_' + nom(r.numeroFactura || r.id) + '.pdf', () => { setVisor(null); setActa(r) })
+    if (qa === 'verGuiaEnvio' && r.guiaEnvioUrl) return verDoc(r.guiaEnvioUrl, 'Etiqueta de envío · ' + (r.cliente || r.id), 'GuiaEnvio_' + nom(r.id) + '.pdf', () => { setVisor(null); setGuiaEnvio(r) })
+    if (qa === 'verGuiaDespacho' && r.guiaDespachoUrl) return verDoc(r.guiaDespachoUrl, 'Guía de despacho · ' + (r.cliente || r.id), 'GuiaDespacho_' + nom(r.id) + '.pdf')
     if (qa === 'conformidad' && r.actaConformidadUrl) return abrir(r.actaConformidadUrl)
     if (qa === 'guiaEnvio') { setGuiaEnvio(r); return }
     if (qa === 'guiaDespacho') { setGuiaDespacho(r); return }
@@ -398,9 +410,10 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
         setDetalle((d) => (d && d.uuid === editarProd.uuid ? { ...d, items: nuevos, total } : d))
         cargar(filtro)
       }} />}
-      {guiaEnvio && <ModalGuiaEnvio r={guiaEnvio} perfil={perfil} cerrar={() => setGuiaEnvio(null)} guardado={() => { setGuiaEnvio(null); aviso('Guía de envío generada.'); cargar(filtro); cargarStats(); setItems({}) }} />}
-      {guiaDespacho && <ModalGuiaDespacho r={conItems(guiaDespacho) ?? guiaDespacho} cerrar={() => setGuiaDespacho(null)} aviso={aviso} guardado={() => { setGuiaDespacho(null); cargar(filtro); cargarStats(); setItems({}) }} />}
-      {acta && <ModalActaGarantia r={conItems(acta) ?? acta} perfil={perfil} cerrar={() => setActa(null)} aviso={aviso} guardado={() => { setActa(null); cargar(filtro); cargarStats(); setItems({}) }} />}
+      {guiaEnvio && <ModalGuiaEnvio r={guiaEnvio} perfil={perfil} mostrar={(d) => { const fila = guiaEnvio; setVisor({ ...d, editar: () => { setVisor(null); setGuiaEnvio(fila) } }) }} cerrar={() => setGuiaEnvio(null)} guardado={() => { setGuiaEnvio(null); aviso('Guía de envío generada.'); cargar(filtro); cargarStats(); setItems({}) }} />}
+      {guiaDespacho && <ModalGuiaDespacho r={conItems(guiaDespacho) ?? guiaDespacho} mostrar={setVisor} cerrar={() => setGuiaDespacho(null)} aviso={aviso} guardado={() => { setGuiaDespacho(null); cargar(filtro); cargarStats(); setItems({}) }} />}
+      {acta && <ModalActaGarantia r={conItems(acta) ?? acta} perfil={perfil} mostrar={(d) => { const fila = acta; setVisor({ ...d, editar: () => { setVisor(null); setActa(fila) } }) }} cerrar={() => setActa(null)} aviso={aviso} guardado={() => { setActa(null); cargar(filtro); cargarStats(); setItems({}) }} />}
+      {visor && <VisorDocumento doc={visor} cerrar={() => setVisor(null)} />}
       {obsequioModal && <ModalObsequio r={conItems(obsequioModal) ?? obsequioModal} cerrar={() => setObsequioModal(null)} aviso={aviso} guardado={() => { setObsequioModal(null); cargar(filtro); setItems({}) }} />}
     </div>
   )
@@ -416,7 +429,7 @@ function PanelLateral(r: Fila | null, accion: (qa: string, r: Fila) => void, img
   const acts = [act('detalle', FilePenLine, '#0b2545', 'Facturar')]
   acts.push(r.estado === 'Pendiente' ? act('factura', Upload, '#055c9d', 'Subir factura', !r.datosCompletos) : act('verFactura', Receipt, '#055c9d', 'Ver factura', !r.facturaUrl))
   if (r.estado === 'Facturado' || r.actaUrl) {
-    acts.push(r.actaUrl ? act('verActa', FileCheck2, '#04896f', 'Ver acta .pdf') : act('acta', FilePlus2, '#04896f', 'Generar acta'))
+    acts.push(r.actaUrl ? act('verActa', FileCheck2, '#04896f', 'Ver acta') : act('acta', FilePlus2, '#04896f', 'Generar acta'))
     if (r.actaUrl) acts.push(act('acta', Pencil, '#0f766e', 'Editar acta'))   // mismo formulario, con lo guardado
   }
   if (r.estado === 'Facturado' || r.guiaDespachoUrl) {
@@ -575,7 +588,7 @@ function Detalle({ r, perfil, puedeEditar, cerrar, accion, facturar, aviso, reca
               </div>
               {(full.estado === 'Facturado' || full.actaUrl) && (
                 <div className="pm-doc"><p className="pm-doc-h"><span className="ic" style={{ ['--c' as string]: '#04896f' }}><FileCheck2 /></span>Acta de entrega / garantía</p>
-                  {full.actaUrl ? <div className="flex items-center gap-1.5"><button type="button" className="pm-btn ok flex-1" onClick={() => accion('verActa', full)}>Ver acta .pdf</button><button type="button" title="Editar y regenerar acta" aria-label="Editar acta" className="pm-btn ok w-10 !px-0" onClick={() => accion('acta', full)}><Pencil className="w-4 h-4" /></button></div> : <button type="button" className="pm-btn solid w-full" style={{ background: '#04896f' }} onClick={() => accion('acta', full)}>Generar acta</button>}</div>
+                  {full.actaUrl ? <div className="flex items-center gap-1.5"><button type="button" className="pm-btn ok flex-1" onClick={() => accion('verActa', full)}>Ver acta</button><button type="button" title="Editar y regenerar acta" aria-label="Editar acta" className="pm-btn ok w-10 !px-0" onClick={() => accion('acta', full)}><Pencil className="w-4 h-4" /></button></div> : <button type="button" className="pm-btn solid w-full" style={{ background: '#04896f' }} onClick={() => accion('acta', full)}>Generar acta</button>}</div>
               )}
               <div className="pm-doc">
                 <p className="pm-doc-h"><span className="ic" style={{ ['--c' as string]: '#ec4899' }}><Gift /></span>Obsequio de evangelización <span className="text-red-600">*</span></p>
@@ -891,7 +904,7 @@ function ModalNotasCredito({ r, cerrar, aviso }: { r: Fila; cerrar: () => void; 
 /* generarGuiaEnvio del original: etiqueta con logo, franja de aviso (frágil · equipo médico), ciudad, destinatario y remitente.
    Todos los datos con el mismo tamaño de letra, el más grande con el que entra en UNA hoja; si no entra ni con 14 px no se guarda.
    Se guarda en Drive (carpeta "Guias de Envio") y los datos quedan en facturas.guia_datos para la próxima vez. */
-function ModalGuiaEnvio({ r, perfil, cerrar, guardado }: { r: Fila; perfil: Perfil; cerrar: () => void; guardado: () => void }) {
+function ModalGuiaEnvio({ r, perfil, mostrar, cerrar, guardado }: { r: Fila; perfil: Perfil; mostrar: (d: DocVisor) => void; cerrar: () => void; guardado: () => void }) {
   const [d, setD] = useState<DatosGuia>({
     nombreRemitente: r.pe.nombreRemitente || 'Importaciones Médicas Richard', cedulaRemitente: r.pe.cedulaRemitente || '',
     nombreDestinatario: r.pe.nombreDestinatario || r.cliente || '', cedulaDestinatario: r.pe.cedulaDestinatario || r.identificacion || '',
@@ -924,14 +937,15 @@ function ModalGuiaEnvio({ r, perfil, cerrar, guardado }: { r: Fila; perfil: Perf
       const tam = await tamanoGuia(limpio)
       if (!tam) { setMsg('Los datos exceden una hoja con letra legible. Revisa los campos demasiado extensos y vuelve a generar la guía. No se guardó una guía de varias páginas.'); setGuardando(false); return }
       const nombre = 'GuiaEnvio_' + r.id.replace(/[^\w.-]+/g, '_') + '.pdf'
-      const pdf = await pdfDeHtml(htmlGuia(limpio, tam))
-      const url = await subirPdfDrive(new File([pdf], nombre, { type: 'application/pdf' }), 'Guias de Envio', nombre)
-      const { error: errUpd } = await supabase.from('facturas').update({ guia_envio_url: url, guia_datos: { ...limpio, estilo: 'etiqueta' } }).eq('id', r.uuid)
-      if (errUpd) { setMsg('La guía se guardó en Drive, pero no se pudo enlazar a la venta: ' + errUpd.message); setGuardando(false); return }
+      // Se guarda el HTML (al instante) y se muestra en el visor; el PDF se arma solo si se pide.
+      const cuerpo = htmlGuia(limpio, tam), html = documentoCompleto(cuerpo, 'Guía de envío ' + r.id), ruta = 'guias/envio_' + r.uuid + '.html'
+      await guardarDocumento(ruta, html)
+      const { error: errUpd } = await supabase.from('facturas').update({ guia_envio_url: ruta, guia_datos: { ...limpio, estilo: 'etiqueta' } }).eq('id', r.uuid)
+      if (errUpd) { setMsg('La guía se guardó, pero no se pudo enlazar a la venta: ' + errUpd.message); setGuardando(false); return }
+      mostrar({ titulo: 'Etiqueta de envío · ' + (r.cliente || r.id), html, archivo: nombre, pdf: () => pdfDeHtml(cuerpo) })
       const texto = 'Guía de Envío generada por ' + perfil.nombre + '.'
       await supabase.rpc('registrar_bitacora', { p_modulo: 'facturacion', p_accion: 'generar_guia_envio', p_factura: r.uuid, p_comentario: texto })
       if (cotizacionId) await supabase.from('interacciones').insert({ cotizacion_id: cotizacionId, tipo: 'Facturación', nota: texto, empleado_id: perfil.id, usuario_texto: perfil.nombre })
-      window.open(url, '_blank', 'noopener')
       guardado()
     } catch (e) {
       setMsg('No se pudo generar la guía: ' + (e as Error).message)
@@ -973,7 +987,7 @@ function ModalGuiaEnvio({ r, perfil, cerrar, guardado }: { r: Fila; perfil: Perf
         </div>
         <div className="shrink-0 border-t border-slate-200 bg-white p-4 flex items-center gap-2">
           <button type="button" onClick={cerrar} className="h-11 px-4 rounded-2xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50">Cancelar</button>
-          <button type="button" onClick={guardar} disabled={guardando || noEsEnvio} className="flex-1 h-11 rounded-2xl text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: '#c0392b' }}>{guardando ? 'Generando PDF…' : r.guiaEnvioUrl ? 'Volver a generar la guía' : 'Generar guía de envío'}</button>
+          <button type="button" onClick={guardar} disabled={guardando || noEsEnvio} className="flex-1 h-11 rounded-2xl text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: '#c0392b' }}>{guardando ? 'Generando…' : r.guiaEnvioUrl ? 'Volver a generar la guía' : 'Generar guía de envío'}</button>
         </div>
       </div>
     </div>
@@ -983,7 +997,7 @@ function ModalGuiaEnvio({ r, perfil, cerrar, guardado }: { r: Fila; perfil: Perf
 /* Ventana flotante para generar la guía de despacho: los datos que vienen del sistema
    (número de guía, factura, cliente, QR, código/cantidad de los productos) se muestran
    bloqueados; solo los datos de entrega y la observación por línea son editables. */
-function ModalGuiaDespacho({ r, cerrar, aviso, guardado }: { r: Fila; cerrar: () => void; aviso: (t: string) => void; guardado: () => void }) {
+function ModalGuiaDespacho({ r, mostrar, cerrar, aviso, guardado }: { r: Fila; mostrar: (d: DocVisor) => void; cerrar: () => void; aviso: (t: string) => void; guardado: () => void }) {
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState('')
   const [lineas, setLineas] = useState<Linea[]>(r.items ?? [])
@@ -1045,11 +1059,9 @@ function ModalGuiaDespacho({ r, cerrar, aviso, guardado }: { r: Fila; cerrar: ()
         lineas: lineas.map((it) => ({ codigo: it.codigo || '', nombre: it.nombre, cantidad: it.cantidad, observacion: it.observacion })),
       })
 
-      const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
       const ruta = 'guias/' + desp.numero_guia + '.html'
-      const { error: errSubir } = await supabase.storage.from('despachos').upload(ruta, blob, { contentType: 'text/html', upsert: true })
-      if (errSubir) { setError('No se pudo guardar la guía: ' + errSubir.message); setGuardando(false); return }
-      window.open(URL.createObjectURL(blob), '_blank', 'noopener')
+      try { await guardarDocumento(ruta, html) } catch (e) { setError('No se pudo guardar la guía: ' + (e as Error).message); setGuardando(false); return }
+      mostrar({ titulo: 'Guía de despacho ' + desp.numero_guia + ' · ' + (r.cliente || r.id), html, archivo: 'Guia_' + desp.numero_guia + '.pdf' })
 
       const { error: errUpd } = await supabase.from('facturas').update({ guia_despacho_url: ruta }).eq('id', r.uuid)
       if (errUpd) { setError('Guía generada, pero no se pudo guardar el enlace: ' + errUpd.message); setGuardando(false); return }
@@ -1150,7 +1162,7 @@ function equiposDeItems(items: Linea[]): EquipoActa[] {
 }
 const ajustarSeries = (s: string[] | undefined, n: number) => Array.from({ length: n }, (_, i) => String((s ?? [])[i] ?? '').trim())
 
-function ModalActaGarantia({ r, perfil, cerrar, aviso, guardado }: { r: Fila; perfil: Perfil; cerrar: () => void; aviso: (t: string) => void; guardado: () => void }) {
+function ModalActaGarantia({ r, perfil, mostrar, cerrar, aviso, guardado }: { r: Fila; perfil: Perfil; mostrar: (d: DocVisor) => void; cerrar: () => void; aviso: (t: string) => void; guardado: () => void }) {
   const [equipos, setEquipos] = useState<EquipoActa[]>(() => equiposDeItems(r.items ?? []))
   const [cliente, setCliente] = useState({
     nombre: r.cliente || '', ciudad: r.pe.ciudad || '', direccion: r.pe.direccionEntregaLocal || r.pe.direccionEnvio || '',
@@ -1305,20 +1317,21 @@ function ModalActaGarantia({ r, perfil, cerrar, aviso, guardado }: { r: Fila; pe
         garantiaTxt: duracionTxt, nMant, observaciones: mantObs.map((x) => x.slice(0, 300)), anexo,
       })
       const nombre = 'Acta_' + r.numeroFactura.replace(/[^\w.-]+/g, '_') + '.pdf'
-      const pdf = await pdfDeHtml(doc)
-      const url = await subirPdfDrive(new File([pdf], nombre, { type: 'application/pdf' }), 'Actas', nombre)
+      // Se guarda el HTML (al instante) y se muestra en el visor; el PDF se arma solo si se pide.
+      const html = documentoCompleto(doc, 'Acta ' + r.numeroFactura), ruta = 'actas/' + r.uuid + '.html'
+      await guardarDocumento(ruta, html)
       const acta_datos = {
         anios: garantiaUnidad === 'anios' ? cantNum : Math.floor(cantNum / 12), garantiaCant: cantNum, garantiaUnidad,
         observaciones: mantObs.slice(0, nMant), cliente: { nombre: cliente.nombre.trim(), ciudad: cliente.ciudad.trim(), direccion: cliente.direccion.trim(), telefono: cliente.telefono.trim(), email: cliente.email.trim() },
         fecha, series, sinGarantia, anexo, extras: lista.filter((e) => e.extra).map((e) => ({ id: e.codigo, nombre: e.nombre, cantidad: e.cantidad })),
       }
-      const { error: errUpd } = await supabase.from('facturas').update({ acta_garantia_url: url, acta_datos }).eq('id', r.uuid)
-      if (errUpd) { setError('El acta se guardó en Drive, pero no se pudo enlazar a la venta: ' + errUpd.message); setGuardando(false); return }
+      const { error: errUpd } = await supabase.from('facturas').update({ acta_garantia_url: ruta, acta_datos }).eq('id', r.uuid)
+      if (errUpd) { setError('El acta se guardó, pero no se pudo enlazar a la venta: ' + errUpd.message); setGuardando(false); return }
+      mostrar({ titulo: 'Acta de entrega · Factura ' + r.numeroFactura, html, archivo: nombre, pdf: () => pdfDeHtml(doc) })
       const nSeries = Object.values(series).reduce((a, s) => a + s.filter(Boolean).length, 0)
       const texto = 'Acta de entera satisfacción generada por ' + perfil.nombre + ' · garantía: ' + (duracionTxt || 'sin garantía') + ' · ' + nSeries + ' número(s) de serie.'
       await supabase.rpc('registrar_bitacora', { p_modulo: 'facturacion', p_accion: 'generar_acta', p_factura: r.uuid, p_comentario: texto })
       if (cotizacionId) await supabase.from('interacciones').insert({ cotizacion_id: cotizacionId, tipo: 'Facturación', nota: texto, empleado_id: perfil.id, usuario_texto: perfil.nombre })
-      window.open(url, '_blank', 'noopener')
       aviso('Acta generada.')
       guardado()
     } catch (e) {
@@ -1338,7 +1351,7 @@ function ModalActaGarantia({ r, perfil, cerrar, aviso, guardado }: { r: Fila; pe
           </div>
           <h3 className="font-display font-bold text-lg leading-snug mt-1.5">{r.cliente || 'Venta'}</h3>
           <p className="text-[11px] text-white/75">Equipos con números de serie + carta de garantía · una sola firma del cliente · Factura {r.numeroFactura || '(sin subir)'}</p>
-          {r.actaUrl && <p className="text-[11px] text-white font-semibold mt-1">Editando el acta ya generada: al guardar se vuelve a generar el PDF con los cambios.</p>}
+          {r.actaUrl && <p className="text-[11px] text-white font-semibold mt-1">Editando el acta ya generada: al guardar se vuelve a generar el acta con los cambios.</p>}
         </div>
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3">
           {!r.numeroFactura && <p className="fi-err">Primero sube la factura — el acta necesita su número.</p>}
@@ -1439,7 +1452,7 @@ function ModalActaGarantia({ r, perfil, cerrar, aviso, guardado }: { r: Fila; pe
         </div>
         <div className="shrink-0 border-t border-slate-200 bg-white p-4 flex items-center gap-2">
           <button type="button" onClick={cerrar} className="h-11 px-4 rounded-2xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50">Cancelar</button>
-          <button type="button" onClick={generar} disabled={guardando || cargando || !r.numeroFactura} className="flex-1 h-11 rounded-2xl text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: '#04896f' }}><Printer className="w-4 h-4" />{guardando ? 'Generando PDF…' : r.actaUrl ? 'Volver a generar el acta' : 'Generar acta'}</button>
+          <button type="button" onClick={generar} disabled={guardando || cargando || !r.numeroFactura} className="flex-1 h-11 rounded-2xl text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: '#04896f' }}><Printer className="w-4 h-4" />{guardando ? 'Generando…' : r.actaUrl ? 'Volver a generar el acta' : 'Generar acta'}</button>
         </div>
       </div>
     </div>

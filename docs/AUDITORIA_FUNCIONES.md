@@ -761,3 +761,10 @@ Cotizaciones anteriores (sin copia) toman los términos actuales al abrir la pro
 | Escáner en cada módulo | Botón «Escanear» en Bodega, Logística y Servicio Técnico: lee el QR de la guía (o se escribe GD-, DSP-, ENT-, TRK-, orden, factura o serie) y abre el pedido ahí mismo | `EscanerPedido.tsx`, función `mod_escanear` (migración 20261117130000, pruebas supabase/tests/escaner_modulo.sql 5/5) |
 | Escáner general por puesto | Con un solo puesto (módulo donde la persona edita) el pedido se abre directo en su módulo, sin importar la etapa. Con varios puestos se elige «Al escanear, abrir en…» (se recuerda en el teléfono) o «Solo mostrar el pedido» (comportamiento anterior) | `Escanear.tsx` |
 | Velocidad | Los listados ya no traen historial, envíos, línea de tiempo ni el detalle del trabajo (se leen al abrir); el botón flotante del menú se oculta con una ficha abierta | `Bodega.tsx`, `Logistica.tsx`, `ServicioTecnico.tsx` |
+
+## Facturación › Documentos en visor (17-nov-2026)
+
+| Qué | Cómo | Dónde |
+|---|---|---|
+| Acta de entrega, guía de despacho y etiqueta de envío | Se generan en HTML al instante y se abren en un visor dentro de la app (vista A4, «Imprimir», «Descargar PDF», «Editar»), igual que la proforma. Antes se armaba un PDF y se subía a Drive antes de abrirlo en otra pestaña, y el navegador bloqueaba esa pestaña (había que generar dos veces) | `VisorDocumento.tsx`, `Facturacion.tsx` |
+| Dónde se guardan | HTML en el bucket privado «despachos» (actas/ y guias/); «Ver acta / guía» lo abre en el visor. Las actas y guías anteriores en Drive (PDF) se siguen abriendo en otra pestaña | Migración 20261117140000; pruebas supabase/tests/facturacion_actas_storage.sql (4/4) |
