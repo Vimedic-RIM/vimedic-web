@@ -351,6 +351,12 @@
 .cursor-help{cursor:help}
 .inv-obs{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:9999px;background:#fef2f2;color:#dc2626;cursor:help;flex-shrink:0}
 .inv-obs:hover{background:#fee2e2}
+/* Observaciones en letra pequeña (tarjetas: hasta 2 líneas; lista: 1 línea) */
+.inv-obs-txt{display:flex;align-items:flex-start;gap:3px;min-width:0;margin-top:2px;font-size:9.5px;line-height:1.3;font-weight:700;color:#dc2626;cursor:help}
+.inv-obs-txt svg{width:10px;height:10px;flex-shrink:0;margin-top:1px}
+.inv-obs-txt > span{min-width:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+.inv-obs-txt.l1{flex:1 1 auto;margin-top:0;align-items:center}
+.inv-obs-txt.l1 > span{-webkit-line-clamp:1}
 .bg-\[\#f6f9fc\]{background-color:#f6f9fc}
 .max-w-\[220px\]{max-width:220px}
 .pr-2\.5{padding-right:.625rem}

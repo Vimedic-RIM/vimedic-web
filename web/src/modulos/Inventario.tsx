@@ -224,12 +224,12 @@ function Nuevo({ p, extra }: { p: Fila; extra?: string }) {
   return <span className={'inv-nuevo ' + (extra || '')} title="Producto nuevo">Nuevo</span>
 }
 
-/* Indicador compacto de observaciones: antes el texto completo se mostraba siempre y alargaba
-   la tarjeta; ahora es un ícono con el aviso completo como mensaje flotante al pasar el mouse. */
-function Obs({ texto }: { texto: string }) {
+/* Observaciones del equipo en tarjetas y lista: el texto en letra pequeña roja (hasta 2 líneas en la tarjeta,
+   1 en la lista); el aviso completo sale al pasar el mouse y en la ventana del producto. */
+function Obs({ texto, linea }: { texto: string; linea?: boolean }) {
   return (
-    <span className="inv-obs" title={texto} onClick={(e) => e.stopPropagation()} aria-label={'Observación: ' + texto}>
-      <TriangleAlert className="w-3 h-3" />
+    <span className={'inv-obs-txt' + (linea ? ' l1' : '')} title={texto} aria-label={'Observación: ' + texto}>
+      <TriangleAlert /><span>{texto}</span>
     </span>
   )
 }
@@ -291,9 +291,9 @@ function Tarjeta({ p, abrir, car, alternar, reordenar }: { p: Fila; abrir: (id: 
       <div className="p-2 flex flex-col flex-grow">
         <p className="text-[9px] font-mono-spec text-slate-400 truncate">{p.codigo}</p>
         <p className="text-xs font-bold text-slate-800 leading-snug line-clamp-2 min-h-[2.2em]">{p.nombre}</p>
+        {p.reservaciones && <Obs texto={p.reservaciones} />}
         <div className="flex items-center gap-1 mt-1 flex-wrap">
           {!act && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">Inactivo</span>}
-          {p.reservaciones && <Obs texto={p.reservaciones} />}
           <UbicStock p={p} />
         </div>
         <div className="mt-auto pt-1.5 flex items-end justify-between gap-1">
@@ -358,8 +358,8 @@ function FilaTabla({ p, sel, click, car }: { p: Fila; sel: boolean; click: (id: 
       <div className="min-w-0">
         <p className="text-xs font-bold text-slate-800 leading-snug truncate" title={p.nombre}><Nuevo p={p} extra="mr-1" />{of && <span className="inv-of-pill mr-1" title={'Oferta vigente' + (of.o.fin ? ' hasta el ' + fechaCorta(of.o.fin) : '')}>OFERTA -{Math.round(of.o.descuento)}%</span>}{p.nombre}</p>
         <p className="inv-lg text-[10px] text-slate-400 truncate flex items-center gap-1">
-          <span className="truncate">{p.categoria?.nombre || ''}{!act ? ' · Inactivo' : ''}</span>
-          {p.reservaciones && <Obs texto={p.reservaciones} />}
+          <span className="truncate shrink-0" style={{ maxWidth: '45%' }}>{p.categoria?.nombre || ''}{!act ? ' · Inactivo' : ''}</span>
+          {p.reservaciones && <Obs texto={p.reservaciones} linea />}
         </p>
         <div className="inv-sm flex items-center gap-2 mt-0.5 text-[10px] flex-wrap">
           <span className="font-mono-spec text-slate-400">{p.codigo}{p.codigo_unico ? ' - ' + p.codigo_unico : ''}</span>
