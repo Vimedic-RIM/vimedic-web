@@ -4,8 +4,8 @@
    (supabase/migrations/20261117110000_marketing_plan_trabajo.sql). */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  AlertTriangle, Camera, Check, ChevronLeft, ChevronRight, ClipboardList, FileBadge, FileText, FolderUp, ImageOff, LayoutGrid, List, Megaphone,
-  Plus, RefreshCw, Sparkles, Trash2, Video, X,
+  AlertTriangle, Camera, Check, ChevronLeft, ChevronRight, Clapperboard, ClipboardList, FileBadge, FileText, FolderUp, ImageOff, LayoutGrid, List, Megaphone,
+  Plus, RefreshCw, Scissors, Sparkles, Trash2, Video, X,
 } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { imagen } from './inventarioUtil'
@@ -13,7 +13,7 @@ import { hoyEC } from './ofertasInv'
 import { BuscadorProducto, type ProdBusq } from './MarketingArchivos'
 import '../estilos/marketing-plan.css'
 
-export type Trabajo = 'completar' | 'fotos' | 'video' | 'ficha_tecnica' | 'documentos_proveedor' | 'publicacion' | 'otro'
+export type Trabajo = 'completar' | 'fotos' | 'video' | 'produccion' | 'edicion' | 'ficha_tecnica' | 'documentos_proveedor' | 'publicacion' | 'otro'
 type Persona = { id: string; nombre: string; foto: string | null; rol: string }
 type ProductoT = { id: string; codigo: string; nombre: string; imagen: string | null; publico: boolean }
 type Tarea = {
@@ -29,6 +29,8 @@ export const TRABAJOS: Record<Trabajo, { t: string; c: string; i: typeof FileTex
   completar: { t: 'Completar ficha', c: '#055c9d', i: FileText, d: 'Descripción, características, especificaciones, imagen y 3 fotos.' },
   fotos: { t: 'Fotos', c: '#0e7490', i: Camera, d: 'Imagen principal y fotos nuevas en la galería.' },
   video: { t: 'Video', c: '#e1306c', i: Video, d: 'Un video nuevo del producto (del tipo elegido).' },
+  produccion: { t: 'Producción de video', c: '#be185d', i: Clapperboard, d: 'Guion, preparación del equipo y del producto, grabación y respaldo del material.' },
+  edicion: { t: 'Edición de video', c: '#9333ea', i: Scissors, d: 'Edición (cortes, música, textos y logo), revisión y subida a la galería del producto.' },
   ficha_tecnica: { t: 'Ficha técnica', c: '#04896f', i: FileBadge, d: 'Generar o actualizar la ficha técnica en PDF.' },
   documentos_proveedor: { t: 'Documentos del proveedor', c: '#7c3aed', i: FolderUp, d: 'Pedir al proveedor y cargar manual / hoja de datos y certificados en Documentos técnicos.' },
   publicacion: { t: 'Publicación', c: '#c2410c', i: Megaphone, d: 'Copy, diseño o video y programarla en el Planificador.' },
@@ -41,6 +43,7 @@ const ESTADO_COLOR: Record<string, [string, string]> = {
   Listo: ['#dcfce7', '#15803d'], Cancelado: ['#f1f5f9', '#94a3b8'],
 }
 const abierta = (t: Tarea) => t.estado !== 'Listo' && t.estado !== 'Cancelado'
+const esVideo = (t: Trabajo) => t === 'video' || t === 'produccion' || t === 'edicion'
 
 /* ---------------------------------------------------------------- Fechas (AAAA-MM-DD, sin zona horaria) */
 const dia = (iso: string) => new Date(iso + 'T12:00:00')
@@ -74,6 +77,8 @@ export function PlanTrabajo({ aviso, irA, pendiente, consumirPendiente }: {
   const [detalle, setDetalle] = useState<Tarea | null>(null)
   const [asignar, setAsignar] = useState<PendientePlan | 'nuevo' | null>(null)
   const [armar, setArmar] = useState(false)
+  // Clic en el día de una persona: formulario según su rol (Asistente → producto, Audiovisual → video)
+  const [diaSel, setDiaSel] = useState<{ persona: string; fecha: string } | null>(null)
   const arrastra = useRef<string | null>(null)
   const [encima, setEncima] = useState('')
   const dias = useMemo(() => Array.from({ length: 7 }, (_, i) => sumar(lunes, i)), [lunes])
@@ -131,11 +136,13 @@ export function PlanTrabajo({ aviso, irA, pendiente, consumirPendiente }: {
   const celda = (resp: string, fecha: string | null, lista: Tarea[], clase: string) => {
     const k = resp + '|' + (fecha ?? 'atr')
     return (
-      <div key={k} className={'mkp-celda ' + clase + (encima === k ? ' encima' : '')}
+      <div key={k} className={'mkp-celda ' + clase + (encima === k ? ' encima' : '') + (plan.coordina && fecha ? ' prog' : '')}
         onDragOver={(e) => { if (!plan.coordina || !fecha || !arrastra.current) return; e.preventDefault(); setEncima(k) }}
         onDragLeave={() => setEncima((v) => (v === k ? '' : v))}
-        onDrop={(e) => { e.preventDefault(); setEncima(''); if (fecha && arrastra.current) mover(arrastra.current, fecha, resp); arrastra.current = null }}>
+        onDrop={(e) => { e.preventDefault(); setEncima(''); if (fecha && arrastra.current) mover(arrastra.current, fecha, resp); arrastra.current = null }}
+        onClick={(e) => { if (!plan.coordina || !fecha || (e.target as HTMLElement).closest('.mkp-card')) return; setDiaSel({ persona: resp, fecha }) }}>
         {lista.map((t) => <Tarjeta key={t.id} t={t} />)}
+        {plan.coordina && fecha && <span className="mkp-mas" aria-hidden="true"><Plus />Programar</span>}
       </div>
     )
   }
@@ -207,7 +214,10 @@ export function PlanTrabajo({ aviso, irA, pendiente, consumirPendiente }: {
           {deAntes.length > 0 && <div className="mkp-dia"><h4 className="atr">Atrasadas de antes</h4><div className="grid">{deAntes.map((t) => <Tarjeta key={t.id} t={t} conPersona={plan.coordina} />)}</div></div>}
           {dias.map((d) => {
             const l = visibles.filter((t) => t.fecha === d)
-            return l.length ? <div key={d} className="mkp-dia"><h4>{fLarga(d)}{d === hoy ? ' · hoy' : ''}</h4><div className="grid">{l.map((t) => <Tarjeta key={t.id} t={t} conPersona={plan.coordina} />)}</div></div> : null
+            const prog = plan.coordina && plan.equipo.length > 0
+            return l.length || prog ? <div key={d} className="mkp-dia"><h4 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>{fLarga(d)}{d === hoy ? ' · hoy' : ''}
+              {prog && <button type="button" className="mkp-mas-btn" onClick={() => setDiaSel({ persona: persona || plan.equipo[0].id, fecha: d })}><Plus />Programar</button>}</h4>
+              {l.length > 0 && <div className="grid">{l.map((t) => <Tarjeta key={t.id} t={t} conPersona={plan.coordina} />)}</div>}</div> : null
           })}
           {!deAntes.length && !dias.some((d) => visibles.some((t) => t.fecha === d)) && <div className="mkp-vacio">No hay tareas en esta semana.{plan.coordina ? ' Usa «Asignar tarea» o «Armar la semana».' : ''}</div>}
         </div>
@@ -227,6 +237,7 @@ export function PlanTrabajo({ aviso, irA, pendiente, consumirPendiente }: {
 
       {detalle && <DetalleTarea t={plan.tareas.find((x) => x.id === detalle.id) ?? detalle} plan={plan} nombre={nombre} cerrar={() => setDetalle(null)} aviso={aviso} irA={irA} recargar={cargar} />}
       {asignar && <ModalAsignar plan={plan} inicial={asignar === 'nuevo' ? null : asignar} personaDef={persona} fechaDef={habil(lunes > hoy ? lunes : hoy)} cerrar={() => setAsignar(null)} aviso={aviso} listo={() => { setAsignar(null); cargar() }} />}
+      {diaSel && <FormularioDia plan={plan} personaId={diaSel.persona} fecha={diaSel.fecha} cerrar={() => setDiaSel(null)} aviso={aviso} listo={() => { setDiaSel(null); cargar() }} />}
       {armar && <ModalArmar plan={plan} personaDef={persona} fechaDef={habil(lunes > hoy ? lunes : hoy)} cerrar={() => setArmar(false)} aviso={aviso} listo={() => { setArmar(false); cargar() }} />}
     </div>
   )
@@ -249,7 +260,7 @@ function DetalleTarea({ t, plan, nombre, cerrar, aviso, irA, recargar }: {
     setOcupado('')
   }
   const destino: [string, string] | null = t.trabajo === 'documentos_proveedor' ? ['material', 'Ir a Material de proveedores'] : t.trabajo === 'publicacion' ? ['planificador', 'Ir al Planificador']
-    : t.trabajo === 'video' || t.trabajo === 'fotos' ? ['audiovisual', 'Ir a Audiovisual'] : t.producto ? ['biblioteca', 'Ir a la Biblioteca'] : null
+    : esVideo(t.trabajo) || t.trabajo === 'fotos' ? ['audiovisual', 'Ir a Audiovisual'] : t.producto ? ['biblioteca', 'Ir a la Biblioteca'] : null
   return (
     <div className="mkp-fondo" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
       <div className="mkp-modal">
@@ -299,6 +310,170 @@ function DetalleTarea({ t, plan, nombre, cerrar, aviso, irA, recargar }: {
   )
 }
 
+/* ---------------------------------------------------------------- Formulario del día de una persona
+   Asistente: todo lo del producto (ficha, fotos, ficha técnica, documentos del proveedor, publicación); la app marca lo que
+   le falta al producto. Audiovisual: el video desde la producción (guion y grabación) hasta la edición, cada etapa en su día. */
+type EstadoProd = { imagen: boolean; fotos: number; videos: number; tipos: Record<string, number>; descripcion: boolean; caracteristicas: boolean; especificaciones: boolean; ficha: boolean; docs_manual: boolean; docs_cert: boolean; abiertas: Trabajo[] }
+type ProdDia = ProdBusq & { estado?: EstadoProd | null }
+const cap = (x: string) => x.charAt(0).toUpperCase() + x.slice(1)
+const DEL_PRODUCTO: Trabajo[] = ['completar', 'fotos', 'ficha_tecnica', 'documentos_proveedor', 'publicacion']
+function faltaDe(e: EstadoProd): string[] {
+  const f: string[] = []
+  if (!e.descripcion) f.push('descripción'); if (!e.caracteristicas) f.push('características'); if (!e.especificaciones) f.push('especificaciones')
+  if (!e.imagen) f.push('imagen principal'); if (e.fotos < 3) f.push(e.fotos ? 'fotos (' + e.fotos + ' de 3)' : 'fotos')
+  if (!e.ficha) f.push('ficha técnica'); if (!e.docs_manual) f.push('manual / hoja de datos'); if (!e.docs_cert) f.push('certificados')
+  return f
+}
+function sugeridos(e: EstadoProd): Trabajo[] {
+  const t: Trabajo[] = []
+  if (!(e.descripcion && e.caracteristicas && e.especificaciones && e.imagen && e.fotos >= 3)) t.push('completar')
+  if (!e.ficha) t.push('ficha_tecnica')
+  if (!(e.docs_manual && e.docs_cert)) t.push('documentos_proveedor')
+  return t.filter((x) => !e.abiertas.includes(x))
+}
+function FormularioDia({ plan, personaId, fecha, cerrar, aviso, listo }: {
+  plan: Plan; personaId: string; fecha: string; cerrar: () => void; aviso: (s: string) => void; listo: () => void
+}) {
+  const [resp, setResp] = useState(personaId)
+  const persona = plan.equipo.find((e) => e.id === resp)
+  const [tipo, setTipo] = useState<'producto' | 'video' | 'otro'>(persona?.rol === 'Audiovisual' ? 'video' : 'producto')
+  const [tocoTipo, setTocoTipo] = useState(false)
+  useEffect(() => { if (!tocoTipo) setTipo(plan.equipo.find((e) => e.id === resp)?.rol === 'Audiovisual' ? 'video' : 'producto') }, [resp, tocoTipo, plan.equipo])
+  const [productos, setProductos] = useState<ProdDia[]>([])
+  const [busca, setBusca] = useState<ProdBusq | null>(null)
+  const [trabajos, setTrabajos] = useState<Trabajo[]>([])
+  const [tocoTrabajos, setTocoTrabajos] = useState(false)
+  const [tipoVideo, setTipoVideo] = useState('')
+  const [etapas, setEtapas] = useState<'ambas' | 'produccion' | 'edicion'>('ambas')
+  const [fProd, setFProd] = useState(fecha)
+  const [fEdi, setFEdi] = useState(habil(sumar(fecha, 1)))
+  const [prioridad, setPrioridad] = useState('Normal')
+  const [instrucciones, setInstrucciones] = useState('')
+  const [ocupado, setOcupado] = useState(false)
+  useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') cerrar() }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [cerrar])
+  // Al agregar un producto se trae lo que le falta (y lo que ya tiene en marcha)
+  useEffect(() => {
+    if (!busca) return
+    const p = busca; setBusca(null)
+    if (tipo === 'video') setProductos([{ ...p }])
+    else setProductos((l) => (l.some((x) => x.id === p.id) ? l : [...l, { ...p }]))
+    rpc<EstadoProd>('mkt_plan_estado_producto', { p_producto: p.id }).then((e) => {
+      setProductos((l) => l.map((x) => (x.id === p.id ? { ...x, estado: e } : x)))
+      if (!tocoTrabajos && e) setTrabajos((t) => [...new Set([...t, ...sugeridos(e)])])
+    }).catch(() => setProductos((l) => l.map((x) => (x.id === p.id ? { ...x, estado: null } : x))))
+  }, [busca]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function asignar(trabajo: Trabajo, items: { producto_id?: string; fecha: string }[], detalle = '') {
+    return rpc<{ creadas: number; omitidos: { producto: string; motivo: string }[] }>('mkt_plan_asignar', { p: { responsable: resp, trabajo, detalle, prioridad, instrucciones, items } })
+  }
+  async function guardar() {
+    if (!resp) { aviso('Elige a la persona.'); return }
+    const lotes: [Trabajo, { producto_id?: string; fecha: string }[], string][] = []
+    if (tipo === 'producto') {
+      if (!productos.length) { aviso('Agrega al menos un producto.'); return }
+      if (!trabajos.length) { aviso('Marca qué tiene que completar.'); return }
+      for (const t of DEL_PRODUCTO) if (trabajos.includes(t)) lotes.push([t, productos.map((p) => ({ producto_id: p.id, fecha })), ''])
+    } else if (tipo === 'video') {
+      if (!productos.length) { aviso('Elige el producto del video.'); return }
+      if (etapas === 'ambas' && fEdi < fProd) { aviso('La edición no puede ser antes de la producción.'); return }
+      if (etapas !== 'edicion') lotes.push(['produccion', [{ producto_id: productos[0].id, fecha: fProd }], tipoVideo])
+      if (etapas !== 'produccion') lotes.push(['edicion', [{ producto_id: productos[0].id, fecha: etapas === 'edicion' ? fProd : fEdi }], tipoVideo])
+    } else {
+      if (!instrucciones.trim()) { aviso('Escribe qué hay que hacer.'); return }
+      lotes.push(['otro', [{ fecha }], ''])
+    }
+    setOcupado(true)
+    let creadas = 0; const omitidos: string[] = []
+    try {
+      for (const [t, items, det] of lotes) {
+        const r = await asignar(t, items, det)
+        creadas += r.creadas
+        r.omitidos.forEach((o) => omitidos.push(TRABAJOS[t].t + ' · ' + o.producto + ' (' + o.motivo.toLowerCase() + ')'))
+      }
+      aviso(`${creadas} tarea${creadas === 1 ? '' : 's'} para ${persona?.nombre ?? ''}.` + (omitidos.length ? ' No se asignó: ' + omitidos.join(', ') + '.' : ''))
+      listo()
+    } catch (e) { aviso((e as Error).message); setOcupado(false) }
+  }
+  const tab = (k: 'producto' | 'video' | 'otro', t: string, I: typeof FileText) => (
+    <button type="button" className={tipo === k ? 'on' : ''} onClick={() => { setTipo(k); setTocoTipo(true); if (k === 'video') setProductos((l) => l.slice(0, 1)) }}><I />{t}</button>
+  )
+  return (
+    <div className="mkp-fondo" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
+      <div className="mkp-modal">
+        <header><div><p style={{ opacity: 0.85, fontWeight: 800, textTransform: 'uppercase', fontSize: 10.5 }}>{persona?.rol ?? ''}</p><h3>{persona?.nombre ?? 'Programar'}</h3><p>{cap(fLarga(fecha))}</p></div>
+          <button type="button" className="x" onClick={cerrar} aria-label="Cerrar"><X className="w-4 h-4" /></button></header>
+        <div className="cuerpo">
+          {plan.equipo.length > 1 && (
+            <label><span className="mkp-lab" style={{ marginTop: 0 }}>Persona</span>
+              <select className="inp" value={resp} onChange={(e) => setResp(e.target.value)}>{plan.equipo.map((e) => <option key={e.id} value={e.id}>{e.nombre} · {e.rol}</option>)}</select></label>
+          )}
+          <div className="mkp-tabs">{tab('producto', 'Producto', FileText)}{tab('video', 'Video', Clapperboard)}{tab('otro', 'Otra tarea', ClipboardList)}</div>
+
+          {tipo !== 'otro' && <>
+            <span className="mkp-lab">{tipo === 'video' ? 'Producto del video' : 'Productos'}</span>
+            <BuscadorProducto valor={busca} cambiar={setBusca} placeholder={tipo === 'video' ? 'Busca el producto (código o nombre)…' : 'Busca y agrega productos (código o nombre)…'} />
+            {productos.length > 0 && <div className="mkp-pasos" style={{ marginTop: 6 }}>{productos.map((p) => {
+              const e = p.estado, falta = e ? faltaDe(e) : []
+              return (
+                <div key={p.id} className="mkp-paso" style={{ cursor: 'default', alignItems: 'flex-start' }}>
+                  <span className="min-w-0 flex-1"><b style={{ fontSize: 12.5 }}>{p.codigo} · {p.nombre}</b>
+                    <span className="block text-[11px]" style={{ color: e === undefined ? '#94a3b8' : falta.length ? '#b45309' : '#04896f' }}>
+                      {e === undefined ? 'Revisando…' : e === null ? '' : tipo === 'video'
+                        ? (e.videos ? e.videos + ' video' + (e.videos === 1 ? '' : 's') + ': ' + Object.entries(e.tipos).map(([k, n]) => k + ' ' + n).join(', ') : 'Todavía no tiene videos')
+                        : (falta.length ? 'Le falta: ' + falta.join(', ') : 'Ficha completa')}</span>
+                    {e && e.abiertas.length > 0 && <span className="block text-[10.5px] text-slate-500">En marcha: {e.abiertas.map((t) => TRABAJOS[t]?.t ?? t).join(', ')}</span>}
+                  </span>
+                  <button type="button" className="mkp-ib" style={{ width: 26, height: 26 }} onClick={() => setProductos((l) => l.filter((x) => x.id !== p.id))} aria-label="Quitar"><X className="w-3 h-3" /></button>
+                </div>
+              )
+            })}</div>}
+          </>}
+
+          {tipo === 'producto' && <>
+            <span className="mkp-lab">Qué completa</span>
+            <div className="mkp-pasos">{DEL_PRODUCTO.map((t) => {
+              const m = TRABAJOS[t], I = m.i, on = trabajos.includes(t)
+              return (
+                <label key={t} className={'mkp-paso' + (on ? ' ok' : '')}>
+                  <input type="checkbox" checked={on} onChange={() => { setTocoTrabajos(true); setTrabajos((l) => (on ? l.filter((x) => x !== t) : [...l, t])) }} />
+                  <I className="w-4 h-4 shrink-0" style={{ color: m.c }} /><span className="min-w-0 flex-1"><b>{m.t}</b><span className="block text-[11px] text-slate-500">{m.d}</span></span>
+                </label>
+              )
+            })}</div>
+          </>}
+
+          {tipo === 'video' && <>
+            <div className="mkp-2">
+              <label><span className="mkp-lab">Tipo de video</span><select className="inp" value={tipoVideo} onChange={(e) => setTipoVideo(e.target.value)}><option value="">Cualquiera</option>{TIPOS_VIDEO.map((v) => <option key={v}>{v}</option>)}</select></label>
+              <label><span className="mkp-lab">Qué se programa</span><select className="inp" value={etapas} onChange={(e) => setEtapas(e.target.value as 'ambas' | 'produccion' | 'edicion')}>
+                <option value="ambas">Producción y edición</option><option value="produccion">Solo producción (grabación)</option><option value="edicion">Solo edición</option></select></label>
+            </div>
+            <div className="mkp-2">
+              <label><span className="mkp-lab">{etapas === 'edicion' ? 'Día de edición' : 'Día de producción'}</span><input type="date" className="inp" value={fProd} onChange={(e) => { setFProd(e.target.value); if (e.target.value && fEdi < e.target.value) setFEdi(habil(sumar(e.target.value, 1))) }} /></label>
+              {etapas === 'ambas' && <label><span className="mkp-lab">Día de edición</span><input type="date" className="inp" value={fEdi} min={fProd} onChange={(e) => setFEdi(e.target.value)} /></label>}
+            </div>
+            <div className="mkp-pasos" style={{ marginTop: 10 }}>
+              {etapas !== 'edicion' && <div className="mkp-paso" style={{ cursor: 'default' }}><Clapperboard className="w-4 h-4 shrink-0" style={{ color: TRABAJOS.produccion.c }} /><span><b>Producción</b><span className="block text-[11px] text-slate-500">Guion y lista de tomas · preparar equipo, lugar y producto · grabación · respaldo</span></span></div>}
+              {etapas !== 'produccion' && <div className="mkp-paso" style={{ cursor: 'default' }}><Scissors className="w-4 h-4 shrink-0" style={{ color: TRABAJOS.edicion.c }} /><span><b>Edición</b><span className="block text-[11px] text-slate-500">Elegir tomas · cortes, música, textos y logo · revisión · subir a la galería del producto</span></span></div>}
+            </div>
+            <p className="mkp-nota" style={{ marginTop: 6 }}>Las dos se cierran solas cuando el video nuevo aparece en la galería del producto.</p>
+          </>}
+
+          <div className="mkp-2">
+            <label><span className="mkp-lab">Prioridad</span><select className="inp" value={prioridad} onChange={(e) => setPrioridad(e.target.value)}><option>Normal</option><option>Importante</option><option>Urgente</option></select></label>
+            {tipo !== 'video' && <label><span className="mkp-lab">Fecha</span><input type="text" className="inp" value={cap(fLarga(fecha))} readOnly style={{ background: '#f8fafc' }} /></label>}
+          </div>
+          <label><span className="mkp-lab">{tipo === 'otro' ? 'Qué hay que hacer' : tipo === 'video' ? 'Lugar e indicaciones (opcional)' : 'Instrucciones (opcional)'}</span>
+            <textarea className="inp" rows={3} value={instrucciones} onChange={(e) => setInstrucciones(e.target.value)}
+              placeholder={tipo === 'otro' ? 'Ej. Ordenar el material de la sala de exhibición' : tipo === 'video' ? 'Ej. Grabar en la sala de exhibición con el equipo encendido; formato vertical para redes' : 'Ej. Tomar los datos del catálogo del fabricante'} /></label>
+        </div>
+        <footer><span style={{ flex: 1 }} /><button type="button" className="btn" onClick={cerrar}>Cancelar</button>
+          <button type="button" className="btn btn-primary" disabled={ocupado} onClick={guardar}><Check />{ocupado ? 'Guardando…' : 'Programar'}</button></footer>
+      </div>
+    </div>
+  )
+}
+
 /* ---------------------------------------------------------------- Asignar */
 function ModalAsignar({ plan, inicial, personaDef, fechaDef, cerrar, aviso, listo }: {
   plan: Plan; inicial: PendientePlan; personaDef: string; fechaDef: string; cerrar: () => void; aviso: (s: string) => void; listo: () => void
@@ -320,7 +495,7 @@ function ModalAsignar({ plan, inicial, personaDef, fechaDef, cerrar, aviso, list
     const items = trabajo === 'otro' ? [{ fecha }] : (repartir1 ? repartir(productos, fecha, 1) : productos.map((x) => ({ x, fecha }))).map((r) => ({ producto_id: r.x.id, fecha: r.fecha }))
     setOcupado(true)
     try {
-      const r = await rpc<{ creadas: number; omitidos: { producto: string; motivo: string }[] }>('mkt_plan_asignar', { p: { responsable: resp, trabajo, detalle: trabajo === 'video' ? detalle : '', prioridad, instrucciones, items } })
+      const r = await rpc<{ creadas: number; omitidos: { producto: string; motivo: string }[] }>('mkt_plan_asignar', { p: { responsable: resp, trabajo, detalle: esVideo(trabajo) ? detalle : '', prioridad, instrucciones, items } })
       aviso(`${r.creadas} tarea${r.creadas === 1 ? '' : 's'} asignada${r.creadas === 1 ? '' : 's'}.` + (r.omitidos.length ? ' No se asignó: ' + r.omitidos.map((o) => o.producto + ' (' + o.motivo.toLowerCase() + ')').join(', ') + '.' : ''))
       listo()
     } catch (e) { aviso((e as Error).message); setOcupado(false) }
@@ -335,7 +510,7 @@ function ModalAsignar({ plan, inicial, personaDef, fechaDef, cerrar, aviso, list
             <label><span className="mkp-lab">Trabajo</span><select className="inp" value={trabajo} onChange={(e) => setTrabajo(e.target.value as Trabajo)}>{(Object.keys(TRABAJOS) as Trabajo[]).map((k) => <option key={k} value={k}>{TRABAJOS[k].t}</option>)}</select></label>
           </div>
           <p className="mkp-nota" style={{ marginTop: 6 }}>{TRABAJOS[trabajo].d}</p>
-          {trabajo === 'video' && <label><span className="mkp-lab">Tipo de video</span><select className="inp" value={detalle} onChange={(e) => setDetalle(e.target.value)}><option value="">Cualquiera</option>{TIPOS_VIDEO.map((v) => <option key={v}>{v}</option>)}</select></label>}
+          {esVideo(trabajo) && <label><span className="mkp-lab">Tipo de video</span><select className="inp" value={detalle} onChange={(e) => setDetalle(e.target.value)}><option value="">Cualquiera</option>{TIPOS_VIDEO.map((v) => <option key={v}>{v}</option>)}</select></label>}
           {trabajo !== 'otro' ? <>
             <span className="mkp-lab">Productos</span>
             <BuscadorProducto valor={busca} cambiar={setBusca} placeholder="Busca y agrega productos (código o nombre)…" />
@@ -393,7 +568,7 @@ function ModalArmar({ plan, personaDef, fechaDef, cerrar, aviso, listo }: {
         <div className="cuerpo">
           <div className="mkp-2">
             <label><span className="mkp-lab">Persona</span><select className="inp" value={resp} onChange={(e) => setResp(e.target.value)}>{plan.equipo.map((e) => <option key={e.id} value={e.id}>{e.nombre} · {e.rol}</option>)}</select></label>
-            <label><span className="mkp-lab">Trabajo</span><select className="inp" value={trabajo} onChange={(e) => { setTrabajo(e.target.value as Trabajo); setSug(null) }}>{(Object.keys(TRABAJOS) as Trabajo[]).filter((k) => k !== 'otro').map((k) => <option key={k} value={k}>{TRABAJOS[k].t}</option>)}</select></label>
+            <label><span className="mkp-lab">Trabajo</span><select className="inp" value={trabajo} onChange={(e) => { setTrabajo(e.target.value as Trabajo); setSug(null) }}>{(Object.keys(TRABAJOS) as Trabajo[]).filter((k) => k !== 'otro' && k !== 'produccion' && k !== 'edicion').map((k) => <option key={k} value={k}>{TRABAJOS[k].t}</option>)}</select></label>
           </div>
           {trabajo === 'video' && <label><span className="mkp-lab">Tipo de video</span><select className="inp" value={detalle} onChange={(e) => { setDetalle(e.target.value); setSug(null) }}><option value="">Productos sin ningún video</option>{TIPOS_VIDEO.map((v) => <option key={v} value={v}>Sin video {v.toLowerCase()}</option>)}</select></label>}
           <div className="mkp-2">

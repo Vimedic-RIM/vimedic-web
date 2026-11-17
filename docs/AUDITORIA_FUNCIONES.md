@@ -783,3 +783,12 @@ Cotizaciones anteriores (sin copia) toman los términos actuales al abrir la pro
 | Observaciones en la ventana del producto | Texto completo en rojo (antes solo «pasa el cursor»): en pantalla grande arriba de los detalles, en el teléfono antes del precio; también en el panel lateral | ✅ | `web/src/modulos/Inventario.tsx` (`AvisoObs`) |
 | Ficha técnica dentro de «Documentos técnicos» | La ficha actual del producto (`ficha_tecnica_url`, 349 productos) y sus versiones generadas (`fichas_tecnicas`, 35) se listan junto a manuales y certificados | ✅ | `Inventario.tsx` (`DocumentosTecnicos`) |
 | Acta de una venta de FEMEDICS | Se cambian en el acta el Nº de factura, la cédula/RUC, «Entregado por» y el nombre y cargo de la firma de la Carta de Garantía; sale con el logo y el pie de FEMEDICS. Se guarda en `acta_datos.femedics`. Las actas de VIMEDIC no cambian | ✅ (nuevo, no estaba en el original) | `Facturacion.tsx` (`ModalActaGarantia`), `documentosFacturacion.ts`, `documentoMarca.ts`, `public/logo-femedics.svg` |
+
+## Marketing › Plan de trabajo y Revisión (17-nov-2026, noche)
+
+| Función | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| Equipo del plan | Solo empleados activos del área Marketing («Rol / Área» o «Departamento» en Empleados). Rol: el de Marketing (Asistente / Audiovisual) o, si no tiene, por el cargo. Quien coordina sin ser del área no sale | ✅ | `app.mkt_plan_equipo` en `20261117160000_marketing_plan_equipo_videos.sql` |
+| Clic en el día de cada persona | Abre un formulario: Asistente → «Producto» (la app muestra lo que le falta y marca completar ficha / ficha técnica / documentos del proveedor; también fotos y publicación). Audiovisual → «Video»: producción (guion, preparación, grabación, respaldo) y edición (tomas, edición, revisión, subida), cada una en su día. «Otra tarea» para lo libre | ✅ | `MarketingPlan.tsx` (`FormularioDia`), `mkt_plan_estado_producto` |
+| Trabajos nuevos | «Producción de video» y «Edición de video»; se cierran solas cuando aparece el video nuevo (del tipo pedido) en la galería | ✅ | `actividades.mkt_trabajo` (`produccion`, `edicion`), `app.mkt_trabajo_cumplido` |
+| Revisión | La pestaña solo la ve quien coordina Marketing | ✅ | `Marketing.tsx` |

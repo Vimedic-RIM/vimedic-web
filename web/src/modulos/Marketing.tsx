@@ -128,12 +128,13 @@ export default function Marketing({ perfil, aviso, accion, limpiarAccion }: { pe
   const [abrirPublicacion, setAbrirPublicacion] = useState(false)
   // "Ver indicadores de Marketing" (Empleados › permisos especiales): sin él no se ven Resumen ni Anuncios.
   const [indicadores, setIndicadores] = useState<boolean | null>(null)
-  // Coordinación: asigna tareas en el Plan de trabajo (también desde la Biblioteca).
-  const [coordina, setCoordina] = useState(false)
+  // Coordinación: asigna tareas en el Plan de trabajo (también desde la Biblioteca) y es la única que ve «Revisión».
+  const [coordina, setCoordina] = useState<boolean | null>(null)
   const [pendientePlan, setPendientePlan] = useState<PendientePlan>(null)
   const consumirPendientePlan = useCallback(() => setPendientePlan(null), [])
   useEffect(() => { supabase.rpc('marketing_mi_rol').then(({ data }) => { const d = data as { indicadores?: boolean; coord?: boolean } | null; setIndicadores(!!d?.indicadores); setCoordina(!!d?.coord) }) }, [])
   useEffect(() => { if (indicadores === false && (tab === 'resumen' || tab === 'anuncios')) setTab('planificador') }, [indicadores, tab]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (coordina === false && tab === 'revision') setTab('planificador') }, [coordina, tab]) // eslint-disable-line react-hooks/exhaustive-deps
   // Contador de Revisión en la barra (mkfContador): por aprobar para Coordinación, por corregir para el resto.
   const [porRevisar, setPorRevisar] = useState(0)
   useEffect(() => {
@@ -307,7 +308,7 @@ export default function Marketing({ perfil, aviso, accion, limpiarAccion }: { pe
   return (
     <div className="vm-mkt">
       <nav id="sideNav" aria-label="Secciones de Marketing">
-        {NAV.filter(([k]) => (k !== 'configuracion' || puedeAdmin) && (indicadores !== false || (k !== 'resumen' && k !== 'anuncios'))).map(([k, t, I]) => <button key={k} type="button" className={'nav-btn' + (tab === k ? ' active' : '')} data-tip={t} aria-label={t} onClick={() => setTab(k)}><I />{k === 'revision' && porRevisar > 0 && <span className="mk-nav-badge">{porRevisar > 99 ? '99+' : porRevisar}</span>}</button>)}
+        {NAV.filter(([k]) => (k !== 'configuracion' || puedeAdmin) && (k !== 'revision' || coordina === true) && (indicadores !== false || (k !== 'resumen' && k !== 'anuncios'))).map(([k, t, I]) => <button key={k} type="button" className={'nav-btn' + (tab === k ? ' active' : '')} data-tip={t} aria-label={t} onClick={() => setTab(k)}><I />{k === 'revision' && porRevisar > 0 && <span className="mk-nav-badge">{porRevisar > 99 ? '99+' : porRevisar}</span>}</button>)}
         <div className="nav-sep" />
         {puedeCrear && <button type="button" className="nav-btn create" data-tip="Crear publicación" aria-label="Crear publicación" onClick={() => setTab('planificador')}><PenLine /></button>}
         <button type="button" className="nav-btn" data-tip="Actualizar" aria-label="Actualizar" onClick={cargarDatos}><RefreshCw /></button>
@@ -420,7 +421,7 @@ export default function Marketing({ perfil, aviso, accion, limpiarAccion }: { pe
         {tab === 'planificador' && <Planificador perfil={perfil} piezas={(av ?? []).map((a) => ({ id: a.id, titulo: a.titulo, tipo: a.tipo, estado: a.estado, url: a.url, producto: a.producto, mime: a.mime, notas: a.notas, productoId: a.productoId ?? undefined, enlace: enlaceZernio(a), mini: miniaturaAv(a, 480) }))} piezaInicial={piezaProgramar ? { id: piezaProgramar.id, titulo: piezaProgramar.titulo, tipo: piezaProgramar.tipo, estado: piezaProgramar.estado, url: piezaProgramar.url, producto: piezaProgramar.producto, mime: piezaProgramar.mime, notas: piezaProgramar.notas, productoId: piezaProgramar.productoId ?? undefined, enlace: enlaceZernio(piezaProgramar), mini: miniaturaAv(piezaProgramar, 480) } : null} limpiarPieza={() => setPiezaProgramar(null)} irConfig={() => setTab('configuracion')} aviso={aviso} alSincronizar={cargarDatos} abrirAlEntrar={abrirPublicacion} consumirAbrir={() => setAbrirPublicacion(false)} />}
         {tab === 'biblioteca' && <Biblioteca perfil={perfil} aviso={aviso} asignar={coordina ? (p) => { setPendientePlan(p); setTab('plan') } : undefined} />}
         {tab === 'plan' && <PlanTrabajo perfil={perfil} aviso={aviso} irA={setTab} pendiente={pendientePlan} consumirPendiente={consumirPendientePlan} />}
-        {tab === 'revision' && <Revision perfil={perfil} aviso={aviso} irA={setTab} />}
+        {tab === 'revision' && coordina && <Revision perfil={perfil} aviso={aviso} irA={setTab} />}
         {tab === 'configuracion' && puedeAdmin && <Configuracion aviso={aviso} alCambiar={() => undefined} />}
 
         {tab === 'anuncios' && <Anuncios perfil={perfil} desde={desde} hasta={hasta} aviso={aviso} />}
