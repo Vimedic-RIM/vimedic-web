@@ -4,6 +4,7 @@ import { supabase, type Perfil } from '../supabase'
 import { textoPublico, type Publico } from './ofertasInv'
 import { puede } from '../permisos'
 import { LOGO_BLANCO } from '../catalogoAssets'
+import { encabezadoPdf, logoDocDataUrl } from '../documentoMarca'
 import { ConfirmarEliminar } from './CrmClientes'
 import { useEstadoStock, ChipsStockProceso, type EstadoStock } from '../estadoStock'
 import '../estilos/ofertas.css'
@@ -937,11 +938,12 @@ function PdfHoja({ productos, ofertas, cerrar }: { productos: (Prod & { pdfOfert
       setProg('Preparando el PDF y las fotografías…')
       const { jsPDF } = await import('jspdf'); const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true })
       const total = Math.ceil(lista.length / 6), fecha = new Date().toLocaleDateString('es-EC'), fotos = new Map<string, string | null>(); let faltan = 0
+      const logo = await logoDocDataUrl()
       for (let pagina = 0; pagina < total; pagina++) {
         const lote = lista.slice(pagina * 6, pagina * 6 + 6)
         for (let k = 0; k < lote.length; k += 3) await Promise.all(lote.slice(k, k + 3).map(async (p) => { if (fotos.has(p.id)) return; fotos.set(p.id, p.img ? (await aDataUrl(imgUrl(p.img, 600))) || null : null) }))
         if (pagina) doc.addPage()
-        doc.setFillColor(11, 37, 69); doc.rect(0, 0, 210, 27, 'F'); doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(17); doc.text('VIMEDIC', 12, 12); doc.setFontSize(10); doc.text('Ofertas y Liquidacion | Lista de productos', 12, 20)
+        encabezadoPdf(doc, { titulo: 'Ofertas y liquidación', subtitulo: 'Lista de productos', logo })
         doc.setTextColor(100, 116, 139); doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.text(`${fecha} | ${lista.length} productos seleccionados`, 12, 34)
         lote.forEach((p, i) => {
           const x = 12 + (i % 2) * 95, y = 40 + Math.floor(i / 2) * 79, w = 91, h = 75

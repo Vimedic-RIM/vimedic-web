@@ -8,6 +8,7 @@ import { puede } from '../permisos'
 import { imagen, Interruptor } from './inventarioUtil'
 import { leerAjustesFicha, type AjustesFicha } from './MarketingRevision'
 import { imagenWebp, subirCatalogo } from './audiovisualMedios'
+import { encabezadoDocHtml, pieDocHtml } from '../documentoMarca'
 import { PorCompletar, VideosPendientes, type DatosPendientes } from './MarketingPendientes'
 
 /* Conexiones de Marketing: Zernio (redes) y Gemini (IA). Las claves viven en el servidor (Edge Function): el navegador nunca las ve. */
@@ -414,10 +415,7 @@ function construirFichaHtml(full: ProdFull, codigo: string, destacadosSel: strin
     .ft-cert{display:inline-block;background:#f0fdf8;border:1px solid #bfe6da;color:#04896f;border-radius:999px;padding:3px 10px;font-size:10px;margin:0 4px 4px 0}
   </style>
   <div class="ft-page">
-    <div class="ft-head">
-      <div><b style="font-size:22px;color:#055c9d">VIMEDIC</b><br><span class="ft-tag">FICHA TÉCNICA</span></div>
-      <div style="text-align:right;font-size:10px;color:#64748b">${esc(codigo)}<br>${esc(new Date().toLocaleDateString('es-EC'))}</div>
-    </div>
+    ${encabezadoDocHtml({ titulo: 'Ficha técnica', etiqueta: 'CÓDIGO', numero: codigo, fecha: new Date().toLocaleDateString('es-EC') })}
     <h1 style="font-size:17px;margin:0 0 2px">${esc(full.nombre)}</h1>
     <p style="font-size:11px;color:#64748b;margin:0 0 12px">${[full.marca, full.codigo_unico, full.categoria].filter(Boolean).map(esc).join(' · ')}</p>
     ${full.imagen_url ? `<img class="ft-img" src="${esc(full.imagen_url)}">` : ''}
@@ -427,7 +425,7 @@ function construirFichaHtml(full: ProdFull, codigo: string, destacadosSel: strin
     ${especs.length ? `<h3 style="font-size:12px;margin:14px 0 4px">Especificaciones técnicas</h3><table class="ft-tabla">${especs.map((e) => `<tr><td style="font-weight:bold;width:40%">${esc(e.dato)}</td><td>${esc(e.valor)}</td></tr>`).join('')}</table>` : ''}
     ${full.garantia ? `<p style="font-size:11px;margin-top:10px"><b>Garantía:</b> ${esc(full.garantia)}</p>` : ''}
     ${certs.length ? `<div style="margin-top:8px">${certs.map((c) => `<span class="ft-cert">${esc(c)}</span>`).join('')}</div>` : ''}
-    <p style="margin-top:24px;font-size:9px;color:#94a3b8;text-align:center">${contacto} · ${esc(codigo)}</p>
+    ${pieDocHtml(null, `${contacto} · ${esc(codigo)}`)}
   </div>`
 }
 const WEB = 'vimedic.com.ec'

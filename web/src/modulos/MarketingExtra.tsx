@@ -7,6 +7,7 @@ import { puede } from '../permisos'
 import { imagen as imgUrl } from './inventarioUtil'
 import { armarProductos, CFG_DEF, ChipsStockProceso, GRUPOS, meses, useEstadoStock, type EstadoStock, type Prod } from './Ofertas'
 import '../estilos/ofertas.css'
+import { encabezadoDocHtml, encabezadoPdf, logoDocDataUrl } from '../documentoMarca'
 
 const money = (n: number) => '$' + (Number(n) || 0).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 async function aDataUrl(url: string): Promise<string> { try { const b = await (await fetch(url)).blob(); if (b.size > 4 * 1048576) return ''; return await new Promise<string>((ok) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.onerror = () => ok(''); r.readAsDataURL(b) }) } catch { return '' } }
@@ -97,7 +98,7 @@ async function pdfSolicitud(s: Sol) {
     <td>${p.modelo ? `<div style="font-size:13px;font-weight:bold;color:#055c9d">Model / 型号: ${esc(p.modelo)}</div>` : ''}${p.codInterno ? `<div style="font-size:11px;font-weight:bold">Code / 编码: ${esc(p.codInterno)}</div>` : ''}<div>${esc(p.nombre || p.modelo || p.clave)}</div><div style="color:#56607e;font-size:9.5px">${p.codigo ? 'VIMEDIC: ' + esc(p.codigo) : ''}${p.marca ? ' · ' + esc(p.marca) : ''}</div>${p.nota ? `<div style="color:#56607e;font-size:9.5px">${esc(p.nota)}</div>` : ''}${p.abierto === false ? '<div style="color:#a3341f;font-size:9.5px;font-weight:bold">Cerrado / Closed</div>' : ''}</td>
     ${tipos.map(([k]) => `<td style="width:70px;text-align:center;font-size:16px">${p.pide?.[k] ? '☐' : '—'}</td>`).join('')}</tr>`).join('')
   const html = `<div style="font-family:Arial,sans-serif;color:#1d2344;font-size:10.5px">
-    <div style="background:#1d2344;color:#fff;padding:12px 16px;border-radius:10px"><div style="font-size:18px;font-weight:bold">VIMEDIC · Solicitud de material de productos</div><div style="color:#cfd6ea;font-size:11px;margin-top:3px">Product documentation request · 产品资料需求 · ${esc(s.codigo)}${s.proveedor_texto ? ' · ' + esc(s.proveedor_texto) : ''}</div></div>
+    ${encabezadoDocHtml({ titulo: 'Solicitud de material de productos', titulo2: 'Product documentation request · 产品资料需求', etiqueta: 'Nº', numero: s.codigo || '—', lugarFecha: s.proveedor_texto ? 'Proveedor / Supplier / 供应商: ' + s.proveedor_texto : '' })}
     <div style="margin:10px 0;padding:9px 12px;border:1px solid #cfd6e4;border-radius:8px;background:#f5f8fc;font-size:11px">Suba los archivos en este enlace / Upload the files at this link / 请通过以下链接上传文件:<br><b style="color:#055c9d">${esc(enlaceMaterial(s.token))}</b><br>Válido hasta / Valid until / 有效期至: <b>${esc((s.vence ?? '').slice(0, 10) || '—')}</b>${s.nota ? '<br>' + esc(s.nota) : ''}</div>
     <table style="width:100%;border-collapse:collapse" border="1" cellpadding="5"><thead><tr style="background:#eef3f9;font-size:9px"><th>#</th><th>Foto</th><th>Producto / Product / 产品</th>${tipos.map(([, a, b, c]) => `<th>${a}<br><span style="font-weight:normal">${b}<br>${c}</span></th>`).join('')}</tr></thead><tbody>${filas}</tbody></table>
     <p style="color:#8a95b3;font-size:9px;margin-top:8px">☐ = se solicita / requested / 需要 · — = no se solicita / not requested / 不需要 · Generado ${new Date().toLocaleString('es-EC')}</p></div>`
@@ -508,6 +509,7 @@ function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mov
       const fechaHoy = new Date().toLocaleDateString('es-EC')
       const fotos = new Map<string, string | null>()
       const totalPaginas = Math.max(1, Math.ceil(filas.length / 6))
+      const logo = await logoDocDataUrl()
       let faltan = 0
       for (let pagina = 0; pagina < totalPaginas; pagina++) {
         const lote = filas.slice(pagina * 6, pagina * 6 + 6)
@@ -515,7 +517,7 @@ function DetalleCampana({ c, perfil, aprobar, editar, puedeEliminar, cerrar, mov
           await Promise.all(lote.slice(k, k + 3).map(async (f) => { if (fotos.has(f.codigo)) return; fotos.set(f.codigo, f.imagen ? (await aDataUrl(imgUrl(f.imagen, 600))) || null : null) }))
         }
         if (pagina) doc.addPage()
-        doc.setFillColor(11, 37, 69); doc.rect(0, 0, 210, 27, 'F'); doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(17); doc.text('VIMEDIC', 12, 12); doc.setFontSize(10); doc.text(c.nombre, 12, 20)
+        encabezadoPdf(doc, { titulo: 'Productos en promoción', subtitulo: c.nombre, logo })
         doc.setTextColor(100, 116, 139); doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.text(`${fechaHoy} · ${filas.length} producto(s) en promoción`, 12, 34)
         lote.forEach((f, i) => {
           const x = 12 + (i % 2) * 95, y = 40 + Math.floor(i / 2) * 79, w = 91, h = 75
@@ -696,9 +698,8 @@ function TableroCampana({ id, cerrar }: { id: string; cerrar: () => void }) {
       const d = new jsPDF({ unit: 'mm', format: 'a4' }), W = 210
       let y = 16
       const linea = (txt: string, tam = 10, negrita = false, color: [number, number, number] = [29, 35, 68]) => { if (y > 280) { d.addPage(); y = 16 } d.setFont('helvetica', negrita ? 'bold' : 'normal'); d.setFontSize(tam); d.setTextColor(...color); d.text(txt, 14, y); y += tam * 0.5 + 2 }
-      d.setFillColor(29, 35, 68); d.rect(0, 0, W, 30, 'F'); d.setTextColor(255, 255, 255); d.setFont('helvetica', 'bold'); d.setFontSize(15)
-      d.text('VIMEDIC · Informe final de campaña', 14, 13); d.setFontSize(10); d.setFont('helvetica', 'normal')
-      d.text(`${t.nombre}${t.codigo ? ' · ' + t.codigo : ''} · ${fecha(t.inicio)} → ${fecha(t.fin)}${t.preventa ? ' · con preventa' : ''}`, 14, 21); y = 40
+      // Encabezado de la proforma con el logo oficial (documentoMarca.ts).
+      y = encabezadoPdf(d, { titulo: 'Informe final de campaña', subtitulo: `${t.nombre}${t.codigo ? ' · ' + t.codigo : ''} · ${fecha(t.inicio)} – ${fecha(t.fin)}${t.preventa ? ' · con preventa' : ''}`, logo: await logoDocDataUrl(), x: 14 }) + 4
       const T = t.totales
       linea('Resumen', 12, true)
       linea(`Ventas: ${usd(T.monto)} · ${T.unidades} unidad(es)${T.ventas ? ' · ' + T.ventas + ' operación(es)' : ''}`)

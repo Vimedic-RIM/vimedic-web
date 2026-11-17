@@ -1,6 +1,7 @@
 /* PDF de ofertas vigentes para el cliente (Issues #39 y #40). Se arma en el navegador con jsPDF (se descarga al usarlo).
    Dos formatos: catálogo con fotos (2 columnas, por categoría) y lista compacta (tabla con una foto pequeña por producto). */
-import { LOGO_BLANCO, LOGO_RATIO } from '../catalogoAssets'
+import { LOGO_RATIO } from '../catalogoAssets'
+import { logoDocDataUrl } from '../documentoMarca'
 import { imagen } from './inventarioUtil'
 import { agruparOfertas, campanasDe, fechaCorta, LIMITE_REAL, limiteDe, normalizar, preciosOferta, textoVigencia, type LimiteFecha, type OfertaInv } from './ofertasInv'
 
@@ -57,18 +58,8 @@ async function fotoJpeg(src: string, max = 520, calidad = 0.82): Promise<Foto | 
   return null
 }
 
-/** El logo es SVG: se pasa a PNG para el PDF. */
-async function logoPng(): Promise<string | null> {
-  try {
-    const img = await new Promise<HTMLImageElement>((ok, mal) => { const i = new Image(); i.onload = () => ok(i); i.onerror = mal; i.src = LOGO_BLANCO })
-    const w = 1000, h = Math.round(w / LOGO_RATIO)
-    const c = document.createElement('canvas'); c.width = w; c.height = h
-    const g = c.getContext('2d')
-    if (!g) return null
-    g.drawImage(img, 0, 0, w, h)
-    return c.toDataURL('image/png')
-  } catch { return null }
-}
+/** El logo oficial a color (el de la proforma), en PNG para el PDF. */
+const logoPng = logoDocDataUrl
 
 type Col = { k: 'hasta' | 'ahorro' | 'oferta' | 'antes' | 'stock'; w: number; al: 'right' | 'center' }
 
@@ -95,40 +86,41 @@ export async function generarPdfOfertas(items: OfertaInv[], op: OpcionesPdf, pro
   const LIM = 279, BANDA = 54
 
   /* ---------- Cabeceras ---------- */
+  // Encabezado de la proforma (documentoMarca.ts): fondo blanco, logo oficial a color, título azul a la derecha y línea azul.
   const marca = (x: number, y: number, alto: number) => {
     if (logo) { doc.addImage(logo, 'PNG', x, y, alto * LOGO_RATIO, alto); return }
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(alto * 2.2); doc.setTextColor(255, 255, 255); doc.text(fem ? 'FEMEDICS' : 'VIMEDIC', x, y + alto * 0.82)
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(alto * 2.2); doc.setTextColor(...AZUL); doc.text(fem ? 'FEMEDICS' : 'VIMEDIC', x, y + alto * 0.82)
   }
   const portada = () => {
-    doc.setFillColor(...NAVY); doc.rect(0, 0, 210, BANDA, 'F')
-    doc.setFillColor(...NARANJA); doc.rect(0, BANDA, 210, 1.4, 'F')
-    marca(14, 11, 9)
-    if (fem) { doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...CLARO); doc.text('Distribuidor autorizado de la marca VIMEDIC', 14, 25) }
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...CLARO)
-    doc.text(limpiarPdf(new Date().toLocaleDateString('es-EC', { day: 'numeric', month: 'long', year: 'numeric' })), 196, 15, { align: 'right' })
+    marca(14, 9, 9)
+    if (fem) { doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GRIS); doc.text('Distribuidor autorizado de la marca VIMEDIC', 14, 22) }
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13.5); doc.setTextColor(...AZUL); doc.text('OFERTAS VIGENTES', 196, 13.5, { align: 'right' })
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.2); doc.setTextColor(54, 86, 121)
+    doc.text(limpiarPdf(new Date().toLocaleDateString('es-EC', { day: 'numeric', month: 'long', year: 'numeric' })), 196, 18.5, { align: 'right' })
+    doc.setDrawColor(...AZUL); doc.setLineWidth(0.8); doc.line(14, 24.5, 196, 24.5); doc.setLineWidth(0.2)
     if (op.interna) {
       const t = 'VERSIÓN INTERNA · NO ENVIAR AL CLIENTE'
       doc.setFont('helvetica', 'bold'); doc.setFontSize(7); const w = doc.getTextWidth(t) + 6
-      doc.setFillColor(...NARANJA); doc.roundedRect(196 - w, 19, w, 6, 1.5, 1.5, 'F'); doc.setTextColor(255, 255, 255); doc.text(t, 196 - w / 2, 23.1, { align: 'center' })
+      doc.setFillColor(...NARANJA); doc.roundedRect(196 - w, 27.5, w, 6, 1.5, 1.5, 'F'); doc.setTextColor(255, 255, 255); doc.text(t, 196 - w / 2, 31.6, { align: 'center' })
     }
-    // El nombre de la campaña es el título; "OFERTAS VIGENTES" va como rótulo encima (salvo que el título ya sea ese texto).
-    if (normalizar(titulo) !== 'ofertas vigentes') {
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(...CLARO); doc.setCharSpace(0.8); doc.text('OFERTAS VIGENTES', 14, 31.5); doc.setCharSpace(0)
+    // El nombre de la campaña es el título grande (si el título es "Ofertas vigentes", ya está arriba a la derecha).
+    const conTitulo = normalizar(titulo) !== 'ofertas vigentes'
+    if (conTitulo) {
+      let fs = 21
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(fs)
+      while (fs > 12 && doc.getTextWidth(titulo) > (op.interna ? 120 : 182)) { fs -= 1; doc.setFontSize(fs) }   // un título largo se reduce para que quepa
+      doc.setTextColor(...AZUL); doc.text(titulo, 14, 38)
     }
-    let fs = 21
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(fs)
-    while (fs > 12 && doc.getTextWidth(titulo) > 182) { fs -= 1; doc.setFontSize(fs) }   // un título largo se reduce para que quepa
-    doc.setTextColor(255, 255, 255); doc.text(titulo, 14, 41)
     const n = items.length, c = grupos.length
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...CLARO)
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...GRIS)
     const sub = doc.splitTextToSize(limpiarPdf([`${n} producto${n === 1 ? '' : 's'} en oferta`, `${c} categoría${c === 1 ? '' : 's'}`, multiCamp ? 'Campañas: ' + camps.join(', ') : '', op.publico === 'PVP' ? 'Precios para clientes PVP' : op.publico === 'DIS' ? 'Precios para distribuidores (DIS)' : '', textoVigencia(items, lim)].filter(Boolean).join('  ·  ')), 182) as string[]
     const subL = sub.slice(0, 2)
-    doc.text(subL, 14, subL.length > 1 ? 47 : 48.5)
+    doc.text(subL, 14, conTitulo ? (subL.length > 1 ? 44.5 : 46) : 38)
   }
   const cabecera = () => {
-    doc.setFillColor(...NAVY); doc.rect(0, 0, 210, 14, 'F')
-    marca(14, 4, 6)
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...CLARO); doc.text(titulo + (op.interna ? '  ·  VERSIÓN INTERNA' : ''), 196, 8.8, { align: 'right' })
+    marca(14, 3.5, 6)
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...AZUL); doc.text(titulo + (op.interna ? '  ·  VERSIÓN INTERNA' : ''), 196, 8.3, { align: 'right' })
+    doc.setDrawColor(...AZUL); doc.setLineWidth(0.5); doc.line(14, 12, 196, 12); doc.setLineWidth(0.2)
   }
   const pies = () => {
     const total = doc.getNumberOfPages()

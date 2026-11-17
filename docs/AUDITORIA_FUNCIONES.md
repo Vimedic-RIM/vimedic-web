@@ -677,3 +677,23 @@ Nota: "Equipos más vendidos" no descuenta las notas de crédito como hacía el 
 | Consultas | Columnas específicas y límites en los listados; `select('*')` solo en dos lecturas de una fila | Sin cambios |
 | Celular (390 px y 360 px) | 27 pantallas sin desplazamiento horizontal | Agenda (selector y barra) y Movimientos (barra) corregidos |
 | Inventario en el celular | Buscador a la izquierda y menú ☰; buscador sin tildes ni mayúsculas | #32 |
+
+## Documentos: logo oficial y encabezado de la proforma (17-nov-2026)
+
+Pedido: el logo de la empresa (SVG enviado, el mismo de `LOGO_COLOR` / `public/logo-documento.png`) en todos los documentos, con el encabezado y el formato de la proforma; antes varios ponían "VIMEDIC" en texto.
+
+| Documento | Antes | Ahora | Dónde |
+|---|---|---|---|
+| Proforma / comprobante de venta | Modelo | Sin cambios (es el modelo) | `proforma.tsx` |
+| Acta de entrega + Carta de garantía + Anexo | Logo, línea navy | Encabezado y pie de la proforma, azul #055c9d | `documentosFacturacion.ts` |
+| Guía de envío (etiqueta) | Logo + rótulo con borde | Logo + título azul + línea de la proforma | `htmlGuia` |
+| Guía de despacho | "VIMEDIC" en texto | Encabezado de la proforma con logo (dentro del archivo), QR, cajas de cliente y entrega, pie | `Facturacion.tsx` (ModalGuiaDespacho) |
+| Constancia de entrega | "VIMEDIC" en texto | Encabezado y pie de la proforma | `Logistica.tsx` |
+| Informe técnico / recepción | Logo, colores navy | Encabezado de la proforma, azul de la proforma (FEMEDICS conserva su color) | `servicioInforme.ts` |
+| Ficha técnica | "VIMEDIC" en texto | Encabezado y pie de la proforma | `MarketingIntegraciones.tsx` |
+| Informe de desempeño (Marketing / Comercial) | Franja navy | Encabezado y pie de la proforma | `MarketingRevision.tsx` |
+| Solicitud de material a proveedores | Franja con "VIMEDIC" en texto | Encabezado de la proforma (trilingüe) | `MarketingExtra.tsx` |
+| Lista de productos en promoción / Ofertas y liquidación / Informe de campaña (jsPDF) | Franja con "VIMEDIC" en texto | `encabezadoPdf`: logo, título azul, línea azul | `MarketingExtra.tsx`, `Ofertas.tsx` |
+| PDF de ofertas para clientes | Franja navy con logo blanco | Portada y cabecera blancas con logo a color, título azul y línea azul | `ofertasPdf.ts` |
+
+Fuente única: `web/src/documentoMarca.ts` (`encabezadoDocHtml`, `pieDocHtml`, `encabezadoPdf`, `logoDocDataUrl`). FEMEDICS: sin logo propio, sale el nombre en azul como en la proforma. El catálogo y las piezas de Marketing (diseños) no se tocaron.

@@ -3,6 +3,7 @@ import { Check, CheckCheck, ExternalLink, FileText, Package, Megaphone, Pencil, 
 import { supabase, type Perfil } from '../supabase'
 import { agrupar } from '../tiempoReal'
 import { llamar } from './MarketingIntegraciones'
+import { encabezadoDocHtml, pieDocHtml } from '../documentoMarca'
 
 /* ============================ Revisión del equipo de Marketing ============================
    Como el original (MarketingFlujo.gs + InformesDesempeno.gs):
@@ -430,10 +431,9 @@ function Informes({ perfil, aviso }: { perfil: Perfil; aviso: (t: string) => voi
       }
       let logo = ''
       try { const bl = await (await fetch('/logo-documento.png')).blob(); logo = await new Promise<string>((ok) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.readAsDataURL(bl) }) } catch { /* sin logo */ }
-      const html = `<div style="font-family:Helvetica,Arial,sans-serif;color:#1e293b;padding:22px;width:780px;box-sizing:border-box"><style>h2{font-size:11.5px;color:#055c9d;text-transform:uppercase;letter-spacing:.06em;margin:18px 0 6px;border-bottom:1px solid #e2e8f0;padding-bottom:4px}table{border-collapse:collapse;width:100%}th{background:#0b2545;color:#fff;font-size:8.5px;padding:6px;text-align:center}td{font-size:9.5px}</style>
-        <table><tr><td style="background:#0b2545;padding:16px 20px;border-radius:12px"><table><tr><td>${logo ? `<img src="${logo}" style="height:36px;background:#fff;border-radius:6px;padding:4px">` : '<b style="color:#fff;font-size:18px">VIMEDIC</b>'}</td>
-        <td style="text-align:right;color:#fff"><div style="font-size:9px;letter-spacing:.14em;color:#7dd3fc;font-weight:bold">${tipo === 'marketing' ? 'DESEMPEÑO DEL EQUIPO DE MARKETING' : 'DESEMPEÑO DEL EQUIPO COMERCIAL'}</div><div style="font-size:20px;font-weight:bold">${esc(R.titulo)}</div><div style="font-size:9.5px;color:#cbd5e1">${esc(rango)}</div></td></tr></table></td></tr></table>
-        ${cuerpo}<p style="margin-top:22px;font-size:8px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:8px">Generado el ${new Date().toLocaleString('es-EC', { timeZone: 'America/Guayaquil' })} por ${esc(perfil.nombre)} · VIMEDIC</p></div>`
+      const html = `<div style="font-family:Helvetica,Arial,sans-serif;color:#1e293b;padding:22px;width:780px;box-sizing:border-box"><style>h2{font-size:11.5px;color:#055c9d;text-transform:uppercase;letter-spacing:.06em;margin:18px 0 6px;border-bottom:1px solid #e2e8f0;padding-bottom:4px}table{border-collapse:collapse;width:100%}th{background:#055c9d;color:#fff;font-size:8.5px;padding:6px;text-align:center}td{font-size:9.5px}</style>
+        ${encabezadoDocHtml({ titulo: tipo === 'marketing' ? 'Desempeño del equipo de marketing' : 'Desempeño del equipo comercial', etiqueta: 'PERÍODO', numero: R.titulo, lugarFecha: rango, logo: logo || null })}
+        ${cuerpo}${pieDocHtml(null, `Generado el ${esc(new Date().toLocaleString('es-EC', { timeZone: 'America/Guayaquil' }))} por ${esc(perfil.nombre)}`)}</div>`
       const html2pdf = (await import('html2pdf.js')).default
       const blob = await html2pdf().set({ margin: 8, image: { type: 'jpeg', quality: 0.95 }, html2canvas: { scale: 2, useCORS: true, logging: false }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' } }).from(html, 'string').toPdf().output('blob') as Blob
       const base64 = await new Promise<string>((ok, no) => { const r = new FileReader(); r.onerror = () => no(new Error('No se pudo leer el PDF.')); r.onload = () => ok(String(r.result).split(',')[1] || ''); r.readAsDataURL(blob) })

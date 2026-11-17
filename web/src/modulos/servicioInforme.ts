@@ -1,5 +1,6 @@
 /* Informe técnico / comprobante de recepción: HTML A4 → PDF en el navegador (sin guardar PDFs). */
 import { supabase } from '../supabase'
+import { encabezadoDocHtml } from '../documentoMarca'
 
 export type OrdenDoc = {
   codigo: string; tipo: string; empresa: string; cobertura: string; modalidad: string; cliente: string; identificacion: string; direccion: string; ciudad: string; contacto: string; telefono: string
@@ -37,7 +38,7 @@ export async function fotoDataUrl(ruta: string): Promise<string> {
 
 export async function htmlInforme(o: OrdenDoc, eq: EquipoDoc, variante: 'informe' | 'recepcion', logo = ''): Promise<{ titulo: string; cuerpo: string }> {
   const fm = o.empresa === 'FEMEDICS'
-  const C = fm ? { p: '#0e5b66', a: '#14a3b4', s: '#e6f6f8', l: '#cfe9ed' } : { p: '#0b2545', a: '#1d72b8', s: '#eef4fb', l: '#d6e2ef' }
+  const C = fm ? { p: '#0e5b66', a: '#14a3b4', s: '#e6f6f8', l: '#cfe9ed' } : { p: '#055c9d', a: '#2ab9c7', s: '#eef4fb', l: '#d6e2ef' }
   const marca = fm ? 'FEMEDICS' : 'VIMEDIC', rec = variante === 'recepcion'
   const titulo = rec ? TITULOS.recepcion : TITULOS[o.tipo] || 'Informe Técnico'
   const numero = rec ? o.recepcionN : o.informeN
@@ -66,8 +67,8 @@ export async function htmlInforme(o: OrdenDoc, eq: EquipoDoc, variante: 'informe
 .stdoc .firmas td{width:50%;vertical-align:bottom;text-align:center;padding:0 18px}.stdoc .firm-img{max-height:62px;max-width:100%}.stdoc .firm-l{border-top:1px solid #334155;margin-top:4px;padding-top:4px;font-size:9.5px}
 .stdoc .foot{margin-top:18px;border-top:1px solid ${C.l};padding-top:7px;font-size:8px;color:#64748b;text-align:center}.stdoc .nb{page-break-inside:avoid}`
 
-  let h = `<div class="stdoc"><table><tr><td style="width:50%">${logo ? `<img class="logo" src="${logo}">` : `<b style="font-size:22px;color:${C.p}">${marca}</b>`}</td>` +
-    `<td style="width:50%"><div class="doc-t">${esc(titulo)}</div><div class="doc-n"><span class="num">N° ${esc(numero || '—')}</span></div></td></tr></table><div class="band"></div><div class="band2"></div>` +
+  // Encabezado de la proforma (documentoMarca.ts): logo oficial, título y número.
+  let h = `<div class="stdoc">${encabezadoDocHtml({ titulo, etiqueta: 'N°', numero: numero || '—', empresa: o.empresa, logo: logo || null })}` +
     `<table class="strip"><tr><td><div class="l">${rec ? 'Fecha de recepción' : 'Fecha del servicio'}</div><div class="x">${fd(fechaDoc)}</div></td><td><div class="l">Orden de servicio</div><div class="x">${esc(o.codigo)}</div></td>` +
     `<td><div class="l">Tipo de servicio</div><div class="x">${esc(o.tipo)}</div></td><td><div class="l">${rec ? 'Modalidad' : 'Cobertura'}</div><div class="x">${esc(rec ? 'Ingreso a taller' : o.cobertura || '—')}</div></td></tr></table>`
   h += `<table style="margin-top:12px"><tr><td style="width:50%;padding-right:6px;vertical-align:top">` +
