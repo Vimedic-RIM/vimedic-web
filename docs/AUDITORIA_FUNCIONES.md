@@ -132,6 +132,13 @@ Pedido del usuario: actualizar CRM y Facturación y depurar lo que no exista (pr
   actualización volvieron a su estado real.
 - El stock de los productos se vuelve a tomar del Excel en la vuelta de Inventario.
 
+Corregido el 16-nov-2026: actas y guía de envío iguales al original.
+
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `generarActaCompleta` (FOR.ADM.08 / FOR.ADM.09) | Un solo PDF con el número de la factura: **Acta de Entrega / Entera Satisfacción** (información del cliente, equipos con series y garantía, cláusulas 1-4, firmas de entrega y recepción) + **Carta de Garantía** (equipos en garantía, condiciones 1-7, cronograma de mantenimiento cada 6 meses con fechas, firma electrónica del Director Ejecutivo) + **Anexo** para stickers de serie. Exige la factura subida; garantía 0-10 años o 0-120 meses; equipos añadidos a mano (hasta 30); "sin garantía" por equipo | ✅ corregido | `documentosFacturacion.ts` (`htmlActa`, `pdfDeHtml`) y `ModalActaGarantia`. Antes se generaba una página HTML simplificada distinta del original. Ahora se arma el PDF, se guarda en Drive (carpeta "Actas"), los datos quedan en `acta_datos` con el formato del original (series por código|ocurrencia) y al editar se cargan; si no hay, toma las series que registró Bodega. Se anota en la bitácora y en el historial del CRM |
+| `generarGuiaEnvio`, `getDatosEnvioParaGuia` | Etiqueta con logo, franja de aviso (frágil · equipo médico), ciudad, destinatario y remitente; todo con el tamaño de letra más grande que entra en una hoja (30 → 14 px); solo para ventas por Envío (o con guía previa) | ✅ corregido | `htmlGuia`, `tamanoGuia` y `ModalGuiaEnvio`: PDF en Drive (carpeta "Guias de Envio"), datos en `guia_datos` (se cargan para volver a generarla), remitente del Pago/Entrega. Imagen de aviso del original en `web/public/aviso-guia.jpg` |
+
 Corregido el 16-nov-2026: datos de pago/entrega en Facturación, Bodega desde cero y enlace público del seguimiento.
 
 | Función original | Qué hace | Estado | Dónde quedó |

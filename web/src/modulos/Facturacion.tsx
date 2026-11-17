@@ -8,6 +8,7 @@ import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
 import { imagen } from './inventarioUtil'
 import { enlaceSeguimiento } from '../enlacesPublicos'
+import { fechaDeTexto, fechaLarga, htmlActa, htmlGuia, pdfDeHtml, sumarMeses, tamanoGuia, type DatosGuia } from './documentosFacturacion'
 import '../estilos/facturacion.css'
 
 /* ============================ Tipos y utilidades ============================ */
@@ -394,9 +395,9 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
         setDetalle((d) => (d && d.uuid === editarProd.uuid ? { ...d, items: nuevos, total } : d))
         cargar(filtro)
       }} />}
-      {guiaEnvio && <ModalGuiaEnvio r={guiaEnvio} cerrar={() => setGuiaEnvio(null)} guardado={() => { setGuiaEnvio(null); aviso('Guía de envío generada.'); cargar(filtro); cargarStats(); setItems({}) }} />}
+      {guiaEnvio && <ModalGuiaEnvio r={guiaEnvio} perfil={perfil} cerrar={() => setGuiaEnvio(null)} guardado={() => { setGuiaEnvio(null); aviso('Guía de envío generada.'); cargar(filtro); cargarStats(); setItems({}) }} />}
       {guiaDespacho && <ModalGuiaDespacho r={conItems(guiaDespacho) ?? guiaDespacho} cerrar={() => setGuiaDespacho(null)} aviso={aviso} guardado={() => { setGuiaDespacho(null); cargar(filtro); cargarStats(); setItems({}) }} />}
-      {acta && <ModalActaGarantia r={conItems(acta) ?? acta} cerrar={() => setActa(null)} aviso={aviso} guardado={() => { setActa(null); cargar(filtro); cargarStats(); setItems({}) }} />}
+      {acta && <ModalActaGarantia r={conItems(acta) ?? acta} perfil={perfil} cerrar={() => setActa(null)} aviso={aviso} guardado={() => { setActa(null); cargar(filtro); cargarStats(); setItems({}) }} />}
       {obsequioModal && <ModalObsequio r={conItems(obsequioModal) ?? obsequioModal} cerrar={() => setObsequioModal(null)} aviso={aviso} guardado={() => { setObsequioModal(null); cargar(filtro); setItems({}) }} />}
     </div>
   )
@@ -882,60 +883,53 @@ function ModalNotasCredito({ r, cerrar, aviso }: { r: Fila; cerrar: () => void; 
 }
 
 /* ============================ Guía de envío (etiqueta remitente/destinatario) ============================ */
-function ModalGuiaEnvio({ r, cerrar, guardado }: { r: Fila; cerrar: () => void; guardado: () => void }) {
-  const [d, setD] = useState({
-    nombreRemitente: 'Importaciones Médicas Richard', cedulaRemitente: '',
+/* generarGuiaEnvio del original: etiqueta con logo, franja de aviso (frágil · equipo médico), ciudad, destinatario y remitente.
+   Todos los datos con el mismo tamaño de letra, el más grande con el que entra en UNA hoja; si no entra ni con 14 px no se guarda.
+   Se guarda en Drive (carpeta "Guias de Envio") y los datos quedan en facturas.guia_datos para la próxima vez. */
+function ModalGuiaEnvio({ r, perfil, cerrar, guardado }: { r: Fila; perfil: Perfil; cerrar: () => void; guardado: () => void }) {
+  const [d, setD] = useState<DatosGuia>({
+    nombreRemitente: r.pe.nombreRemitente || 'Importaciones Médicas Richard', cedulaRemitente: r.pe.cedulaRemitente || '',
     nombreDestinatario: r.pe.nombreDestinatario || r.cliente || '', cedulaDestinatario: r.pe.cedulaDestinatario || r.identificacion || '',
     telefonoDestinatario: r.pe.telefonoDestinatario || r.telefono || '', direccionEnvio: r.pe.direccionEnvio || '',
     emailDestinatario: r.pe.emailDestinatario || r.email || '', ciudad: r.pe.ciudad || '',
   })
+  const [cotizacionId, setCotizacionId] = useState<string | null>(null)
   const [msg, setMsg] = useState(''); const [guardando, setGuardando] = useState(false)
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') cerrar() }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [cerrar])
-  const set = (k: keyof typeof d, v: string) => setD((a) => ({ ...a, [k]: v }))
+  // Lo que se ajustó la vez anterior en "Editar guía" (getDatosEnvioParaGuia: lo guardado manda sobre el pago/entrega de la venta).
+  useEffect(() => {
+    supabase.from('facturas').select('guia_datos,cotizacion_id').eq('id', r.uuid).single().then(({ data }) => {
+      setCotizacionId((data?.cotizacion_id as string | null) ?? null)
+      const g = (data?.guia_datos ?? {}) as Partial<DatosGuia>
+      setD((a) => ({ ...a, ...Object.fromEntries(Object.entries(g).filter(([k, v]) => k in a && typeof v === 'string')) }))
+    })
+  }, [r.uuid])
+  const set = (k: keyof DatosGuia, v: string) => setD((a) => ({ ...a, [k]: v }))
+  const noEsEnvio = r.pe.entrega !== 'Envío' && !r.guiaEnvioUrl
 
   async function guardar() {
     setMsg('')
+    if (noEsEnvio) { setMsg('La venta no es un envío y no tiene una guía previa.'); return }
+    const limpio = Object.fromEntries(Object.entries(d).map(([k, v]) => [k, String(v).trim()])) as DatosGuia
     const faltan = ([['nombreRemitente', 'remitente'], ['nombreDestinatario', 'destinatario'], ['telefonoDestinatario', 'teléfono del destinatario'], ['direccionEnvio', 'dirección'], ['ciudad', 'ciudad']] as const)
-      .filter(([k]) => !d[k].trim()).map(([, et]) => et)
-    if (faltan.length) { setMsg('Completa: ' + faltan.join(', ') + '.'); return }
+      .filter(([k]) => !limpio[k]).map(([, et]) => et)
+    if (faltan.length) { setMsg('Completa el campo de envío: ' + faltan.join(', ') + '.'); return }
     setGuardando(true)
     try {
-      const esc = (v: string) => v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      const NAVY = '#0b2545'
-      const dato = (et: string, v: string) => (v ? `<p style="margin:0 0 4px"><b style="color:${NAVY}">${et ? et + ': ' : ''}</b>${esc(v)}</p>` : '')
-      const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Guía de envío ${esc(r.id)}</title>
-        <style>@page{size:A4;margin:14mm}html{background:#e2e8f0}body{font-family:Arial,sans-serif;color:#1e293b;font-size:13px;margin:0 auto;padding:14mm;width:210mm;min-height:297mm;box-sizing:border-box;background:#fff;box-shadow:0 0 0 1px #cbd5e1}.vm-aviso{background:#fffbeb;border:1px dashed #d4a017;color:#92610b;font-size:11px;padding:6px 10px;border-radius:8px;margin-bottom:12px}@media print{html{background:#fff}body{width:auto;min-height:0;margin:0;padding:0;box-shadow:none}.vm-aviso{display:none}}[contenteditable]:focus{outline:1px dashed #94a3b8}</style></head>
-        <body contenteditable="true">
-        <p class="vm-aviso">✏️ Puedes corregir cualquier dato haciendo clic aquí mismo antes de imprimir o guardar como PDF.</p>
-        <table style="width:100%;border-collapse:collapse;margin-bottom:8px"><tr>
-          <td><b style="font-size:26px;color:${NAVY}">VIMEDIC</b></td>
-          <td style="text-align:right"><span style="display:inline-block;border:2.5px solid ${NAVY};color:${NAVY};font-size:16px;font-weight:bold;letter-spacing:2px;padding:5px 14px;border-radius:8px">GUÍA DE ENVÍO</span></td>
-        </tr></table>
-        <p style="text-align:center;background:#fef2f2;color:#b91c1c;font-weight:800;letter-spacing:2px;padding:6px;border-radius:8px;margin:0 0 10px">FRÁGIL · EQUIPO MÉDICO · NO COLOCAR PESO ENCIMA</p>
-        <div style="border:3px solid ${NAVY};border-radius:10px;padding:14px;margin-bottom:10px;text-align:center">
-          <p style="margin:0;font-size:28px;font-weight:800;color:${NAVY};letter-spacing:1px">${esc(d.ciudad.toUpperCase())}</p>
-        </div>
-        <div style="border:2px solid ${NAVY};border-radius:10px;margin-bottom:10px">
-          <div style="color:${NAVY};font-weight:bold;letter-spacing:3px;font-size:12px;padding:6px 16px;border-bottom:2px solid ${NAVY}">DESTINATARIO</div>
-          <div style="padding:12px 16px">${dato('', d.nombreDestinatario)}${dato('C.I./RUC', d.cedulaDestinatario)}${dato('CEL', d.telefonoDestinatario)}${dato('DIRECCIÓN', d.direccionEnvio)}${dato('EMAIL', d.emailDestinatario)}</div>
-        </div>
-        <div style="border:2px solid ${NAVY};border-radius:10px">
-          <div style="color:${NAVY};font-weight:bold;letter-spacing:3px;font-size:12px;padding:6px 16px;border-bottom:2px solid ${NAVY}">REMITENTE</div>
-          <div style="padding:12px 16px">${dato('', d.nombreRemitente)}${dato('C.I./RUC', d.cedulaRemitente)}</div>
-        </div>
-        <p style="margin-top:14px;font-size:9px;color:#64748b;text-align:center">${esc(r.id)} · ${esc(new Date().toLocaleDateString('es-EC'))}</p>
-        </body></html>`
-
-      const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
-      const ruta = 'guias/etiqueta-' + r.id + '-' + Date.now() + '.html'
-      const { error: errSubir } = await supabase.storage.from('despachos').upload(ruta, blob, { contentType: 'text/html', upsert: true })
-      if (errSubir) { setMsg('No se pudo guardar la etiqueta: ' + errSubir.message); setGuardando(false); return }
-      window.open(URL.createObjectURL(blob), '_blank', 'noopener')
-      const { error: errUpd } = await supabase.from('facturas').update({ guia_envio_url: ruta }).eq('id', r.uuid)
-      if (errUpd) { setMsg('Se generó pero no se pudo guardar el enlace: ' + errUpd.message); setGuardando(false); return }
+      const tam = await tamanoGuia(limpio)
+      if (!tam) { setMsg('Los datos exceden una hoja con letra legible. Revisa los campos demasiado extensos y vuelve a generar la guía. No se guardó una guía de varias páginas.'); setGuardando(false); return }
+      const nombre = 'GuiaEnvio_' + r.id.replace(/[^\w.-]+/g, '_') + '.pdf'
+      const pdf = await pdfDeHtml(htmlGuia(limpio, tam))
+      const url = await subirPdfDrive(new File([pdf], nombre, { type: 'application/pdf' }), 'Guias de Envio', nombre)
+      const { error: errUpd } = await supabase.from('facturas').update({ guia_envio_url: url, guia_datos: { ...limpio, estilo: 'etiqueta' } }).eq('id', r.uuid)
+      if (errUpd) { setMsg('La guía se guardó en Drive, pero no se pudo enlazar a la venta: ' + errUpd.message); setGuardando(false); return }
+      const texto = 'Guía de Envío generada por ' + perfil.nombre + '.'
+      await supabase.rpc('registrar_bitacora', { p_modulo: 'facturacion', p_accion: 'generar_guia_envio', p_factura: r.uuid, p_comentario: texto })
+      if (cotizacionId) await supabase.from('interacciones').insert({ cotizacion_id: cotizacionId, tipo: 'Facturación', nota: texto, empleado_id: perfil.id, usuario_texto: perfil.nombre })
+      window.open(url, '_blank', 'noopener')
       guardado()
     } catch (e) {
-      setMsg('No se pudo generar la etiqueta: ' + (e as Error).message)
+      setMsg('No se pudo generar la guía: ' + (e as Error).message)
       setGuardando(false)
     }
   }
@@ -945,25 +939,26 @@ function ModalGuiaEnvio({ r, cerrar, guardado }: { r: Fila; cerrar: () => void; 
       <div className="modal-panel bg-[#f6f9fc] sm:rounded-3xl shadow-2xl w-full h-full sm:h-auto sm:max-w-lg sm:max-h-[92vh] flex flex-col overflow-hidden">
         <div className="shrink-0 px-5 py-4 text-white" style={{ background: 'linear-gradient(135deg,var(--navy),var(--primary))' }}>
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-white/70 flex items-center gap-1.5"><Truck className="w-3.5 h-3.5" />Guía de envío · etiqueta</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-white/70 flex items-center gap-1.5"><Truck className="w-3.5 h-3.5" />Editar Guía de Envío</span>
             <button type="button" onClick={cerrar} className="w-8 h-8 rounded-xl bg-white/15 hover:bg-white/25 flex items-center justify-center" aria-label="Cerrar"><X className="w-4 h-4" /></button>
           </div>
           <h3 className="font-display font-bold text-lg leading-snug mt-1.5">{r.cliente || 'Venta'}</h3>
         </div>
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3">
+          {noEsEnvio && <p className="fi-err">La venta no es un envío y no tiene una guía previa.</p>}
           <div className="fi-sec">
-            <div className="fi-sec-h"><span className="fi-num" style={{ background: '#64748b' }}>1</span><div className="flex-1"><b>Remitente</b></div></div>
+            <div className="fi-sec-h"><span className="fi-num" style={{ background: '#c0392b' }}>1</span><div className="flex-1"><b>Remitente</b></div></div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <input type="text" value={d.nombreRemitente} onChange={(e) => set('nombreRemitente', e.target.value)} placeholder="Nombre remitente *" className="fi-in" />
               <input type="text" value={d.cedulaRemitente} onChange={(e) => set('cedulaRemitente', e.target.value)} placeholder="C.I./RUC remitente" className="fi-in" />
             </div>
           </div>
           <div className="fi-sec">
-            <div className="fi-sec-h"><span className="fi-num" style={{ background: '#64748b' }}>2</span><div className="flex-1"><b>Destinatario</b></div></div>
+            <div className="fi-sec-h"><span className="fi-num" style={{ background: '#c0392b' }}>2</span><div className="flex-1"><b>Destinatario</b></div></div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <input type="text" value={d.nombreDestinatario} onChange={(e) => set('nombreDestinatario', e.target.value)} placeholder="Nombre destinatario *" className="fi-in" />
               <input type="text" value={d.cedulaDestinatario} onChange={(e) => set('cedulaDestinatario', e.target.value)} placeholder="C.I./RUC destinatario" className="fi-in" />
-              <input type="text" value={d.telefonoDestinatario} onChange={(e) => set('telefonoDestinatario', e.target.value)} placeholder="Teléfono destinatario *" className="fi-in" />
+              <input type="text" value={d.telefonoDestinatario} onChange={(e) => set('telefonoDestinatario', e.target.value)} placeholder="Celular destinatario *" className="fi-in" />
               <input type="text" value={d.ciudad} onChange={(e) => set('ciudad', e.target.value)} placeholder="Ciudad *" className="fi-in" />
               <input type="text" value={d.direccionEnvio} onChange={(e) => set('direccionEnvio', e.target.value)} placeholder="Dirección de envío *" className="fi-in sm:col-span-2" />
               <input type="email" value={d.emailDestinatario} onChange={(e) => set('emailDestinatario', e.target.value)} placeholder="Email destinatario (opcional)" className="fi-in sm:col-span-2" />
@@ -973,7 +968,7 @@ function ModalGuiaEnvio({ r, cerrar, guardado }: { r: Fila; cerrar: () => void; 
         </div>
         <div className="shrink-0 border-t border-slate-200 bg-white p-4 flex items-center gap-2">
           <button type="button" onClick={cerrar} className="h-11 px-4 rounded-2xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50">Cancelar</button>
-          <button type="button" onClick={guardar} disabled={guardando} className="flex-1 h-11 rounded-2xl text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: '#64748b' }}>{guardando ? 'Generando…' : 'Generar etiqueta'}</button>
+          <button type="button" onClick={guardar} disabled={guardando || noEsEnvio} className="flex-1 h-11 rounded-2xl text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: '#c0392b' }}>{guardando ? 'Generando PDF…' : 'Generar guía de envío'}</button>
         </div>
       </div>
     </div>
@@ -1153,17 +1148,32 @@ function ModalGuiaDespacho({ r, cerrar, aviso, guardado }: { r: Fila; cerrar: ()
 }
 
 /* ============================ Acta de entrega / garantía ============================ */
+/* generarActaCompleta del original: Acta de Entrega / Entera Satisfacción (única firma del cliente) + Carta de Garantía (firma
+   electrónica de la empresa) + Anexo de números de serie, en un solo PDF con el número de la factura. Se guarda en Drive y los datos
+   quedan en facturas.acta_datos (mismo formato del original: series por código|ocurrencia) para editarla y volver a generarla. */
 type EquipoActa = { key: string; codigo: string; nombre: string; cantidad: number; series: string[]; sinGarantia: boolean; extra: boolean }
-const equipoDesdeLinea = (it: Linea, i: number): EquipoActa => {
-  const cant = Math.max(1, Math.abs(it.cantidad) || 1)
-  return { key: 'L' + i, codigo: it.codigo || '', nombre: it.nombre, cantidad: cant, series: Array(cant).fill(''), sinGarantia: false, extra: false }
+type ActaGuardada = {
+  garantiaCant?: number; garantiaUnidad?: 'anios' | 'meses'; anios?: number; observaciones?: string[]; mantObs?: string[]; fecha?: string; anexo?: boolean
+  cliente?: Partial<Record<'nombre' | 'ciudad' | 'direccion' | 'telefono' | 'email', string>>
+  series?: Record<string, string[]>; sinGarantia?: Record<string, boolean>; extras?: { id?: string; nombre: string; cantidad: number }[]
+  equipos?: { codigo: string; nombre: string; cantidad: number; series: string[]; sinGarantia: boolean; extra: boolean }[]
 }
+/** Equipos de la venta con la clave del original: código|ocurrencia (el mismo producto dos veces son dos renglones). */
+function equiposDeItems(items: Linea[]): EquipoActa[] {
+  const vistos: Record<string, number> = {}
+  return items.filter((it) => Math.abs(Number(it.cantidad) || 0) > 0).map((it) => {
+    const cod = String(it.codigo || it.id || ''), n = (vistos[cod] = (vistos[cod] || 0) + 1)
+    const cant = Math.max(1, Math.abs(Number(it.cantidad)) || 1)
+    return { key: cod + '|' + n, codigo: cod, nombre: it.nombre, cantidad: cant, series: Array(cant).fill(''), sinGarantia: false, extra: false }
+  })
+}
+const ajustarSeries = (s: string[] | undefined, n: number) => Array.from({ length: n }, (_, i) => String((s ?? [])[i] ?? '').trim())
 
-function ModalActaGarantia({ r, cerrar, aviso, guardado }: { r: Fila; cerrar: () => void; aviso: (t: string) => void; guardado: () => void }) {
-  const [equipos, setEquipos] = useState<EquipoActa[]>((r.items ?? []).map(equipoDesdeLinea))
+function ModalActaGarantia({ r, perfil, cerrar, aviso, guardado }: { r: Fila; perfil: Perfil; cerrar: () => void; aviso: (t: string) => void; guardado: () => void }) {
+  const [equipos, setEquipos] = useState<EquipoActa[]>(() => equiposDeItems(r.items ?? []))
   const [cliente, setCliente] = useState({
-    nombre: r.cliente || '', ciudad: r.pe.ciudad || '', direccion: r.pe.direccionEnvio || r.pe.direccionEntregaLocal || '',
-    telefono: r.pe.telefonoDestinatario || r.pe.telefonoEntregaLocal || r.telefono || '', email: r.email || '',
+    nombre: r.cliente || '', ciudad: r.pe.ciudad || '', direccion: r.pe.direccionEntregaLocal || r.pe.direccionEnvio || '',
+    telefono: r.telefono || r.pe.telefonoEntregaLocal || r.pe.telefonoDestinatario || '', email: r.email || '',
   })
   const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10))
   const [garantiaCant, setGarantiaCant] = useState('1')
@@ -1174,18 +1184,58 @@ function ModalActaGarantia({ r, cerrar, aviso, guardado }: { r: Fila; cerrar: ()
   const [nuevoNombre, setNuevoNombre] = useState('')
   const [nuevoCodigo, setNuevoCodigo] = useState('')
   const [nuevoCant, setNuevoCant] = useState('1')
+  const [cotizacionId, setCotizacionId] = useState<string | null>(null)
+  const [cargando, setCargando] = useState(true)
   const [error, setError] = useState('')
   const [guardando, setGuardando] = useState(false)
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') cerrar() }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [cerrar])
 
-  const meses = garantiaUnidad === 'anios' ? (Number(garantiaCant) || 0) * 12 : (Number(garantiaCant) || 0)
+  /* Al abrir: lo que se guardó la vez anterior (editar el acta) y, si no hay, las series que registró Bodega al despachar. */
+  useEffect(() => {
+    let vivo = true
+    ;(async () => {
+      const [{ data: f }, { data: desp }] = await Promise.all([
+        supabase.from('facturas').select('acta_datos,cotizacion_id').eq('id', r.uuid).single(),
+        supabase.from('despachos').select('series').eq('operacion_codigo', r.id).is('deleted_at', null).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+      ])
+      if (!vivo) return
+      setCotizacionId((f?.cotizacion_id as string | null) ?? null)
+      const g = ((f?.acta_datos ?? {}) as ActaGuardada)
+      const deBodega = ((desp?.series ?? {}) as Record<string, string[]>)
+      const tieneGuardado = !!(g && (g.series || g.equipos || g.cliente))
+      setEquipos((base) => {
+        if (g.equipos?.length) {   // formato de la app nueva (antes de este cambio)
+          return g.equipos.map((e, i) => ({ key: e.extra ? 'EXTRA-' + (i + 1) + '|1' : (base[i]?.key ?? e.codigo + '|1'), codigo: e.codigo, nombre: e.nombre, cantidad: e.cantidad, series: ajustarSeries(e.series, e.cantidad), sinGarantia: !!e.sinGarantia, extra: !!e.extra }))
+        }
+        const series = g.series ?? deBodega, sinG = g.sinGarantia ?? {}
+        const ventas = base.map((e) => ({ ...e, series: ajustarSeries(series[e.key], e.cantidad), sinGarantia: !!sinG[e.key] }))
+        const extras = (g.extras ?? []).map((x, k) => { const key = 'EXTRA-' + (k + 1) + '|1', cant = Math.max(1, Number(x.cantidad) || 1); return { key, codigo: x.id || '', nombre: x.nombre, cantidad: cant, series: ajustarSeries(series[key], cant), sinGarantia: !!sinG[key], extra: true } })
+        return [...ventas, ...extras]
+      })
+      if (tieneGuardado) {
+        if (g.cliente) setCliente((c) => ({ ...c, ...Object.fromEntries(Object.entries(g.cliente ?? {}).filter(([, v]) => v != null)) }))
+        if (g.fecha) setFecha(g.fecha)
+        const cant = g.garantiaCant ?? g.anios
+        if (cant != null) setGarantiaCant(String(cant))
+        if (g.garantiaUnidad) setGarantiaUnidad(g.garantiaUnidad)
+        const obs = g.observaciones ?? g.mantObs
+        if (obs) setMantObs(obs)
+        if (g.anexo != null) { setAnexo(!!g.anexo); setAnexoManual(true) }
+      }
+      setCargando(false)
+    })().catch(() => setCargando(false))
+    return () => { vivo = false }
+  }, [r.uuid, r.id])
+
+  const cantNum = Number(garantiaCant) || 0
+  const meses = garantiaUnidad === 'anios' ? cantNum * 12 : cantNum
   const nMant = Math.min(20, Math.floor(meses / 6))
   useEffect(() => { setMantObs((prev) => Array.from({ length: nMant }, (_, i) => prev[i] || '')) }, [nMant])
 
   const { reg, tot } = equipos.reduce((a, e) => ({ reg: a.reg + e.series.filter((s) => s.trim()).length, tot: a.tot + e.cantidad }), { reg: 0, tot: 0 })
   useEffect(() => { if (!anexoManual) setAnexo(reg < tot) }, [reg, tot, anexoManual])
-  const conGarantia = equipos.filter((e) => !e.sinGarantia).length
-  const duracionTxt = meses > 0 ? (garantiaUnidad === 'anios' ? `${garantiaCant} año${Number(garantiaCant) === 1 ? '' : 's'}` : `${garantiaCant} mes${Number(garantiaCant) === 1 ? '' : 'es'}`) : ''
+  const conGarantia = meses > 0 ? equipos.filter((e) => !e.sinGarantia).length : 0
+  const duracionTxt = meses > 0 ? (garantiaUnidad === 'anios' ? `${cantNum} año${cantNum === 1 ? '' : 's'}` : `${cantNum} mes${cantNum === 1 ? '' : 'es'}`) : ''
 
   function setSerie(key: string, idx: number, v: string) {
     setEquipos((es) => es.map((e) => (e.key === key ? { ...e, series: e.series.map((s, i) => (i === idx ? v : s)) } : e)))
@@ -1197,83 +1247,51 @@ function ModalActaGarantia({ r, cerrar, aviso, guardado }: { r: Fila; cerrar: ()
   function toggleSinGarantia(key: string) { setEquipos((es) => es.map((e) => (e.key === key ? { ...e, sinGarantia: !e.sinGarantia } : e))) }
   function quitarEquipo(key: string) { setEquipos((es) => es.filter((e) => e.key !== key)) }
   function agregarEquipo() {
-    const nombre = nuevoNombre.trim()
+    const nombre = nuevoNombre.replace(/\s+/g, ' ').trim().slice(0, 200)
     const cant = Math.max(1, Math.min(999, parseInt(nuevoCant, 10) || 1))
-    if (!nombre) return
-    if (equipos.filter((e) => e.extra).length >= 30) { aviso('Puedes añadir hasta 30 equipos adicionales al acta.'); return }
-    setEquipos((es) => [...es, { key: 'X' + Date.now(), codigo: nuevoCodigo.trim(), nombre, cantidad: cant, series: Array(cant).fill(''), sinGarantia: false, extra: true }])
+    if (!nombre) { aviso('Cada equipo añadido necesita un nombre.'); return }
+    if (equipos.filter((e) => e.extra).length >= 30) { aviso('Puedes añadir hasta 30 equipos al acta.'); return }
+    setEquipos((es) => [...es, { key: 'EXTRA-' + (es.filter((e) => e.extra).length + 1) + '|1', codigo: nuevoCodigo.trim().slice(0, 40), nombre, cantidad: cant, series: Array(cant).fill(''), sinGarantia: false, extra: true }])
     setNuevoNombre(''); setNuevoCodigo(''); setNuevoCant('1')
   }
 
   async function generar() {
     setError('')
-    if (!cliente.nombre.trim()) { setError('Indica el nombre del cliente.'); return }
-    if (!equipos.length) { setError('Añade al menos un equipo al acta.'); return }
-    const cantN = Number(garantiaCant)
-    if (!Number.isFinite(cantN) || cantN < 0 || (garantiaUnidad === 'anios' && cantN > 10) || (garantiaUnidad === 'meses' && cantN > 120)) {
+    if (!r.numeroFactura) { setError('Primero sube la factura — el acta necesita su número.'); return }
+    if (!cliente.nombre.trim()) { setError('Indica el nombre del cliente en el acta.'); return }
+    if (!equipos.length) { setError('Todos los productos fueron acreditados o no hay equipos: añade al menos uno al acta.'); return }
+    if (!Number.isInteger(cantNum) || cantNum < 0 || (garantiaUnidad === 'anios' && cantNum > 10) || (garantiaUnidad === 'meses' && cantNum > 120)) {
       setError('La garantía debe ser de 0 a 10 años (o de 0 a 120 meses).'); return
     }
     setGuardando(true)
     try {
-      const esc = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      const marca = r.empresa === 'FEMEDICS' ? 'FEMEDICS' : 'VIMEDIC'
-      const numeroActa = 'ACT-' + (r.numeroFactura || r.id).replace(/[^\w-]+/g, '')
-      const filasEquipos = equipos.map((e) => {
-        const seriesTxt = e.series.filter((s) => s.trim()).join(', ') || (e.cantidad > 1 ? '(ver anexo)' : '—')
-        return `<tr>
-          <td style="padding:6px;border-bottom:1px solid #e2e8f0;font-family:monospace;font-size:10px">${esc(e.codigo)}</td>
-          <td style="padding:6px;border-bottom:1px solid #e2e8f0">${esc(e.nombre)}</td>
-          <td style="padding:6px;border-bottom:1px solid #e2e8f0;text-align:center">${e.cantidad}</td>
-          <td style="padding:6px;border-bottom:1px solid #e2e8f0;font-size:10.5px">${esc(seriesTxt)}</td>
-          <td style="padding:6px;border-bottom:1px solid #e2e8f0;text-align:center">${e.sinGarantia ? 'Sin garantía' : duracionTxt || '—'}</td>
-        </tr>`
-      }).join('')
-      const anexoHtml = anexo ? `<div style="page-break-before:always">
-          <h3 style="font-size:13px;color:#0b2545">Anexo de números de serie</h3>
-          ${equipos.map((e) => `<p style="font-size:11px;margin:6px 0"><b>${esc(e.codigo)} · ${esc(e.nombre)}</b><br>${e.series.map((s, i) => `${i + 1}. ${esc(s) || '—'}`).join(' &nbsp; ')}</p>`).join('')}
-        </div>` : ''
-      const mantHtml = nMant > 0 ? `<h3 style="font-size:13px;color:#0b2545;margin-top:18px">Plan de mantenimiento preventivo</h3>
-        <table style="width:100%;border-collapse:collapse;margin:8px 0">
-          <thead><tr style="background:#0b2545;color:#fff"><th style="padding:6px;text-align:left">Mantenimiento</th><th style="padding:6px;text-align:left">Observación</th></tr></thead>
-          <tbody>${mantObs.map((o, i) => `<tr><td style="padding:6px;border-bottom:1px solid #e2e8f0">Mantenimiento ${i + 1} (mes ${(i + 1) * 6})</td><td style="padding:6px;border-bottom:1px solid #e2e8f0">${esc(o)}</td></tr>`).join('')}</tbody>
-        </table>` : ''
-      const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Acta de entrega ${esc(numeroActa)}</title>
-        <style>@page{size:A4;margin:14mm}html{background:#e2e8f0}body{font-family:Arial,sans-serif;color:#0b2545;font-size:13px;margin:0 auto;padding:14mm;width:210mm;min-height:297mm;box-sizing:border-box;background:#fff;box-shadow:0 0 0 1px #cbd5e1}@media print{html{background:#fff}body{width:auto;min-height:0;margin:0;padding:0;box-shadow:none}}</style></head>
-        <body>
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #055c9d;padding-bottom:10px;margin-bottom:14px">
-            <div><b style="font-size:22px;color:#055c9d">${marca}</b><br><span style="font-size:13px;font-weight:bold">ACTA DE ENTREGA Y GARANTÍA</span></div>
-            <div style="text-align:right;font-size:11px"><b>${esc(numeroActa)}</b><br>${esc(new Date(fecha + 'T00:00:00').toLocaleDateString('es-EC'))}</div>
-          </div>
-          <p><b>Factura:</b> ${esc(r.numeroFactura || '—')} &nbsp; <b>Asesor comercial:</b> ${esc(r.asesor)}</p>
-          <p><b>Cliente:</b> ${esc(cliente.nombre)} &nbsp; <b>C.I./RUC:</b> ${esc(r.identificacion)}</p>
-          <p><b>Ciudad:</b> ${esc(cliente.ciudad) || '—'} &nbsp; <b>Dirección:</b> ${esc(cliente.direccion) || '—'}</p>
-          <p><b>Teléfono:</b> ${esc(cliente.telefono) || '—'} &nbsp; <b>Email:</b> ${esc(cliente.email) || '—'}</p>
-          <table style="width:100%;border-collapse:collapse;margin:14px 0">
-            <thead><tr style="background:#0b2545;color:#fff"><th style="padding:6px;text-align:left">Código</th><th style="padding:6px;text-align:left">Equipo</th><th style="padding:6px;text-align:center">Cant.</th><th style="padding:6px;text-align:left">N° de serie</th><th style="padding:6px;text-align:center">Garantía</th></tr></thead>
-            <tbody>${filasEquipos}</tbody>
-          </table>
-          <p style="margin-top:10px">${duracionTxt ? `Se entrega <b>Carta de Garantía de ${esc(duracionTxt)}</b> para ${conGarantia} equipo(s), con firma electrónica de la empresa.` : 'Sin garantía: esta acta es de entera satisfacción.'} El cliente declara recibir los equipos arriba descritos a su entera satisfacción, en buen estado y funcionamiento.</p>
-          ${mantHtml}
-          <div style="display:flex;justify-content:space-between;margin-top:48px;font-size:11px">
-            <div style="width:45%;text-align:center;border-top:1px solid #94a3b8;padding-top:4px">${esc(cliente.nombre)}<br>Cliente (recibí conforme)</div>
-            <div style="width:45%;text-align:center;border-top:1px solid #94a3b8;padding-top:4px">${esc(marca)}<br>Firma electrónica de la empresa</div>
-          </div>
-          <p style="margin-top:18px;font-size:9px;color:#64748b;text-align:center">${esc(numeroActa)}</p>
-          ${anexoHtml}
-        </body></html>`
-
-      const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
-      const ruta = 'guias/' + numeroActa + '-' + Date.now() + '.html'
-      const { error: errSubir } = await supabase.storage.from('despachos').upload(ruta, blob, { contentType: 'text/html', upsert: true })
-      if (errSubir) { setError('No se pudo guardar el acta: ' + errSubir.message); setGuardando(false); return }
-      window.open(URL.createObjectURL(blob), '_blank', 'noopener')
-
-      const acta_datos = { cliente, fecha, garantiaCant: cantN, garantiaUnidad, anexo, mantObs, equipos: equipos.map((e) => ({ codigo: e.codigo, nombre: e.nombre, cantidad: e.cantidad, series: e.series, sinGarantia: e.sinGarantia, extra: e.extra })) }
-      const { error: errUpd } = await supabase.from('facturas').update({ acta_garantia_url: ruta, acta_datos }).eq('id', r.uuid)
-      if (errUpd) { setError('Acta generada, pero no se pudo guardar el enlace: ' + errUpd.message); setGuardando(false); return }
-
-      await supabase.rpc('registrar_bitacora', { p_modulo: 'facturacion', p_accion: 'generar_acta', p_factura: r.uuid, p_comentario: 'Acta ' + numeroActa + ' generada.' })
-      aviso('Acta ' + numeroActa + ' generada.')
+      // Las claves de los añadidos a mano se numeran en orden (EXTRA-1, EXTRA-2…), como el original.
+      let k = 0
+      const lista = equipos.map((e) => (e.extra ? { ...e, key: 'EXTRA-' + (++k) + '|1' } : e))
+      const series: Record<string, string[]> = {}, sinGarantia: Record<string, boolean> = {}
+      lista.forEach((e) => { const s = e.series.map((x) => x.trim().slice(0, 80)); while (s.length && !s[s.length - 1]) s.pop(); series[e.key] = s; if (e.sinGarantia) sinGarantia[e.key] = true })
+      const doc = htmlActa({
+        numeroFactura: r.numeroFactura, fecha: fechaDeTexto(fecha),
+        cliente: { nombre: cliente.nombre.trim(), identificacion: r.identificacion, ciudad: cliente.ciudad.trim(), direccion: cliente.direccion.trim(), telefono: cliente.telefono.trim(), email: cliente.email.trim() },
+        equipos: lista.map((e) => ({ id: e.codigo || '—', nombre: e.nombre, cantidad: e.cantidad, series: series[e.key].filter(Boolean), garantia: e.sinGarantia || meses === 0 ? '' : duracionTxt })),
+        garantiaTxt: duracionTxt, nMant, observaciones: mantObs.map((x) => x.slice(0, 300)), anexo,
+      })
+      const nombre = 'Acta_' + r.numeroFactura.replace(/[^\w.-]+/g, '_') + '.pdf'
+      const pdf = await pdfDeHtml(doc)
+      const url = await subirPdfDrive(new File([pdf], nombre, { type: 'application/pdf' }), 'Actas', nombre)
+      const acta_datos = {
+        anios: garantiaUnidad === 'anios' ? cantNum : Math.floor(cantNum / 12), garantiaCant: cantNum, garantiaUnidad,
+        observaciones: mantObs.slice(0, nMant), cliente: { nombre: cliente.nombre.trim(), ciudad: cliente.ciudad.trim(), direccion: cliente.direccion.trim(), telefono: cliente.telefono.trim(), email: cliente.email.trim() },
+        fecha, series, sinGarantia, anexo, extras: lista.filter((e) => e.extra).map((e) => ({ id: e.codigo, nombre: e.nombre, cantidad: e.cantidad })),
+      }
+      const { error: errUpd } = await supabase.from('facturas').update({ acta_garantia_url: url, acta_datos }).eq('id', r.uuid)
+      if (errUpd) { setError('El acta se guardó en Drive, pero no se pudo enlazar a la venta: ' + errUpd.message); setGuardando(false); return }
+      const nSeries = Object.values(series).reduce((a, s) => a + s.filter(Boolean).length, 0)
+      const texto = 'Acta de entera satisfacción generada por ' + perfil.nombre + ' · garantía: ' + (duracionTxt || 'sin garantía') + ' · ' + nSeries + ' número(s) de serie.'
+      await supabase.rpc('registrar_bitacora', { p_modulo: 'facturacion', p_accion: 'generar_acta', p_factura: r.uuid, p_comentario: texto })
+      if (cotizacionId) await supabase.from('interacciones').insert({ cotizacion_id: cotizacionId, tipo: 'Facturación', nota: texto, empleado_id: perfil.id, usuario_texto: perfil.nombre })
+      window.open(url, '_blank', 'noopener')
+      aviso('Acta generada.')
       guardado()
     } catch (e) {
       setError('No se pudo generar el acta: ' + (e as Error).message)
@@ -1281,67 +1299,55 @@ function ModalActaGarantia({ r, cerrar, aviso, guardado }: { r: Fila; cerrar: ()
     }
   }
 
+  const fechaBase = fechaDeTexto(fecha)
   return (
     <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-[2px] z-[60] flex items-center justify-center p-0 sm:p-4 overlay" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
       <div className="modal-panel bg-[#f6f9fc] sm:rounded-3xl shadow-2xl w-full h-full sm:h-auto sm:max-w-2xl sm:max-h-[92vh] flex flex-col overflow-hidden">
         <div className="shrink-0 px-5 py-4 text-white" style={{ background: 'linear-gradient(135deg,var(--navy),var(--primary))' }}>
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-white/70 flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5" />Acta de entrega / garantía</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-white/70 flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5" />Acta de entera satisfacción</span>
             <button type="button" onClick={cerrar} className="w-8 h-8 rounded-xl bg-white/15 hover:bg-white/25 flex items-center justify-center" aria-label="Cerrar"><X className="w-4 h-4" /></button>
           </div>
           <h3 className="font-display font-bold text-lg leading-snug mt-1.5">{r.cliente || 'Venta'}</h3>
+          <p className="text-[11px] text-white/75">Equipos, números de serie y Carta de Garantía · Factura {r.numeroFactura || '(sin subir)'}</p>
         </div>
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3">
+          {!r.numeroFactura && <p className="fi-err">Primero sube la factura — el acta necesita su número.</p>}
+          {cargando && <p className="text-[11px] text-slate-400">Cargando lo guardado…</p>}
           <div className="fi-sec">
-            <div className="fi-sec-h"><span className="fi-num" style={{ background: '#94a3b8' }}><Lock className="w-3.5 h-3.5" /></span><div className="flex-1"><b>Datos del sistema</b><small>Bloqueados, vienen de la factura</small></div></div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              <div className="fi-ro"><small>Factura</small><b>{r.numeroFactura || '—'}</b></div>
-              <div className="fi-ro"><small>C.I./RUC</small><b>{r.identificacion || '—'}</b></div>
-              <div className="fi-ro"><small>Asesor</small><b>{r.asesor || '—'}</b></div>
-            </div>
-          </div>
-
-          <div className="fi-sec">
-            <div className="fi-sec-h"><span className="fi-num" style={{ background: '#04896f' }}>1</span><div className="flex-1"><b>Datos del cliente</b><small>Puedes corregirlos antes de generar</small></div></div>
+            <div className="fi-sec-h"><span className="fi-num" style={{ background: 'var(--teal)' }}>1</span><div className="flex-1"><b>Cliente y fecha</b><small>Datos que salen en el acta</small></div></div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <input type="text" value={cliente.nombre} onChange={(e) => setCliente((c) => ({ ...c, nombre: e.target.value }))} placeholder="Nombre del cliente *" className="fi-in sm:col-span-2" />
-              <input type="text" value={cliente.ciudad} onChange={(e) => setCliente((c) => ({ ...c, ciudad: e.target.value }))} placeholder="Ciudad" className="fi-in" />
-              <input type="text" value={cliente.telefono} onChange={(e) => setCliente((c) => ({ ...c, telefono: e.target.value }))} placeholder="Teléfono" className="fi-in" />
-              <input type="text" value={cliente.direccion} onChange={(e) => setCliente((c) => ({ ...c, direccion: e.target.value }))} placeholder="Dirección" className="fi-in sm:col-span-2" />
-              <input type="email" value={cliente.email} onChange={(e) => setCliente((c) => ({ ...c, email: e.target.value }))} placeholder="Email" className="fi-in sm:col-span-2" />
+              <label className="fi-lab sm:col-span-2">Nombre del cliente *<input type="text" value={cliente.nombre} onChange={(e) => setCliente((c) => ({ ...c, nombre: e.target.value }))} className="fi-in" /></label>
               <label className="fi-lab">Fecha del acta<input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className="fi-in" /></label>
+              <label className="fi-lab">Ciudad<input type="text" value={cliente.ciudad} onChange={(e) => setCliente((c) => ({ ...c, ciudad: e.target.value }))} className="fi-in" /></label>
+              <label className="fi-lab">Teléfono<input type="text" value={cliente.telefono} onChange={(e) => setCliente((c) => ({ ...c, telefono: e.target.value }))} className="fi-in" /></label>
+              <label className="fi-lab">Cédula / RUC<input type="text" value={r.identificacion} readOnly className="fi-in bg-slate-50" /></label>
+              <label className="fi-lab sm:col-span-2">Dirección de entrega<input type="text" value={cliente.direccion} onChange={(e) => setCliente((c) => ({ ...c, direccion: e.target.value }))} className="fi-in" /></label>
+              <label className="fi-lab sm:col-span-2">Correo electrónico<input type="email" value={cliente.email} onChange={(e) => setCliente((c) => ({ ...c, email: e.target.value }))} className="fi-in" /></label>
             </div>
           </div>
 
           <div className="fi-sec">
-            <div className="fi-sec-h"><span className="fi-num" style={{ background: '#04896f' }}>2</span><div className="flex-1"><b>Garantía</b><small>{reg} / {tot} series registradas</small></div></div>
+            <div className="fi-sec-h"><span className="fi-num" style={{ background: 'var(--teal)' }}>2</span><div className="flex-1"><b>Carta de garantía</b><small>Tiempo de garantía que se otorga (0 = sin garantía)</small></div></div>
             <div className="grid grid-cols-2 gap-2">
-              <input type="number" min="0" max={garantiaUnidad === 'anios' ? 10 : 120} value={garantiaCant} onChange={(e) => setGarantiaCant(e.target.value)} className="fi-in" />
+              <input type="number" min="0" max={garantiaUnidad === 'anios' ? 10 : 120} step="1" value={garantiaCant} onChange={(e) => setGarantiaCant(e.target.value)} className="fi-in" />
               <select value={garantiaUnidad} onChange={(e) => setGarantiaUnidad(e.target.value as 'anios' | 'meses')} className="fi-in"><option value="anios">Años</option><option value="meses">Meses</option></select>
             </div>
-            <p className="text-[11px] text-slate-500 mt-2">{duracionTxt ? `Se entrega Carta de Garantía de ${duracionTxt} para ${conGarantia} equipo(s), con firma electrónica de la empresa.` : 'Sin garantía: el acta queda solo de entera satisfacción.'}</p>
-            {nMant > 0 && (
-              <div className="mt-2 space-y-1.5">
-                <p className="text-[11px] font-semibold text-slate-600">Plan de mantenimiento ({nMant} visita{nMant === 1 ? '' : 's'})</p>
-                {mantObs.map((o, i) => (
-                  <input key={i} type="text" value={o} onChange={(e) => setMantObs((m) => m.map((x, idx) => (idx === i ? e.target.value : x)))} placeholder={`Mantenimiento ${i + 1} (mes ${(i + 1) * 6}) · observación opcional`} className="fi-in" />
-                ))}
-              </div>
-            )}
+            <p className="text-[11px] text-slate-500 mt-2">{conGarantia ? `Se adjunta la Carta de Garantía de ${duracionTxt} para ${conGarantia} equipo(s), con firma electrónica de la empresa.` : 'Sin garantía: el acta queda solo de entera satisfacción.'}</p>
           </div>
 
           <div className="fi-sec">
-            <div className="fi-sec-h"><span className="fi-num" style={{ background: '#04896f' }}>3</span><div className="flex-1"><b>Equipos y números de serie</b><small>Cantidad bloqueada · agrega las series que tengas</small></div></div>
+            <div className="fi-sec-h"><span className="fi-num" style={{ background: 'var(--teal)' }}>3</span><div className="flex-1"><b>Equipos y números de serie</b><small>Una serie por unidad · {reg} / {tot} registradas</small></div></div>
             <div className="space-y-2">
               {equipos.map((e) => (
                 <div key={e.key} className="fi-item">
                   <div className="flex items-center gap-2">
-                    {e.codigo && <span className="font-mono-spec text-[10px] text-slate-400 flex items-center gap-1"><Lock className="w-2.5 h-2.5" />{e.codigo}</span>}
+                    {e.codigo && <span className="font-mono-spec text-[10px] text-slate-400 flex items-center gap-1">{!e.extra && <Lock className="w-2.5 h-2.5" />}{e.codigo}</span>}
                     <span className="text-xs font-semibold text-slate-700 truncate flex-1">{e.nombre}</span>
                     <span className="text-xs font-bold text-slate-500">× {e.cantidad}</span>
                     {e.extra && <button type="button" onClick={() => quitarEquipo(e.key)} className="w-6 h-6 rounded-lg text-red-500 hover:bg-red-50 flex items-center justify-center shrink-0" title="Quitar"><Trash2 className="w-3.5 h-3.5" /></button>}
                   </div>
-                  <label className="flex items-center gap-1.5 text-[10.5px] font-semibold text-slate-500 mt-1.5"><input type="checkbox" checked={e.sinGarantia} onChange={() => toggleSinGarantia(e.key)} className="w-3.5 h-3.5" /> Sin garantía</label>
+                  {meses > 0 && <label className="flex items-center gap-1.5 text-[10.5px] font-semibold text-slate-500 mt-1.5"><input type="checkbox" checked={e.sinGarantia} onChange={() => toggleSinGarantia(e.key)} className="w-3.5 h-3.5" /> Sin garantía</label>}
                   {e.cantidad <= 12
                     ? <div className="grid gap-1.5 mt-1.5" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(110px,1fr))' }}>
                         {e.series.map((s, i) => <input key={i} type="text" value={s} onChange={(ev) => setSerie(e.key, i, ev.target.value)} placeholder={`Serie ${i + 1}`} className={'fi-in !mt-0' + (s.trim() ? ' lk-ok' : '')} />)}
@@ -1349,23 +1355,37 @@ function ModalActaGarantia({ r, cerrar, aviso, guardado }: { r: Fila; cerrar: ()
                     : <textarea value={e.series.join('\n')} onChange={(ev) => setSerieBulk(e.key, ev.target.value)} placeholder={`Una serie por línea (${e.cantidad} unidades)`} rows={4} className="fi-in mt-1.5" />}
                 </div>
               ))}
-              {!equipos.length && <p className="text-xs text-slate-400 text-center py-2">Sin equipos en la factura.</p>}
+              {!equipos.length && <p className="text-xs text-slate-400 text-center py-2">Todos los productos fueron acreditados. Añade un equipo si corresponde.</p>}
             </div>
             <div className="mt-2 grid grid-cols-[1fr_90px_70px_auto] gap-1.5 items-center">
-              <input type="text" value={nuevoNombre} onChange={(e) => setNuevoNombre(e.target.value)} placeholder="Añadir otro equipo…" className="fi-in !mt-0" />
+              <input type="text" value={nuevoNombre} onChange={(e) => setNuevoNombre(e.target.value)} placeholder="Añadir equipo entregado aparte…" className="fi-in !mt-0" />
               <input type="text" value={nuevoCodigo} onChange={(e) => setNuevoCodigo(e.target.value)} placeholder="Código" className="fi-in !mt-0" />
               <input type="number" min="1" max="999" value={nuevoCant} onChange={(e) => setNuevoCant(e.target.value)} className="fi-in !mt-0" />
               <button type="button" onClick={agregarEquipo} className="h-[34px] px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center gap-1 text-[11px] font-bold shrink-0"><Plus className="w-3.5 h-3.5" />Añadir</button>
             </div>
-            <label className="flex items-center gap-1.5 text-[10.5px] font-semibold text-slate-500 mt-2">
-              <input type="checkbox" checked={anexo} onChange={(e) => { setAnexo(e.target.checked); setAnexoManual(true) }} className="w-3.5 h-3.5" /> Incluir anexo de números de serie
+            <label className="flex items-center gap-1.5 text-[11.5px] text-slate-600 mt-3">
+              <input type="checkbox" checked={anexo} onChange={(e) => { setAnexo(e.target.checked); setAnexoManual(true) }} className="w-4 h-4" /> Incluir hoja anexa para pegar los stickers de serie
             </label>
           </div>
+
+          {nMant > 0 && (
+            <div className="fi-sec">
+              <div className="fi-sec-h"><span className="fi-num" style={{ background: 'var(--teal)' }}>4</span><div className="flex-1"><b>Cronograma de mantenimiento</b><small>Cada 6 meses desde la fecha del acta · observación opcional</small></div></div>
+              <div className="space-y-1.5">
+                {mantObs.map((o, i) => (
+                  <div key={i} className="grid grid-cols-[150px_1fr] gap-2 items-center">
+                    <span className="text-[11px] font-semibold text-slate-600">{fechaLarga(sumarMeses(fechaBase, 6 * (i + 1)))}</span>
+                    <input type="text" value={o} maxLength={300} onChange={(e) => setMantObs((m) => m.map((x, idx) => (idx === i ? e.target.value : x)))} placeholder="Observación" className="fi-in !mt-0" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {error && <p className="fi-err">{error}</p>}
         </div>
         <div className="shrink-0 border-t border-slate-200 bg-white p-4 flex items-center gap-2">
           <button type="button" onClick={cerrar} className="h-11 px-4 rounded-2xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50">Cancelar</button>
-          <button type="button" onClick={generar} disabled={guardando} className="flex-1 h-11 rounded-2xl text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: '#04896f' }}><Printer className="w-4 h-4" />{guardando ? 'Generando…' : 'Generar acta'}</button>
+          <button type="button" onClick={generar} disabled={guardando || cargando || !r.numeroFactura} className="flex-1 h-11 rounded-2xl text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: '#04896f' }}><Printer className="w-4 h-4" />{guardando ? 'Generando PDF…' : r.actaUrl ? 'Volver a generar el acta' : 'Generar acta'}</button>
         </div>
       </div>
     </div>
