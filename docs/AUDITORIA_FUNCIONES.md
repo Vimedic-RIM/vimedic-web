@@ -739,3 +739,14 @@ Pedido: programar las actividades del personal de Marketing (completar el siguie
 | Cumplimiento | Por persona en la semana: tareas, listas, % a tiempo, atrasadas | `MarketingPlan.tsx` |
 
 Asignan: superadmin, Marketing › aprobar/administrar o el rol de Marketing «Coordinación». Pruebas: supabase/tests/marketing_plan.sql (20/20).
+
+## Ofertas › Términos y condiciones (17-nov-2026)
+
+| Qué | Cómo | Dónde |
+|---|---|---|
+| Términos generales | Vigencia (fecha de cada oferta), unidades limitadas, no acumulable, IVA, formas de pago, entrega, garantía, reserva, «no aplica para» y condiciones adicionales (una por línea); vista previa de cómo sale en la proforma | Ofertas › Términos (`TerminosOfertasEditor.tsx`), tabla ofertas_terminos |
+| Términos por campaña | Se suman a los generales (los campos vacíos toman el texto general; los adicionales se suman); se activan por campaña | idem, `ofertas_terminos_guardar` |
+| En la cotización | Si hay productos en oferta, casilla «Mostrar los términos y condiciones de las ofertas» (no se editan); al guardar se copia la versión vigente en cotizaciones.terminos_ofertas | `CrmDocumento.tsx`, `ofertasTerminos.ts` |
+| En la proforma | Sección «Términos y condiciones de la promoción» (un grupo por campaña, con su vigencia); botón «Mostrar / Ocultar términos» en el visor que guarda la elección; la sección también se mueve u oculta en Plantillas de documentos | `proforma.tsx`, `plantillas.ts`, `Crm.tsx` |
+
+Cotizaciones anteriores (sin copia) toman los términos actuales al abrir la proforma. Migración 20261117120000; pruebas supabase/tests/ofertas_terminos.sql (6/6).

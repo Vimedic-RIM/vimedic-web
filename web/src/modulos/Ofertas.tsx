@@ -5,6 +5,7 @@ import { textoPublico, type Publico } from './ofertasInv'
 import { puede } from '../permisos'
 import { LOGO_BLANCO } from '../catalogoAssets'
 import { encabezadoPdf, logoDocDataUrl } from '../documentoMarca'
+import { TerminosOfertas } from './TerminosOfertasEditor'
 import { ConfirmarEliminar } from './CrmClientes'
 import { useEstadoStock, ChipsStockProceso, type EstadoStock } from '../estadoStock'
 import '../estilos/ofertas.css'
@@ -131,7 +132,7 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
   const [cfg, setCfg] = useState<Cfg>(CFG_DEF)
   const [cfgId, setCfgId] = useState('')
   const [error, setError] = useState('')
-  const [tab, setTab] = useState<'opor' | 'ofertas' | 'res' | 'aprobar'>('opor')
+  const [tab, setTab] = useState<'opor' | 'ofertas' | 'res' | 'aprobar' | 'terminos'>('opor')
   const [campanasPendientes, setCampanasPendientes] = useState<CampanaPend[]>([])
   const [filtro, setFiltro] = useState('')
   const [q, setQ] = useState('')
@@ -283,7 +284,7 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
           ))}
         </div>
         <div className="flex gap-2 items-center flex-wrap">
-          <div className="tabs">{([['opor', 'Oportunidades', P.length], ['ofertas', 'Ofertas', ofertas.filter((o) => ['Activa', 'Programada', 'Pausada'].includes(o.estado)).length], ['aprobar', 'Por aprobar', contarPendientes(campanasPendientes)], ['res', 'Resultados', null]] as const).map(([k, t, n]) => <button key={k} className={'tab' + (tab === k ? ' on' : '')} onClick={() => setTab(k)}>{t}{n != null && <b>{n}</b>}</button>)}</div>
+          <div className="tabs">{([['opor', 'Oportunidades', P.length], ['ofertas', 'Ofertas', ofertas.filter((o) => ['Activa', 'Programada', 'Pausada'].includes(o.estado)).length], ['aprobar', 'Por aprobar', contarPendientes(campanasPendientes)], ['res', 'Resultados', null], ['terminos', 'Términos', null]] as const).map(([k, t, n]) => <button key={k} className={'tab' + (tab === k ? ' on' : '')} onClick={() => setTab(k)}>{t}{n != null && <b>{n}</b>}</button>)}</div>
           <div className="ml-auto" style={{ minWidth: 230, maxWidth: '100%' }}><span className="lbl">Filtrar por categorías</span>
             <details className="inp"><summary style={{ cursor: 'pointer' }}>{!cats.size ? 'Todas las categorías' : cats.size === 1 ? [...cats][0] : cats.size + ' categorías seleccionadas'}</summary>
               <button className="btn btn-sm my-2" type="button" onClick={() => { setCats(new Set()); setMostrar(24); setSel(new Set()) }}>Todas las categorías</button>
@@ -307,6 +308,7 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
         )}
         {tab === 'ofertas' && <ListaOfertas ofertas={ofertasVis} prods={P} abrir={(o) => abrirProd(P.find((p) => p.id === o.productoId) ?? productoDesdeOferta(o), o)} />}
         {tab === 'aprobar' && <PorAprobar campanas={campanasPendientes} prods={P} est={est} margenMinimo={cfg.margenMinimo} aviso={aviso} recargar={cargar} />}
+        {tab === 'terminos' && <TerminosOfertas puedeEditar={puedeEditar} aviso={aviso} />}
         {tab === 'res' && <Resultados ofertas={ofertasVis.filter((o) => o.estado !== 'Programada')} />}
       </main>
 

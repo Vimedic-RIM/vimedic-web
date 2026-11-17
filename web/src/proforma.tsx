@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { BadgePercent, Download, Printer, X } from 'lucide-react'
+import { BadgePercent, Download, Eye, EyeOff, Printer, X } from 'lucide-react'
 import { imagen } from './modulos/inventarioUtil'
 import { nombreOferta, ofertaAplicada, pctTexto, type OfertaLinea } from './modulos/ofertaLinea'
 import { supabase } from './supabase'
 import { logoDocUrl, marcaDoc, PIE_FEMEDICS } from './documentoMarca'
 import { armarBloques, cargarPlantillas, plantillaDe } from './plantillas'
+import type { GrupoTerminos } from './modulos/ofertasTerminos'
 
 /* Proforma / comprobante de venta en HTML listo para imprimir o guardar como PDF en A4.
    Mismo diseño que la proforma de la app original (Documentos.gs → generateInternalQuotePDFBase_). */
@@ -21,6 +22,11 @@ export type DatosDoc = {
   promoPendiente?: { codigo: string; nombre: string; pct: number; campana: string }[]
   /** Si se puede corregir: abre la proforma para editar con la promoción ya aplicada. */
   alAplicarPromo?: () => void
+  /** Términos y condiciones de las ofertas (copia guardada con la cotización) y si se muestran en la proforma. */
+  terminos?: GrupoTerminos[] | null
+  mostrarTerminos?: boolean
+  /** Guardar la elección de mostrar u ocultar los términos (desde el visor). */
+  alMostrarTerminos?: (v: boolean) => Promise<void> | void
 }
 
 const esc = (v: unknown) => (v == null ? '' : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'))
@@ -79,6 +85,7 @@ function armar(d: DatosDoc, base: string): { titulo: string; cuerpo: string } {
       nota: (t) => (nota ? tituloSec(esc(t)) + nota : ''),
       pago_entrega: (t) => (cajaPago ? tituloSec(esc(t)) + cajaPago : ''),
       productos: (t) => tituloSec(esc(t)) + `<table class="items"><thead><tr><th style="width:25px;text-align:center">#</th><th style="width:70px;text-align:center">Img</th><th>Producto</th><th style="width:155px;text-align:right">Totales</th></tr></thead><tbody>${filas}</tbody></table>`,
+      terminos: (t) => (d.mostrarTerminos === false || !d.terminos?.length ? '' : tituloSec(esc(t)) + `<div class="box" style="margin:0 0 12px;break-inside:avoid;page-break-inside:avoid">${d.terminos.map((g) => `<div style="margin:2px 0 8px"><strong style="font-size:10.5px;color:${c}">${esc(g.titulo)}</strong><ul style="margin:4px 0 0 16px;padding:0;list-style:disc;font-size:9.5px;color:#475569;line-height:1.5">${g.puntos.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>`).join('')}</div>`),
       totales: (t) => tituloSec(esc(t)) + `<table class="totales"><tr><td>Subtotal:</td><td style="text-align:right">${m2(total)}</td></tr><tr><td>IVA (15%):</td><td style="text-align:right">${m2(iva)}</td></tr><tr class="grand"><td>TOTAL:</td><td style="text-align:right">${m2(totalIva)}</td></tr></table>`,
     },
   })
@@ -146,8 +153,15 @@ export async function enriquecerItems(items: ItemDoc[]): Promise<ItemDoc[]> {
 }
 
 /* Visor dentro de la app: vista previa A4 + botón para imprimir / guardar como PDF (sin ventanas emergentes). */
-export function ProformaVisor({ datos, cerrar }: { datos: DatosDoc; cerrar: () => void }) {
+export function ProformaVisor({ datos: datosBase, cerrar }: { datos: DatosDoc; cerrar: () => void }) {
   const ref = useRef<HTMLIFrameElement>(null)
+  // Términos y condiciones de las ofertas: no se editan, solo se muestran u ocultan (y se guarda la elección).
+  const [mostrarT, setMostrarT] = useState(datosBase.mostrarTerminos !== false)
+  const datos: DatosDoc = { ...datosBase, mostrarTerminos: mostrarT }
+  const cambiarTerminos = async () => {
+    const v = !mostrarT; setMostrarT(v)
+    try { await datosBase.alMostrarTerminos?.(v) } catch (e) { setMostrarT(!v); alert('No se pudo guardar: ' + ((e as Error).message || e)) }
+  }
   // Plantilla vigente (Plantillas de documentos): se vuelve a armar en cuanto llega de la base.
   const [, setCargada] = useState(0)
   useEffect(() => { let vivo = true; cargarPlantillas().then(() => { if (vivo) setCargada((x) => x + 1) }); return () => { vivo = false } }, [])
@@ -177,6 +191,7 @@ export function ProformaVisor({ datos, cerrar }: { datos: DatosDoc; cerrar: () =
         <div className="min-w-0 flex-1"><p className="font-display font-bold text-sm truncate">{datos.tipo === 'Venta' ? 'Comprobante de venta' : 'Proforma'} · {datos.codigo}</p>
           <p className="text-[11px] text-white/70">Tamaño A4 · «Descargar PDF» lo baja directo.</p></div>
         <button onClick={descargar} disabled={descargando} className="text-xs font-bold px-3.5 py-2 rounded-lg bg-white flex items-center gap-1.5 disabled:opacity-60" style={{ color: 'var(--primary)' }}><Download className="w-4 h-4" /> {descargando ? 'Generando…' : 'Descargar PDF'}</button>
+        {!!datosBase.terminos?.length && <button onClick={cambiarTerminos} title={mostrarT ? 'Ocultar los términos y condiciones de la promoción' : 'Mostrar los términos y condiciones de la promoción'} className="text-xs font-bold px-3.5 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center gap-1.5">{mostrarT ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />} {mostrarT ? 'Ocultar términos' : 'Mostrar términos'}</button>}
         <button onClick={imprimir} className="text-xs font-bold px-3.5 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center gap-1.5"><Printer className="w-4 h-4" /> Imprimir</button>
         <button onClick={cerrar} className="w-9 h-9 rounded-full grid place-items-center bg-white/10 hover:bg-white/20" aria-label="Cerrar"><X className="w-4 h-4" /></button>
       </div>

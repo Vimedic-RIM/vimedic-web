@@ -15,6 +15,7 @@ import { ClientesLista, Papelera, ConfirmarEliminar } from './CrmClientes'
 import RutasViaticos from './RutasViaticos'
 import CrmDocumento, { type Origen, type InfoGuardado } from './CrmDocumento'
 import { ProformaVisor, enriquecerItems, type DatosDoc } from '../proforma'
+import { terminosDeItems, type GrupoTerminos } from './ofertasTerminos'
 import { cargarOfertasInv, type TipoCli } from './ofertasInv'
 import { mapaOfertas, ofertaAplicada, ofertaDeLinea } from './ofertaLinea'
 import {
@@ -774,7 +775,7 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
   useEffect(() => { cargarVersiones() }, [cargarVersiones])
 
   async function editarProforma(aplicarPromo?: boolean) {
-    const { data, error } = await supabase.from('cotizaciones').select('id,codigo,tipo_registro,nombre,identificacion,email,telefono,cliente_id,asesor_id,items,total,nota_cotizacion,medio_captacion_lead').eq('id', g.id).single()
+    const { data, error } = await supabase.from('cotizaciones').select('id,codigo,tipo_registro,nombre,identificacion,email,telefono,cliente_id,asesor_id,items,total,nota_cotizacion,medio_captacion_lead,mostrar_terminos').eq('id', g.id).single()
     if (error || !data) { aviso('No se pudo abrir la proforma para editar: ' + (error?.message ?? '')); return }
     const row = data as Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
     row.items = await enriquecerItems((row.items ?? []) as never)
@@ -789,7 +790,7 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
 
   async function abrirProforma() {
     const { data, error } = await supabase.from('cotizaciones')
-      .select('codigo,fecha,tipo_registro,nombre,identificacion,email,telefono,items,nota_cotizacion,nota_venta,asesor_id,estado_pago,metodo_pago,tipo_entrega,direccion_entrega,fecha_entrega,detalle_venta').eq('id', g.id).single()
+      .select('codigo,fecha,tipo_registro,nombre,identificacion,email,telefono,items,nota_cotizacion,nota_venta,asesor_id,estado_pago,metodo_pago,tipo_entrega,direccion_entrega,fecha_entrega,detalle_venta,terminos_ofertas,mostrar_terminos').eq('id', g.id).single()
     if (error || !data) { aviso('No se pudo cargar la proforma: ' + (error?.message ?? '')); return }
     const r = data as Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
     const venta = r.tipo_registro === 'Venta'
@@ -807,11 +808,17 @@ function Ficha({ g, perfil, asesores, etapas, colorEstado, cerrar, cambiarEstado
       } catch { /* sin ofertas: no se avisa */ }
     }
     const puedeCorregir = g.tipo === 'Cotización' && g.estado !== 'Ganado' && puede(perfil, mod, 'editar')
+    // Términos y condiciones de las ofertas: la copia guardada con la cotización; las anteriores a esta función los toman de Ofertas › Términos.
+    let terminos = (r.terminos_ofertas as GrupoTerminos[] | null) ?? null
+    if (!terminos) { try { terminos = await terminosDeItems(items) } catch { terminos = null } }
+    const idCot = g.id
     verProforma({
       codigo: r.codigo ?? g.codigo, fecha: new Date(r.fecha).toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric' }), tipo: venta ? 'Venta' : 'Cotización', empresa,
       cliente: { nombre: r.nombre, identificacion: r.identificacion, email: r.email, telefono: r.telefono }, asesor: asesor, nota: venta ? r.nota_venta : r.nota_cotizacion,
       items, promoPendiente: promoPendiente?.length ? promoPendiente : undefined, alAplicarPromo: promoPendiente?.length && puedeCorregir ? () => { void editarProforma(true) } : undefined,
       pagoEntrega: venta ? { pago: [r.estado_pago, r.metodo_pago].filter(Boolean).join(' · '), entrega: r.tipo_entrega ?? '', detalle: [r.direccion_entrega, r.fecha_entrega ? 'Fecha de entrega: ' + r.fecha_entrega : ''].filter(Boolean) } : null,
+      terminos, mostrarTerminos: r.mostrar_terminos !== false,
+      alMostrarTerminos: async (v: boolean) => { const { error: e } = await supabase.from('cotizaciones').update({ mostrar_terminos: v }).eq('id', idCot); if (e) throw new Error(e.message) },
     })
   }
 

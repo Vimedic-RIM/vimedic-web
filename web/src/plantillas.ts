@@ -44,14 +44,14 @@ const VARS_CLIENTE = { cliente: 'Nombre del cliente', ruc: 'Cédula / RUC del cl
 export const DOCS: DefDoc[] = [
   {
     codigo: 'proforma', nombre: 'Proforma / Cotización', desc: 'La cotización que el asesor envía al cliente desde el CRM.',
-    base: { titulo: 'Proforma / Cotización', bloques: [sec('datos'), sec('nota'), sec('pago_entrega'), sec('productos'), sec('totales')] },
-    secciones: { datos: 'Datos del cliente y del asesor', nota: 'Nota importante (si la cotización tiene)', pago_entrega: 'Detalles de pago y entrega', productos: 'Tabla de productos', totales: 'Subtotal, IVA y total' },
+    base: { titulo: 'Proforma / Cotización', bloques: [sec('datos'), sec('nota'), sec('pago_entrega'), sec('productos'), sec('totales'), sec('terminos', 'Términos y condiciones de la promoción')] },
+    secciones: { datos: 'Datos del cliente y del asesor', nota: 'Nota importante (si la cotización tiene)', pago_entrega: 'Detalles de pago y entrega', productos: 'Tabla de productos', totales: 'Subtotal, IVA y total', terminos: 'Términos y condiciones de las ofertas (si hay productos en oferta y el asesor no los ocultó)' },
     variables: { ...VARS_CLIENTE, numero: 'Número de la solicitud', asesor: 'Asesor comercial', correo: 'Correo del cliente', telefono: 'Teléfono del cliente', total: 'Total con IVA' },
   },
   {
     codigo: 'venta', nombre: 'Comprobante de venta', desc: 'El comprobante de una venta ganada en el CRM.',
-    base: { titulo: 'Comprobante de venta', bloques: [sec('datos'), sec('nota'), sec('pago_entrega'), sec('productos'), sec('totales')] },
-    secciones: { datos: 'Datos del cliente y del asesor', nota: 'Nota importante (si la venta tiene)', pago_entrega: 'Detalles de pago y entrega', productos: 'Tabla de productos', totales: 'Subtotal, IVA y total' },
+    base: { titulo: 'Comprobante de venta', bloques: [sec('datos'), sec('nota'), sec('pago_entrega'), sec('productos'), sec('totales'), sec('terminos', 'Términos y condiciones de la promoción')] },
+    secciones: { datos: 'Datos del cliente y del asesor', nota: 'Nota importante (si la venta tiene)', pago_entrega: 'Detalles de pago y entrega', productos: 'Tabla de productos', totales: 'Subtotal, IVA y total', terminos: 'Términos y condiciones de las ofertas (si hay productos en oferta y el asesor no los ocultó)' },
     variables: { ...VARS_CLIENTE, numero: 'Número de la venta', asesor: 'Asesor comercial', correo: 'Correo del cliente', telefono: 'Teléfono del cliente', total: 'Total con IVA' },
   },
   {

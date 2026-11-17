@@ -9,6 +9,7 @@ import { puede } from '../permisos'
 import { FormularioCliente, type Cliente as ClienteFicha } from './CrmClientes'
 import { imagen } from './inventarioUtil'
 import type { DatosDoc } from '../proforma'
+import { terminosDeItems, type GrupoTerminos } from './ofertasTerminos'
 import { EtiquetasStockCotizacion, FranjaStock, marcoStock, useEstadoStock } from '../estadoStock'
 import { leerDatosEmpresa } from './CrmMeta'
 import { conservarCursor, nombrePropio, nombrePropioFinal } from '../formatoNombres'
@@ -101,6 +102,8 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   // Con qué medio llegó el lead (se conserva aunque la venta se cierre por otro medio).
   const medioLead = ed?.medio_captacion_lead || origen?.medio || ''
   const [nota, setNota] = useState<string>(ed?.nota_cotizacion ?? '')
+  // Términos y condiciones de las ofertas (Ofertas › Términos): aquí no se editan, solo se muestran u ocultan en la proforma.
+  const [mostrarTerminos, setMostrarTerminos] = useState<boolean>(ed?.mostrar_terminos !== false)
   // El documento queda a nombre del asesor elegido: si la asistente parte de un lead/gestión de un jefe, sale a nombre del jefe.
   // Asistente Comercial Gerencia (Leads.gs del original): todo lo que crea queda a nombre de uno de los jefes, nunca a su nombre; se elige.
   const esAsistente = !!perfil.asiste_a?.length
@@ -306,7 +309,11 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     setGuardando(true); setError('')
     const ahora = new Date().toISOString()
     const items = carrito.map((i) => ({ base: i.base, obj: i.obj, categoria: i.categoria, descripcion: i.descripcion, ficha: i.ficha, carpeta: i.carpeta, id: i.id, codigo: i.codigo, nombre: i.nombre, imagen: i.imagen, precio: i.precio, cantidad: i.cantidad, descuento: i.descuento, iva: i.iva, observacion: i.observacion, oferta: ofertaAplicada(i) ? i.oferta : undefined }))
+    // Copia de los términos vigentes de las ofertas de esta cotización: la proforma no cambia si después se editan.
+    let terminos: GrupoTerminos[] = []
+    try { terminos = await terminosDeItems(carrito) } catch { /* sin términos: la proforma sale sin esa sección */ }
     const datos: Record<string, unknown> = {
+      terminos_ofertas: terminos.length ? terminos : null, mostrar_terminos: mostrarTerminos,
       tipo_registro: modo, cliente_id: cliente?.id ?? null, lead_sin_cliente: !cliente, nombre,
       identificacion: cliente?.identificacion ?? (lead.identificacion || null), email: cliente?.email ?? (lead.email.trim() || null), telefono: cliente?.telefono ?? (lead.telefono.trim() || null),
       direccion: cliente?.direccion ?? null, ciudad: cliente?.ciudad ?? (nombrePropioFinal(leadCiudad) || null), asesor_id: asesorId || null, detalle_equipos: carrito.map((i) => `${i.nombre} (Cant: ${i.cantidad})`).join(', '),
@@ -394,6 +401,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
       asesor: asesores.find((a) => a.id === asesorId)?.nombre ?? perfil.nombre, nota: nota.trim() || null,
       items: carrito.map((i) => ({ id: i.id, codigo: i.codigo, nombre: i.nombre, imagen: i.imagen, categoria: i.categoria, descripcion: i.descripcion, ficha: i.ficha, carpeta: i.carpeta, precio: i.precio, cantidad: i.cantidad, descuento: i.descuento, iva: i.iva, observacion: i.observacion, oferta: ofertaAplicada(i) ? i.oferta : undefined })),
       pagoEntrega: esVenta ? { pago: pago + (tipoPago ? ' · ' + tipoPago : '') + (plazo ? ' · Plazo: ' + plazo : ''), entrega, detalle: resumenEntrega } : null,
+      terminos, mostrarTerminos,
     }, { id: idFinal, nuevo: eraNuevo, modo, nombre, total: Math.round(total * 100) / 100 })
   }
 
@@ -697,6 +705,12 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
       <section className="ns-sec">
         <header><span className="ns-num"><StickyNote className="w-3 h-3" /></span><h4>{esVenta ? 'Nota importante para esta venta' : 'Nota importante para esta proforma'}</h4><span className="ml-auto text-[10px] text-slate-400">{esVenta ? 'interna' : 'aparece en el PDF'}</span></header>
         <textarea rows={4} value={nota} onChange={(e) => setNota(e.target.value)} placeholder={esVenta ? 'Independiente de la cotización; no aparece en el PDF de proforma...' : 'Condiciones, tiempos de entrega, garantía...'} className="ns-input" />
+        {carrito.some((i) => ofertaAplicada(i)) && (
+          <label className="flex items-start gap-2 mt-2 text-[12px] text-slate-700" title="Los términos se configuran en Ofertas › Términos; aquí solo se muestran u ocultan">
+            <input type="checkbox" className="mt-0.5" checked={mostrarTerminos} onChange={(e) => setMostrarTerminos(e.target.checked)} />
+            <span><b>Mostrar los términos y condiciones de las ofertas</b> en la proforma<span className="block text-[10.5px] text-slate-400">Se toman de Ofertas › Términos (generales y de cada campaña); aquí no se editan.</span></span>
+          </label>
+        )}
         <label className="block mt-2"><span className="ns-label">{perfil.asiste_a?.length ? 'A nombre de quién se crea la ' + (esVenta ? 'venta' : 'proforma') + ' *' : 'Asesor'}</span>
           <select className="ns-input" value={asesorId} onChange={(e) => setAsesorId(e.target.value)}>
             {perfil.asiste_a?.length
