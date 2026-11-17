@@ -924,3 +924,23 @@ body.vm-con-rail .vm-mkt #sideNav{left:calc(var(--vr-w) + 10px)}
 .vm-mkt .bib-prog{height:6px;border-radius:99px;background:#eef2f7;overflow:hidden}
 .vm-mkt .bib-prog i{display:block;height:100%;background:linear-gradient(90deg,#17a9ba,#04896f)}
 .vm-mkt .bib-div{grid-column:1/-1;font-size:10.5px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-top:8px}
+
+/* Formulario del producto (Biblioteca y Plan de trabajo): doble ancho y dos columnas */
+.vm-mkt .mkf-editor{display:flex;flex-direction:column;gap:12px}
+.vm-mkt .mkf-top{display:grid;gap:8px}
+@media(min-width:1024px){.vm-mkt .mkf-top{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.vm-mkt .mkf-top > *{margin:0}
+.vm-mkt .mkf-2col{display:grid;gap:14px;align-items:start}
+@media(min-width:1024px){.vm-mkt .mkf-2col{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
+.vm-mkt .mkf-col{display:flex;flex-direction:column;gap:12px;min-width:0}
+.vm-mkt .mkf-col > *{margin:0}
+.vm-mkt .mkf-caja{border:1px solid #e2e8f0;border-radius:14px;padding:12px;background:#fff;display:flex;flex-direction:column;gap:8px;min-width:0}
+.vm-mkt .mkf-caja:empty{display:none}
+.vm-mkt .mkf-caja > *{margin:0}
+.vm-mkt .mkf-tarea{display:flex;align-items:center;gap:10px;flex-wrap:wrap;border:1px solid #d6e6f5;border-left:4px solid var(--c,#055c9d);border-radius:12px;background:#f5f9fe;padding:8px 12px;font-size:12px}
+.vm-mkt .mkf-tarea .t{font-weight:800;color:var(--c,#055c9d);text-transform:uppercase;font-size:10.5px;letter-spacing:.03em;display:flex;align-items:center;gap:5px}
+.vm-mkt .mkf-tarea .t svg{width:14px;height:14px}
+.vm-mkt .mkf-tarea .pasos{display:flex;gap:4px;flex-wrap:wrap}
+.vm-mkt .mkf-tarea .paso{display:inline-flex;align-items:center;gap:5px;border:1px solid #e2e8f0;background:#fff;border-radius:99px;padding:3px 9px;font-size:11px;font-weight:600;color:#475569;cursor:pointer}
+.vm-mkt .mkf-tarea .paso.ok{border-color:#bfe6da;background:#f3fbf8;color:#04896f}
+.vm-mkt .mkf-tarea .paso input{width:13px;height:13px;margin:0}

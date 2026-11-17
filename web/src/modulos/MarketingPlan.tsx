@@ -11,6 +11,7 @@ import { supabase, type Perfil } from '../supabase'
 import { imagen } from './inventarioUtil'
 import { hoyEC } from './ofertasInv'
 import { BuscadorProducto, type ProdBusq } from './MarketingArchivos'
+import { EditorProducto, type Prod } from './MarketingIntegraciones'
 import '../estilos/marketing-plan.css'
 
 export type Trabajo = 'completar' | 'fotos' | 'video' | 'produccion' | 'edicion' | 'ficha_tecnica' | 'documentos_proveedor' | 'publicacion' | 'otro'
@@ -65,7 +66,7 @@ async function rpc<T>(nombre: string, args: Record<string, unknown>): Promise<T>
   return data as T
 }
 
-export function PlanTrabajo({ aviso, irA, pendiente, consumirPendiente }: {
+export function PlanTrabajo({ perfil, aviso, irA, pendiente, consumirPendiente }: {
   perfil: Perfil; aviso: (t: string) => void; irA: (tab: string) => void; pendiente: PendientePlan; consumirPendiente: () => void
 }) {
   const hoy = hoyEC()
@@ -75,6 +76,8 @@ export function PlanTrabajo({ aviso, irA, pendiente, consumirPendiente }: {
   const [persona, setPersona] = useState('')
   const [vista, setVista] = useState<'semana' | 'lista'>(() => (typeof window !== 'undefined' && window.innerWidth < 760 ? 'lista' : 'semana'))
   const [detalle, setDetalle] = useState<Tarea | null>(null)
+  // Tarea con producto: se abre el formulario del producto (Biblioteca) con la tarea arriba
+  const [editor, setEditor] = useState<Tarea | null>(null)
   const [asignar, setAsignar] = useState<PendientePlan | 'nuevo' | null>(null)
   const [armar, setArmar] = useState(false)
   // Clic en el día de una persona: formulario según su rol (Asistente → producto, Audiovisual → video)
@@ -121,7 +124,7 @@ export function PlanTrabajo({ aviso, irA, pendiente, consumirPendiente }: {
     return (
       <button type="button" className={'mkp-card' + (atrasada(t) ? ' tarde' : '') + (abierta(t) ? '' : ' cerrada') + (mueve ? ' mueve' : '')} style={{ ['--c' as string]: m.c }}
         draggable={mueve} onDragStart={(e) => { arrastra.current = t.id; e.dataTransfer.effectAllowed = 'move' }} onDragEnd={() => { arrastra.current = null; setEncima('') }}
-        onClick={() => setDetalle(t)} title={t.descripcion}>
+        onClick={() => (t.producto ? setEditor(t) : setDetalle(t))} title={t.producto ? 'Abrir el producto para completarlo' : t.descripcion}>
         <span className="tipo"><I />{m.t}{t.detalle ? ' · ' + t.detalle : ''}<span className="mkp-pri" style={{ background: PRIO_COLOR[t.prioridad ?? 'Normal'], marginLeft: 'auto' }} title={'Prioridad ' + (t.prioridad ?? 'Normal')} /></span>
         <span className="nom">{t.producto ? t.producto.nombre : t.instrucciones || t.descripcion}</span>
         <span className="pie">
@@ -235,12 +238,53 @@ export function PlanTrabajo({ aviso, irA, pendiente, consumirPendiente }: {
         </div>
       )}
 
+      {editor && <EditorDesdePlan t={plan.tareas.find((x) => x.id === editor.id) ?? editor} plan={plan} perfil={perfil} nombre={nombre} aviso={aviso}
+        cerrar={() => { setEditor(null); cargar() }} verTarea={() => { const t = editor; setEditor(null); setDetalle(t) }} recargar={cargar} />}
       {detalle && <DetalleTarea t={plan.tareas.find((x) => x.id === detalle.id) ?? detalle} plan={plan} nombre={nombre} cerrar={() => setDetalle(null)} aviso={aviso} irA={irA} recargar={cargar} />}
       {asignar && <ModalAsignar plan={plan} inicial={asignar === 'nuevo' ? null : asignar} personaDef={persona} fechaDef={habil(lunes > hoy ? lunes : hoy)} cerrar={() => setAsignar(null)} aviso={aviso} listo={() => { setAsignar(null); cargar() }} />}
       {diaSel && <FormularioDia plan={plan} personaId={diaSel.persona} fecha={diaSel.fecha} cerrar={() => setDiaSel(null)} aviso={aviso} listo={() => { setDiaSel(null); cargar() }} />}
       {armar && <ModalArmar plan={plan} personaDef={persona} fechaDef={habil(lunes > hoy ? lunes : hoy)} cerrar={() => setArmar(false)} aviso={aviso} listo={() => { setArmar(false); cargar() }} />}
     </div>
   )
+}
+
+/* ---------------------------------------------------------------- Formulario del producto desde una tarea */
+function EditorDesdePlan({ t, plan, perfil, nombre, aviso, cerrar, verTarea, recargar }: {
+  t: Tarea; plan: Plan; perfil: Perfil; nombre: (id: string | null) => string; aviso: (s: string) => void; cerrar: () => void; verTarea: () => void; recargar: () => Promise<void>
+}) {
+  const [prod, setProd] = useState<Prod | null>(null)
+  const [categorias, setCategorias] = useState<string[]>([])
+  const [marcas, setMarcas] = useState<string[]>([])
+  const [error, setError] = useState('')
+  const pid = t.producto?.id
+  useEffect(() => {
+    if (!pid) return
+    supabase.from('productos').select('id,codigo,nombre,descripcion,imagen_url,marca,drive_carpeta_url,ficha_tecnica_url,fecha_creacion,sin_etiqueta_nuevo,en_catalogo,categoria:categorias(nombre)').eq('id', pid).single()
+      .then(({ data, error: e }) => { if (e || !data) setError('No se pudo abrir el producto: ' + (e?.message ?? 'no existe')); else setProd(data as unknown as Prod) })
+    supabase.from('categorias').select('nombre').is('deleted_at', null).order('nombre').then(({ data }) => setCategorias(((data as { nombre: string }[] | null) ?? []).map((x) => x.nombre)))
+    supabase.from('productos').select('marca').not('marca', 'is', null).is('deleted_at', null).limit(1000)
+      .then(({ data }) => setMarcas([...new Set(((data as { marca: string }[] | null) ?? []).map((x) => x.marca.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'))))
+  }, [pid])
+  useEffect(() => { if (error) { aviso(error); cerrar() } }, [error]) // eslint-disable-line react-hooks/exhaustive-deps
+  if (!prod) return <div className="mkp-fondo"><p className="text-sm font-semibold text-white">Abriendo el producto…</p></div>
+  const m = TRABAJOS[t.trabajo] ?? TRABAJOS.otro, I = m.i
+  const puede = (t.responsable === plan.yo || plan.coordina) && abierta(t)
+  const paso = async (i: number, hecho: boolean) => {
+    try { await rpc('mkt_plan_paso', { p_id: t.id, p_indice: i, p_hecho: hecho }); await recargar() } catch (e) { aviso((e as Error).message) }
+  }
+  const encabezado = (
+    <>
+      <div className="mkf-tarea" style={{ ['--c' as string]: m.c }}>
+        <span className="t"><I />{m.t}{t.detalle ? ' · ' + t.detalle : ''}</span>
+        <span className="text-slate-500" style={{ fontSize: 11.5 }}>{nombre(t.responsable)} · {t.fecha ? fLarga(t.fecha) : 'sin fecha'} · <b>{t.estado}</b></span>
+        {t.pasos.length > 0 && <span className="pasos">{t.pasos.map((p, i) => (
+          <label key={i} className={'paso' + (p.hecho ? ' ok' : '')}><input type="checkbox" checked={p.hecho} disabled={!puede} onChange={(e) => paso(i, e.target.checked)} />{p.t}</label>))}</span>}
+        <button type="button" className="btn !py-1.5" style={{ marginLeft: 'auto' }} onClick={verTarea}>Terminar o reprogramar</button>
+      </div>
+      {t.instrucciones && <p className="text-[11.5px] text-slate-600" style={{ margin: 0 }}><b>Instrucciones:</b> {t.instrucciones}</p>}
+    </>
+  )
+  return <EditorProducto perfil={perfil} prod={prod} categorias={categorias} marcas={marcas} cerrar={cerrar} aviso={aviso} encabezado={encabezado} />
 }
 
 /* ---------------------------------------------------------------- Detalle de una tarea */

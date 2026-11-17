@@ -184,7 +184,7 @@ function Tarjeta({ proveedor, titulo, sub, est, aviso, cambio, ayuda, conModelo 
 /* El planificador de publicaciones está en MarketingPlanificador.tsx. */
 
 /* ============================ Biblioteca (descripciones con IA) ============================ */
-type Prod = {
+export type Prod = {
   id: string; codigo: string; nombre: string; descripcion: string | null; imagen_url: string | null; categoria: { nombre: string } | null; marca: string | null
   drive_carpeta_url: string | null; ficha_tecnica_url: string | null; fecha_creacion: string | null; sin_etiqueta_nuevo: boolean; en_catalogo: boolean
 }
@@ -432,7 +432,7 @@ function construirFichaHtml(full: ProdFull, codigo: string, destacadosSel: strin
 const WEB = 'vimedic.com.ec'
 const money = (n: number) => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { perfil: Perfil; prod: Prod; categorias: string[]; marcas: string[]; cerrar: () => void; aviso: (t: string) => void }) {
+export function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso, encabezado }: { perfil: Perfil; prod: Prod; categorias: string[]; marcas: string[]; cerrar: () => void; aviso: (t: string) => void; encabezado?: React.ReactNode }) {
   const [full, setFull] = useState<ProdFull | null>(null)
   const [base, setBase] = useState<Record<string, string>>({})
   const [notas, setNotas] = useState('')
@@ -792,12 +792,13 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
   })() : null
 
   return (
-    <Ventana titulo={prod.nombre} cerrar={cerrar} ancho="sm:max-w-2xl" pie={<>
+    <Ventana titulo={prod.nombre} cerrar={cerrar} ancho="sm:max-w-6xl" pie={<>
       <p className={'text-[11px] font-semibold flex-1 ' + (falta.length ? 'text-amber-700' : 'text-emerald-700')}>{falta.length ? 'Falta: ' + falta.join(', ') : '✓ Producto completo'}<span className="block font-normal text-slate-400">{msg || 'Todo se guarda solo'}</span></p>
       <button className="btn btn-primary" onClick={cerrar}><Check />Listo</button>
     </>}>
-      <p className="text-[11px] text-slate-500">{prod.codigo}{full?.categoria ? ' · ' + full.categoria : ''}</p>
-
+      <div className="mkf-editor">
+      {encabezado}
+      <div className="mkf-top">
       {full && (
         <div className="flex items-center gap-3 rounded-xl border border-slate-200 p-3" style={full.en_catalogo ? { background: '#f0fdf8', borderColor: '#bfe6da' } : undefined}>
           <span className="w-9 h-9 rounded-lg grid place-items-center shrink-0" style={full.en_catalogo ? { background: '#dcfce7', color: '#04896f' } : { background: '#f1f5f9', color: '#94a3b8' }}><Globe className="w-4 h-4" /></span>
@@ -806,6 +807,12 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
         </div>
       )}
 
+      <div className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-slate-50/70 p-2.5 min-w-0">
+        {full?.imagen_url ? <img src={imagen(full.imagen_url, 96)} alt="" className="w-11 h-11 rounded-lg object-contain bg-white border border-slate-200 shrink-0" /> : <span className="w-11 h-11 rounded-lg bg-white border border-slate-200 shrink-0 grid place-items-center text-slate-300"><ImagePlus className="w-4 h-4" /></span>}
+        <div className="min-w-0 flex-1"><p className="text-[10.5px] font-mono-spec text-slate-400 truncate">{prod.codigo}{full?.categoria ? ' · ' + full.categoria : ''}</p><p className="text-[11.5px] font-semibold text-[var(--primary)] truncate" title={enlace}>{enlace.replace('https://', '')}</p></div>
+        <button type="button" className="btn !py-1.5 !px-2" title="Copiar enlace para compartir" onClick={() => { navigator.clipboard.writeText(enlace); aviso('Enlace copiado.') }}><Copy className="w-3.5 h-3.5" /></button>
+        <button type="button" className="btn !py-1.5 !px-2" title="Vista previa en la web" onClick={() => window.open(enlace, '_blank', 'noopener')}><Eye className="w-3.5 h-3.5" /></button>
+      </div>
       {prodReciente(prod) && (
         <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50/60 px-3 py-2">
           <span className="text-[9px] font-bold uppercase tracking-wider text-white rounded-full px-2 py-0.5 shrink-0" style={{ background: '#c98a1f', opacity: sinNuevo ? .35 : 1, textDecoration: sinNuevo ? 'line-through' : undefined }}>Nuevo</span>
@@ -814,27 +821,11 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
         </div>
       )}
 
-      <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-2.5">
-        {full?.imagen_url ? <img src={imagen(full.imagen_url, 96)} alt="" className="w-12 h-12 rounded-lg object-contain bg-white border border-slate-200 shrink-0" /> : <span className="w-12 h-12 rounded-lg bg-white border border-slate-200 shrink-0 grid place-items-center text-slate-300"><ImagePlus className="w-4 h-4" /></span>}
-        <div className="min-w-0 flex-1"><p className="text-[10px] font-mono-spec uppercase text-slate-400 font-semibold">Enlace del equipo para compartir</p><p className="text-[12px] font-semibold text-[var(--primary)] truncate">{enlace}</p></div>
-        <button type="button" className="btn !py-1.5" onClick={() => { navigator.clipboard.writeText(enlace); aviso('Enlace copiado.') }}><Copy className="w-3.5 h-3.5" />Copiar</button>
-        <button type="button" className="btn !py-1.5" onClick={() => window.open(enlace, '_blank', 'noopener')}><Eye className="w-3.5 h-3.5" />Vista previa</button>
       </div>
-
-      {full && (
-        <div className="space-y-2">
-          <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5"><ImagePlus className="w-3.5 h-3.5 text-[var(--primary)]" />Imagen principal del producto</p>
-          <p className="text-[11px] text-slate-500">Se usa en el catálogo, cotizaciones e inventario. Recomendado 4:3, fondo claro. Al elegirla se sube sola.</p>
-          <label className="flex items-center gap-2 border border-dashed border-slate-300 rounded-xl p-2.5 cursor-pointer hover:border-[var(--cyan)]">
-            {full.imagen_url ? <img src={imagen(full.imagen_url, 120)} alt="" className="w-10 h-10 rounded-lg object-cover bg-slate-100" onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} /> : <ImagePlus className="w-4 h-4 text-slate-400" />}
-            <span className="text-xs text-slate-600">{subiendoImg ? 'Subiendo imagen…' : 'Elegir nueva imagen (JPG, PNG, WebP) · se guarda en WebP'}</span>
-            <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled={subiendoImg} onChange={(e) => { subirImagenPrincipal(e.target.files?.[0]); e.target.value = '' }} />
-          </label>
-          <label className="block text-[10px] font-semibold text-slate-500">O pega un enlace de Drive / HTTPS
-            <input type="url" className="inp w-full mt-1" value={full.imagen_url} onChange={(e) => set('imagen_url', e.target.value)} onBlur={() => guardarCampo('imagen_url', full.imagen_url)} /></label>
-        </div>
-      )}
-
+      {!full ? <p className="text-xs text-slate-400">Cargando el producto…</p> : (
+      <div className="mkf-2col">
+        <div className="mkf-col">
+      <div className="mkf-caja">
       {full && (
         <div className="space-y-2">
           <div className="flex items-center gap-2"><p className="text-xs font-bold text-slate-800 flex items-center gap-1.5"><Tag className="w-3.5 h-3.5 text-[var(--primary)]" />Datos del producto</p>
@@ -852,6 +843,45 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
         </div>
       )}
 
+      </div>
+      <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-3 space-y-2">
+        <p className="text-[11px] font-bold text-violet-700 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" />Redactar con IA (Gemini)</p>
+        <input value={notas} onChange={(e) => setNotas(e.target.value)} className="inp w-full" placeholder="Indicaciones (opcional): enfoque, público, qué resaltar…" />
+        <button type="button" className="btn" onClick={redactar} disabled={ia}><Sparkles />{ia ? 'Redactando…' : 'Redactar descripción y características'}</button>
+        <p className="text-[10px] text-slate-500">Si el producto tiene ficha técnica en PDF, la IA la lee para no inventar datos.</p>
+      </div>
+      <div className="mkf-caja">
+        <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5"><FileText className="w-3.5 h-3.5 text-[var(--primary)]" />Textos del producto</p>
+      {full && campoTexto('descripcion', 'descripcion', 'Descripción', { full: true, multilinea: true, filas: 3 })}
+      {full && campoTexto('caracteristicas', 'caracteristicas', 'Características (una por línea, se muestran con ✓)', { full: true, multilinea: true, filas: 5, maxLength: 3400 })}
+      {full && campoTexto('especificaciones', 'especificaciones', 'Especificaciones técnicas (una por línea: Dato: valor)', { full: true, multilinea: true, filas: 6, maxLength: 4000 })}
+      {full && <div className="flex items-center gap-2 flex-wrap -mt-1">
+        <button type="button" className="btn" onClick={extraerEspecificaciones} disabled={leyendoFicha}><FileText className="w-3.5 h-3.5" />{leyendoFicha ? 'Leyendo la ficha…' : 'Extraer de la ficha técnica con IA'}</button>
+        {espAntes !== null && !leyendoFicha && <button type="button" className="btn" onClick={() => { set('especificaciones', espAntes); guardarCampo('especificaciones', espAntes); setEspAntes(null) }}>Deshacer</button>}
+      </div>}
+
+      </div>
+        </div>
+        <div className="mkf-col">
+      <div className="mkf-caja">
+      {full && (
+        <div className="space-y-2">
+          <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5"><ImagePlus className="w-3.5 h-3.5 text-[var(--primary)]" />Imagen principal<span className="ml-auto text-[10px] font-normal text-slate-400">4:3, fondo claro · se guarda en WebP</span></p>
+          <div className="flex items-center gap-3">
+            <label className="shrink-0 cursor-pointer" title="Cambiar la imagen principal">
+              {full.imagen_url ? <img src={imagen(full.imagen_url, 160)} alt="" className="w-16 h-16 rounded-lg object-contain bg-slate-50 border border-slate-200" onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} /> : <span className="w-16 h-16 rounded-lg border border-dashed border-slate-300 grid place-items-center text-slate-400"><ImagePlus className="w-5 h-5" /></span>}
+              <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled={subiendoImg} onChange={(e) => { subirImagenPrincipal(e.target.files?.[0]); e.target.value = '' }} />
+            </label>
+            <div className="min-w-0 flex-1" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label className="btn !py-1.5 cursor-pointer" style={{ alignSelf: 'flex-start' }}><Upload className="w-3.5 h-3.5" />{subiendoImg ? 'Subiendo imagen…' : 'Subir imagen'}
+                <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled={subiendoImg} onChange={(e) => { subirImagenPrincipal(e.target.files?.[0]); e.target.value = '' }} /></label>
+              <input type="url" className="inp w-full" placeholder="O pega un enlace de Drive / HTTPS" value={full.imagen_url} onChange={(e) => set('imagen_url', e.target.value)} onBlur={() => guardarCampo('imagen_url', full.imagen_url)} />
+            </div>
+          </div>
+        </div>
+      )}
+      </div>
+      <div className="mkf-caja">
       <div className="space-y-2">
         <div className="flex items-center gap-2"><p className="text-xs font-bold text-slate-800 flex items-center gap-1.5"><ImagePlus className="w-3.5 h-3.5 text-[var(--cyan)]" />Galería del catálogo</p>
           <span className="ml-auto text-[10px] font-mono-spec text-slate-400">{galeria.length} elemento{galeria.length === 1 ? '' : 's'}</span></div>
@@ -897,58 +927,8 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
         )}
       </div>
 
-      <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-3 space-y-2">
-        <p className="text-[11px] font-bold text-violet-700 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" />Redactar con IA (Gemini)</p>
-        <input value={notas} onChange={(e) => setNotas(e.target.value)} className="inp w-full" placeholder="Indicaciones (opcional): enfoque, público, qué resaltar…" />
-        <button type="button" className="btn" onClick={redactar} disabled={ia}><Sparkles />{ia ? 'Redactando…' : 'Redactar descripción y características'}</button>
-        <p className="text-[10px] text-slate-500">Si el producto tiene ficha técnica en PDF, la IA la lee para no inventar datos.</p>
       </div>
-      {full && campoTexto('descripcion', 'descripcion', 'Descripción', { full: true, multilinea: true, filas: 3 })}
-      {full && campoTexto('caracteristicas', 'caracteristicas', 'Características (una por línea, se muestran con ✓)', { full: true, multilinea: true, filas: 5, maxLength: 3400 })}
-      {full && campoTexto('especificaciones', 'especificaciones', 'Especificaciones técnicas (una por línea: Dato: valor)', { full: true, multilinea: true, filas: 6, maxLength: 4000 })}
-      {full && <div className="flex items-center gap-2 flex-wrap -mt-1">
-        <button type="button" className="btn" onClick={extraerEspecificaciones} disabled={leyendoFicha}><FileText className="w-3.5 h-3.5" />{leyendoFicha ? 'Leyendo la ficha…' : 'Extraer de la ficha técnica con IA'}</button>
-        {espAntes !== null && !leyendoFicha && <button type="button" className="btn" onClick={() => { set('especificaciones', espAntes); guardarCampo('especificaciones', espAntes); setEspAntes(null) }}>Deshacer</button>}
-      </div>}
-
-      {full && (
-        <div className="space-y-2">
-          <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5"><Link2 className="w-3.5 h-3.5 text-amber-500" />Álbum de multimedia</p>
-          <div className="flex gap-2 items-center">
-            <input type="url" className="inp flex-1" placeholder="Carpeta de Google Drive" value={full.drive_carpeta_url} onChange={(e) => set('drive_carpeta_url', e.target.value)} onBlur={() => guardarCampo('album', full.drive_carpeta_url)} />
-            {full.drive_carpeta_url && <a href={full.drive_carpeta_url} target="_blank" rel="noopener noreferrer" className="btn !py-1.5">Abrir ↗</a>}
-          </div>
-          <p className="text-[10px] text-slate-400">Archivo interno en Drive. No se muestra en el catálogo cuando la galería ya tiene fotos.</p>
-        </div>
-      )}
-
-      <div className="space-y-2">
-        <div className="flex items-center gap-2">
-          <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5"><FileBadge className="w-3.5 h-3.5 text-[var(--teal)]" />Documentos técnicos</p>
-          <span className={'ml-auto pill ' + (docs.length === 0 ? 'bg-red-50 text-red-600' : DOC_OBLIGATORIOS.every((t) => docs.some((d) => d.tipo === t)) ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700')}>
-            {docs.length === 0 ? 'Sin documentos' : DOC_OBLIGATORIOS.every((t) => docs.some((d) => d.tipo === t)) ? 'Completo' : 'Incompleto'}
-          </span>
-        </div>
-        <div className="space-y-1">
-          {docs.map((d) => (
-            <div key={d.id} className="flex items-center gap-2 text-[11.5px] text-slate-600">
-              <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-              {d.url ? <a href={d.url} target="_blank" rel="noopener noreferrer" className="text-[var(--primary)] font-semibold">{d.tipo}</a> : <span>{d.tipo}</span>}
-              <span className="text-slate-400 truncate">{d.nombre}</span>
-            </div>
-          ))}
-          {!docs.length && <p className="text-[11px] text-slate-400">Sin documentos técnicos todavía.</p>}
-          {(() => { const faltan = DOC_OBLIGATORIOS.filter((t) => !docs.some((d) => d.tipo === t)); return faltan.length > 0 && <p className="text-[11px] text-slate-500">Falta: {faltan.join(', ')}. Los sube Servicio Técnico.</p> })()}
-        </div>
-        {puedeDocs && (
-          <div className="flex gap-2 items-center flex-wrap">
-            <select className="inp !py-1.5" value={docTipo} onChange={(e) => setDocTipo(e.target.value)}>{DOC_TIPOS.map((t) => <option key={t}>{t}</option>)}</select>
-            <label className="btn cursor-pointer !py-1.5"><Upload className="w-3.5 h-3.5" />{docSubiendo ? 'Subiendo…' : 'Elegir archivos'}
-              <input type="file" multiple className="hidden" disabled={docSubiendo} onChange={(e) => { docSubir(e.target.files); e.target.value = '' }} /></label>
-          </div>
-        )}
-      </div>
-
+      <div className="mkf-caja">
       {full && (
         <div className="space-y-2">
           <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5"><FileText className="w-3.5 h-3.5 text-[var(--teal)]" />Ficha técnica</p>
@@ -999,6 +979,50 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
         </div>
       )}
 
+      </div>
+      <div className="mkf-caja">
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5"><FileBadge className="w-3.5 h-3.5 text-[var(--teal)]" />Documentos técnicos</p>
+          <span className={'ml-auto pill ' + (docs.length === 0 ? 'bg-red-50 text-red-600' : DOC_OBLIGATORIOS.every((t) => docs.some((d) => d.tipo === t)) ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700')}>
+            {docs.length === 0 ? 'Sin documentos' : DOC_OBLIGATORIOS.every((t) => docs.some((d) => d.tipo === t)) ? 'Completo' : 'Incompleto'}
+          </span>
+        </div>
+        <div className="space-y-1">
+          {docs.map((d) => (
+            <div key={d.id} className="flex items-center gap-2 text-[11.5px] text-slate-600">
+              <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              {d.url ? <a href={d.url} target="_blank" rel="noopener noreferrer" className="text-[var(--primary)] font-semibold">{d.tipo}</a> : <span>{d.tipo}</span>}
+              <span className="text-slate-400 truncate">{d.nombre}</span>
+            </div>
+          ))}
+          {!docs.length && <p className="text-[11px] text-slate-400">Sin documentos técnicos todavía.</p>}
+          {(() => { const faltan = DOC_OBLIGATORIOS.filter((t) => !docs.some((d) => d.tipo === t)); return faltan.length > 0 && <p className="text-[11px] text-slate-500">Falta: {faltan.join(', ')}. Los sube Servicio Técnico.</p> })()}
+        </div>
+        {puedeDocs && (
+          <div className="flex gap-2 items-center flex-wrap">
+            <select className="inp !py-1.5" value={docTipo} onChange={(e) => setDocTipo(e.target.value)}>{DOC_TIPOS.map((t) => <option key={t}>{t}</option>)}</select>
+            <label className="btn cursor-pointer !py-1.5"><Upload className="w-3.5 h-3.5" />{docSubiendo ? 'Subiendo…' : 'Elegir archivos'}
+              <input type="file" multiple className="hidden" disabled={docSubiendo} onChange={(e) => { docSubir(e.target.files); e.target.value = '' }} /></label>
+          </div>
+        )}
+      </div>
+
+      </div>
+      <div className="mkf-caja">
+      {full && (
+        <div className="space-y-2">
+          <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5"><Link2 className="w-3.5 h-3.5 text-amber-500" />Álbum de multimedia</p>
+          <div className="flex gap-2 items-center">
+            <input type="url" className="inp flex-1" placeholder="Carpeta de Google Drive" value={full.drive_carpeta_url} onChange={(e) => set('drive_carpeta_url', e.target.value)} onBlur={() => guardarCampo('album', full.drive_carpeta_url)} />
+            {full.drive_carpeta_url && <a href={full.drive_carpeta_url} target="_blank" rel="noopener noreferrer" className="btn !py-1.5">Abrir ↗</a>}
+          </div>
+          <p className="text-[10px] text-slate-400">Archivo interno en Drive. No se muestra en el catálogo cuando la galería ya tiene fotos.</p>
+        </div>
+      )}
+
+      </div>
+      <div className="mkf-caja">
       {seo && (
         <div className="space-y-2">
           <div className="flex items-center gap-2">
@@ -1016,6 +1040,11 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
           <button type="button" className="btn !py-1.5" onClick={optimizarAlt} disabled={optimizando}><Sparkles className="w-3.5 h-3.5" />{optimizando ? 'Optimizando…' : 'Optimizar textos alternativos ahora'}</button>
         </div>
       )}
+      </div>
+        </div>
+      </div>
+      )}
+      </div>
     </Ventana>
   )
 }
