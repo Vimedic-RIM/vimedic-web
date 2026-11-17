@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { ImageOff, Search } from 'lucide-react'
+import { ClipboardList, ImageOff, Search } from 'lucide-react'
+import type { PendientePlan } from './MarketingPlan'
 import { imagen } from './inventarioUtil'
 
 /* Biblioteca › "Por completar" y "Videos pendientes" (mkfPendientes del original): primero los equipos
@@ -36,7 +37,17 @@ function Fila({ p, abrir, children }: { p: Pendiente; abrir: (id: string) => voi
   )
 }
 
-export function PorCompletar({ datos, abrir }: { datos: DatosPendientes; abrir: (id: string) => void }) {
+/** Fila con el botón «Asignar» (solo quien coordina): lleva el producto al Plan de trabajo. */
+function ConAsignar({ p, asignar, trabajo, detalle, children }: { p: Pendiente; asignar?: (x: PendientePlan) => void; trabajo: 'completar' | 'video'; detalle?: string; children: React.ReactNode }) {
+  if (!asignar) return <>{children}</>
+  return (
+    <div className="bib-asig">{children}
+      <button type="button" className="btn" title={trabajo === 'video' ? 'Asignar un video de este producto' : 'Asignar completar este producto'} onClick={() => asignar({ producto: { id: p.id, codigo: p.codigo, nombre: p.nombre, imagen: p.imagen }, trabajo, detalle })}><ClipboardList />Asignar</button>
+    </div>
+  )
+}
+
+export function PorCompletar({ datos, abrir, asignar }: { datos: DatosPendientes; abrir: (id: string) => void; asignar?: (p: PendientePlan) => void }) {
   const [estado, setEstado] = useState('')
   const [q, setQ] = useState('')
   const [cat, setCat] = useState('')
@@ -66,10 +77,12 @@ export function PorCompletar({ datos, abrir }: { datos: DatosPendientes; abrir: 
         {lista.slice(0, 240).map((p, i) => (
           <div key={p.id} style={{ display: 'contents' }}>
             {!p.web && (i === 0 || lista[i - 1].web) && <p className="bib-div">Otros productos (fletes, servicios, insumos, repuestos)</p>}
+            <ConAsignar p={p} asignar={asignar} trabajo={p.falta.length === 1 && p.falta[0] === 'video' ? 'video' : 'completar'}>
             <Fila p={p} abrir={abrir}>
               <div className="flex items-center gap-2 mt-1"><div className="bib-prog flex-1"><i style={{ width: p.pct + '%' }} /></div><span className="text-[10.5px] font-bold text-slate-600">{p.pct}%</span></div>
               <div className="flex flex-wrap gap-1 mt-1"><Etiquetas p={p} />{p.falta.map((k) => <span key={k} className="rv-tag mal">Sin {(FALTA[k] || k).toLowerCase()}</span>)}{p.ficha && <span className="rv-tag ok">Ficha ✓</span>}</div>
             </Fila>
+            </ConAsignar>
           </div>
         ))}
       </div>
@@ -78,7 +91,7 @@ export function PorCompletar({ datos, abrir }: { datos: DatosPendientes; abrir: 
   )
 }
 
-export function VideosPendientes({ datos, abrir }: { datos: DatosPendientes; abrir: (id: string) => void }) {
+export function VideosPendientes({ datos, abrir, asignar }: { datos: DatosPendientes; abrir: (id: string) => void; asignar?: (p: PendientePlan) => void }) {
   const [fil, setFil] = useState('sin')
   const [q, setQ] = useState('')
   const l = datos.productos, tc = datos.videosCompleto
@@ -97,12 +110,14 @@ export function VideosPendientes({ datos, abrir }: { datos: DatosPendientes; abr
       {!lista.length && <div className="rv-vacio">Nada en este grupo.</div>}
       <div className="bib-list">
         {lista.slice(0, 240).map((p) => (
-          <Fila key={p.id} p={p} abrir={abrir}>
+          <ConAsignar key={p.id} p={p} asignar={asignar} trabajo="video" detalle={p.videos ? p.faltanTipos[0] : undefined}>
+          <Fila p={p} abrir={abrir}>
             <div className="flex flex-wrap gap-1 mt-1"><Etiquetas p={p} />
               {Object.entries(p.tiposVideo).map(([t, c]) => <span key={t} className="rv-tag ok">▶ {c} {t.toLowerCase()}</span>)}
               {p.faltanTipos.map((t) => <span key={t} className="rv-tag mal">Falta {t.toLowerCase()}</span>)}
             </div>
           </Fila>
+          </ConAsignar>
         ))}
       </div>
     </>

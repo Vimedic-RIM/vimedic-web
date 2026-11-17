@@ -10,6 +10,7 @@ import { leerAjustesFicha, type AjustesFicha } from './MarketingRevision'
 import { imagenWebp, subirCatalogo } from './audiovisualMedios'
 import { encabezadoDocHtml, pieDocHtml } from '../documentoMarca'
 import { PorCompletar, VideosPendientes, type DatosPendientes } from './MarketingPendientes'
+import type { PendientePlan } from './MarketingPlan'
 
 /* Conexiones de Marketing: Zernio (redes) y Gemini (IA). Las claves viven en el servidor (Edge Function): el navegador nunca las ve. */
 /** Llama a la función de Drive y devuelve el motivo real si falla (no el genérico "non-2xx status code"). */
@@ -200,7 +201,7 @@ function prodFaltan(p: Prod, tieneGaleria: boolean) {
 }
 function prodEsNuevo(p: Prod) { return prodReciente(p) && !p.sin_etiqueta_nuevo }
 
-export function Biblioteca({ perfil, aviso }: { perfil: Perfil; aviso: (t: string) => void }) {
+export function Biblioteca({ perfil, aviso, asignar }: { perfil: Perfil; aviso: (t: string) => void; asignar?: (p: PendientePlan) => void }) {
   const [productos, setProductos] = useState<Prod[]>([])
   const [galCount, setGalCount] = useState<Record<string, number>>({})
   const [cargando, setCargando] = useState(true)
@@ -301,7 +302,7 @@ export function Biblioteca({ perfil, aviso }: { perfil: Perfil; aviso: (t: strin
       <div className="flex items-center gap-2 flex-wrap">{cambiarVista}<button type="button" className="btn mb-3 ml-auto" onClick={cargarPend}><RefreshCw className="w-3.5 h-3.5" />Actualizar</button></div>
       {pendError && <div className="rv-vacio">{pendError}</div>}
       {!pendError && !pend && <p className="text-xs text-slate-400">Cargando…</p>}
-      {pend && (vista === 'pendientes' ? <PorCompletar datos={pend} abrir={abrirPorId} /> : <VideosPendientes datos={pend} abrir={abrirPorId} />)}
+      {pend && (vista === 'pendientes' ? <PorCompletar datos={pend} abrir={abrirPorId} asignar={asignar} /> : <VideosPendientes datos={pend} abrir={abrirPorId} asignar={asignar} />)}
       {sel && <EditorProducto perfil={perfil} prod={sel} categorias={categorias} marcas={marcas} cerrar={() => { setSel(null); cargarPend() }} aviso={aviso} />}
     </section>
   )

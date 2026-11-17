@@ -723,3 +723,19 @@ Pedido del usuario: editar los formatos de los documentos sin programar (ordenar
 | Permisos | Módulo `plantillas`: ver / editar (Empleados y Seguridad). Todos los empleados leen las plantillas para generar sus documentos | migración 20261117100000, pruebas supabase/tests/plantillas_documentos.sql (11/11) |
 
 Sin plantilla guardada, cada documento sale igual que antes. Informe técnico, ficha técnica, guía de envío y listas de ofertas toman la marca (logo, colores, leyenda, pie) pero no tienen todavía edición por bloques.
+
+## Marketing › Plan de trabajo (17-nov-2026)
+
+Pedido: programar las actividades del personal de Marketing (completar el siguiente producto, hacer un video…) incluyendo completar los documentos técnicos del proveedor.
+
+| Qué | Cómo | Dónde |
+|---|---|---|
+| Tipos de trabajo | Completar ficha, fotos, video (por tipo), ficha técnica, documentos del proveedor (manual / hoja de datos + certificado / registro), publicación, otra tarea | `MarketingPlan.tsx`, migración 20261117110000 |
+| Asignar | Botón «Asignar tarea» o «Asignar» en Biblioteca › Por completar / Videos pendientes; aviso a la persona; no duplica tareas abiertas ni pide lo que el producto ya tiene | `mkt_plan_asignar` |
+| Armar la semana | Sugiere los siguientes productos (visibles al público primero, cotizaciones, oferta vigente, nuevos con stock) y los reparte en días hábiles | `mkt_plan_sugerir` |
+| Tablero semanal | Filas por persona, columnas por día y «Atrasadas»; arrastrar para reprogramar o cambiar de persona; vista de lista en celular | `mkt_plan`, `mkt_plan_mover` |
+| Pasos y cierre | Pasos por tipo; se cierra sola cuando el producto cumple (con la moneda de la Agenda para la persona) o se termina a mano; cancelar con motivo | `mkt_plan_paso`, `mkt_plan_terminar`, `mkt_plan_cancelar`, `app.mkt_cerrar_cumplidas` |
+| Agenda | Cada tarea es una actividad de la Agenda (origen marketing, delegada) con producto, tipo, pasos y punto de partida | columnas nuevas en actividades |
+| Cumplimiento | Por persona en la semana: tareas, listas, % a tiempo, atrasadas | `MarketingPlan.tsx` |
+
+Asignan: superadmin, Marketing › aprobar/administrar o el rol de Marketing «Coordinación». Pruebas: supabase/tests/marketing_plan.sql (20/20).
