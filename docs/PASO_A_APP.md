@@ -23,11 +23,12 @@ Hoy la app nueva vive en **qa.vimedic.com.ec** (Cloudflare Pages, proyecto `vime
    cambiar `var APP = 'https://qa.vimedic.com.ec'` por `'https://app.vimedic.com.ec'`.
 7. Merge `qa` → `main` y publicar. Revisar inicio de sesión, CRM, Facturación y un enlace de seguimiento.
 
-## Enlace público del seguimiento (vimedic.com.ec/seguimiento/)
-1. Subir `hostinger/seguimiento/index.html` a `public_html/seguimiento/index.html` del sitio vimedic.com.ec.
-2. Comprobar que `https://vimedic.com.ec/seguimiento/?c=<código de un pedido>` muestra el seguimiento.
-3. En GitHub › Settings › Secrets and variables › Actions › **Variables**: `VITE_URL_SEGUIMIENTO = https://vimedic.com.ec/seguimiento/`
-   y volver a publicar qa. Desde ese momento los enlaces y los QR de las guías salen con vimedic.com.ec.
+## Enlace público del seguimiento (vimedic.com.ec/seguimiento/) — HECHO el 17-nov-2026
+1. ✅ `public_html/seguimiento/index.html` = `hostinger/seguimiento/index.html` (repo vimedic-web-publico, commit 7aaa263; Hostinger lo publica solo).
+2. ✅ `https://vimedic.com.ec/seguimiento/?c=<código>` muestra el seguimiento de la app dentro del sitio
+   (en `web/public/_headers`, /seguimiento reemplaza la CSP general para permitir frame-ancestors de vimedic.com.ec).
+3. ✅ Variable de GitHub `VITE_URL_SEGUIMIENTO = https://vimedic.com.ec/seguimiento/` y qa publicado: los enlaces y QR de las guías salen con vimedic.com.ec.
+4. Al pasar a producción: solo el punto 6 de arriba (cambiar `var APP`) y definir la misma variable para el despliegue de `main`.
 
 ## Google Drive («Conectar con Google»)
 
