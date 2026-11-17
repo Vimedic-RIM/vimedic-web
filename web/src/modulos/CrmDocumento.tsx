@@ -810,17 +810,16 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
               <button onClick={() => aplicarPct(idx, -1)} title="Aplicar el % del cuadro de abajo como descuento" className="ns-round !w-6 !h-6 ml-auto">−</button>
               <button onClick={() => aplicarPct(idx, 1)} title="Subir el precio ese %" className="ns-round !w-6 !h-6">+</button>
             </div>
-            {/* Porcentaje de la oferta (Black): editable. Con 0 se quita; "Volver" regresa al de la campaña. */}
-            {i.oferta && (
-              <div className="flex items-center gap-1.5 mt-1.5">
-                <span className="text-[10px] font-bold" style={{ color: '#c2410c' }} title={'Oferta ' + nombreOferta(i.oferta)}>Desc. oferta %</span>
-                <input type="number" min="0" max="100" step="0.01" value={i.descuento} onFocus={(e) => e.target.select()} aria-label={'Porcentaje de descuento de la oferta de ' + i.nombre}
-                  onChange={(e) => cambiar(idx, { descuento: Math.min(100, Math.max(0, Number(e.target.value) || 0)) })} className="ns-mini w-16" />
-                {Math.abs(i.descuento - i.oferta.pct) > 0.004 && (
-                  <button type="button" onClick={() => cambiar(idx, { descuento: i.oferta?.pct ?? 0 })} className="text-[10px] font-bold underline" style={{ color: '#c2410c' }} title="Volver al porcentaje de la campaña">Volver a {pctTexto(i.oferta.pct)}%</button>
-                )}
-              </div>
-            )}
+            {/* Descuento % de cada producto (en cotizaciones y ventas). Si viene de una oferta (Black), dice «Desc. oferta %»:
+                con 0 se quita y «Volver» regresa al de la campaña. */}
+            <div className="flex items-center gap-1.5 mt-1.5">
+              <span className="text-[10px] font-bold" style={{ color: i.oferta ? '#c2410c' : '#7c3aed' }} title={i.oferta ? 'Oferta ' + nombreOferta(i.oferta) : 'Descuento sobre el precio unitario'}>{i.oferta ? 'Desc. oferta %' : 'Descuento %'}</span>
+              <input type="number" min="0" max="100" step="0.01" value={i.descuento} onFocus={(e) => e.target.select()} aria-label={'Porcentaje de descuento de ' + i.nombre}
+                onChange={(e) => cambiar(idx, { descuento: Math.min(100, Math.max(0, Number(e.target.value) || 0)) })} className="ns-mini w-16" />
+              {i.oferta && Math.abs(i.descuento - i.oferta.pct) > 0.004 && (
+                <button type="button" onClick={() => cambiar(idx, { descuento: i.oferta?.pct ?? 0 })} className="text-[10px] font-bold underline" style={{ color: '#c2410c' }} title="Volver al porcentaje de la campaña">Volver a {pctTexto(i.oferta.pct)}%</button>
+              )}
+            </div>
             <input type="text" value={i.observacion} placeholder="Observación (ej. Entrega inmediata / 72h)" onChange={(e) => cambiar(idx, { observacion: e.target.value })} className="ns-mini w-full text-left mt-1.5" />
           </div>
         ))}
