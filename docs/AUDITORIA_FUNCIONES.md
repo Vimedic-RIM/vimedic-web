@@ -750,3 +750,14 @@ Asignan: superadmin, Marketing › aprobar/administrar o el rol de Marketing «C
 | En la proforma | Sección «Términos y condiciones de la promoción» (un grupo por campaña, con su vigencia); botón «Mostrar / Ocultar términos» en el visor que guarda la elección; la sección también se mueve u oculta en Plantillas de documentos | `proforma.tsx`, `plantillas.ts`, `Crm.tsx` |
 
 Cotizaciones anteriores (sin copia) toman los términos actuales al abrir la proforma. Migración 20261117120000; pruebas supabase/tests/ofertas_terminos.sql (6/6).
+
+## Bodega, Logística y Servicio Técnico por pasos + escáner por puesto (17-nov-2026)
+
+| Qué | Cómo | Dónde |
+|---|---|---|
+| Bodega por pasos | El despacho se abre en 4 pasos: Pedido (qué se despacha, entrega, novedades, historial) → Productos y series (cada producto con sus series, escáner y la foto del equipo) → Fotos del envío (botones grandes: paquete cerrado, guía pegada, entrega al transportista, otro, video) → Despachar (lista de lo que falta, marcar lista, verificar, despachar). Abre en el paso que toca según el estado; las series se guardan solas al cambiar de paso | `Bodega.tsx`, `estilos/pasos.css` |
+| Logística por pasos | Pedido y cliente (llamar, WhatsApp, mapa, a dónde va, productos, enlace de seguimiento) → Confirmar y programar (formulario agrupado: cuándo y cómo, quién recibe, cómo es el lugar, para terminar; guía del courier) → Entregar (acción según el estado: salir a ruta, registrar entrega, cliente confirmó, no se pudo entregar, incidencias) | `Logistica.tsx` |
+| Servicio Técnico por pasos | La orden en trabajo va un tema por pantalla: Orden → Diagnóstico → Checklist → Mediciones (Temas / Asistentes en capacitaciones) → Trabajo y repuestos → Fotos → Cierre (recomendaciones, lo que falta y Finalizar). Se guarda al cambiar de paso; abre en el primer paso pendiente | `ServicioTecnico.tsx` |
+| Escáner en cada módulo | Botón «Escanear» en Bodega, Logística y Servicio Técnico: lee el QR de la guía (o se escribe GD-, DSP-, ENT-, TRK-, orden, factura o serie) y abre el pedido ahí mismo | `EscanerPedido.tsx`, función `mod_escanear` (migración 20261117130000, pruebas supabase/tests/escaner_modulo.sql 5/5) |
+| Escáner general por puesto | Con un solo puesto (módulo donde la persona edita) el pedido se abre directo en su módulo, sin importar la etapa. Con varios puestos se elige «Al escanear, abrir en…» (se recuerda en el teléfono) o «Solo mostrar el pedido» (comportamiento anterior) | `Escanear.tsx` |
+| Velocidad | Los listados ya no traen historial, envíos, línea de tiempo ni el detalle del trabajo (se leen al abrir); el botón flotante del menú se oculta con una ficha abierta | `Bodega.tsx`, `Logistica.tsx`, `ServicioTecnico.tsx` |

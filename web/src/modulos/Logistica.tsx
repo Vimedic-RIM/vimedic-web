@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertTriangle, BadgeCheck, Camera, Check, CheckCircle2, ClipboardList, Copy, ExternalLink, FileText, History, ListChecks, MapPin, MessageCircle, Navigation, Package, Pencil, PenLine, Phone, Radar, RefreshCw, Search, Send, Store, Truck, Upload, X, XCircle } from 'lucide-react'
+import { AlertTriangle, BadgeCheck, Camera, Check, CheckCircle2, ChevronLeft, ChevronRight, Copy, ExternalLink, FileText, History, ListChecks, MapPin, MessageCircle, Navigation, Package, Pencil, PenLine, Phone, Radar, RefreshCw, Search, Send, Store, Truck, Upload, X, XCircle } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
@@ -7,6 +7,8 @@ import { enlaceSeguimiento } from '../enlacesPublicos'
 import { cargarPlantillas } from '../plantillas'
 import { htmlConstancia } from './documentosEntrega'
 import '../estilos/logistica.css'
+import '../estilos/pasos.css'
+import { BotonEscanear } from './EscanerPedido'
 
 /* ============================ Tipos y constantes ============================ */
 const TRANSPORTISTAS = ['Servientrega', 'Tramaco', 'Enetsa', 'Jhetro', 'Esmeraldeño', 'Terminal Terrestre', 'Laar Courier', 'Urbano', 'Otro']
@@ -23,6 +25,8 @@ type Entrega = {
   tipoEntrega: string; modalidad: string; transportista: string; entrega: Record<string, string>; productos: Prod[]; confirmacion: Record<string, string>; estado: string; chofer: string; fechaProgramada: string; ventana: string; guiaNumero: string; guiaUrl: string
   costoFlete: number; eta: string; eventos: Evento[]; prueba: Prueba; incidencias: Incidencia[]; constanciaUrl: string; fechaEntrega: string; postventaFecha: string; postventaCodigo: string; token: string; actualizado: string
 }
+// Listado sin la línea de tiempo ni la prueba de entrega (pesan y solo se ven al abrir la entrega)
+const COLS_LISTA = 'id,codigo,despacho_id,operacion_codigo,envio_numero,fecha,empresa,cliente_texto,identificacion,telefono,email,asesor_id,factura_texto,tipo_entrega,modalidad,transportista,chofer,estado,fecha_programada,ventana,guia_numero,guia_url,costo_flete,eta,constancia_url,fecha_entrega,postventa_fecha,postventa_codigo,token_seguimiento,entrega,productos,confirmacion,incidencias,updated_at,asesor:empleados!entregas_asesor_id_fkey(nombre)'
 const COLS = 'id,codigo,despacho_id,operacion_codigo,envio_numero,fecha,empresa,cliente_texto,identificacion,telefono,email,asesor_id,factura_texto,tipo_entrega,modalidad,transportista,chofer,estado,fecha_programada,ventana,guia_numero,guia_url,costo_flete,eta,constancia_url,fecha_entrega,postventa_fecha,postventa_codigo,token_seguimiento,entrega,productos,confirmacion,eventos,prueba,incidencias,updated_at,asesor:empleados!entregas_asesor_id_fkey(nombre)'
 const arr = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : [])
 const obj = <T,>(v: unknown): T => (v && typeof v === 'object' && !Array.isArray(v) ? (v as T) : ({} as T))
@@ -88,7 +92,7 @@ export default function Logistica({ perfil, aviso, abrir, limpiarAbrir }: { perf
 
   const cargar = useCallback(async () => {
     const limite = new Date(Date.now() - 45 * 86400000).toISOString()
-    const { data, error } = await supabase.from('entregas').select(COLS).is('deleted_at', null).or(`estado.neq.Entregada,fecha_entrega.gte.${limite}`).order('fecha', { ascending: true }).limit(800)
+    const { data, error } = await supabase.from('entregas').select(COLS_LISTA).is('deleted_at', null).or(`estado.neq.Entregada,fecha_entrega.gte.${limite}`).order('fecha', { ascending: true }).limit(800)
     if (error) { setError(error.message); return }
     setError(''); setLista((data ?? []).map(mapear))
   }, [])
@@ -118,7 +122,7 @@ export default function Logistica({ perfil, aviso, abrir, limpiarAbrir }: { perf
         <div className="max-w-[1100px] mx-auto px-4 py-3 flex items-center gap-3 flex-wrap vm-head-pad">
           <div className="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center shrink-0"><Truck style={{ width: 20, height: 20 }} /></div>
           <div className="min-w-0"><h1 className="font-display font-bold text-lg leading-tight">Logística</h1><p className="text-[11px] text-white/70">Entregas, seguimiento del cliente y postventa · {perfil.nombre}</p></div>
-          <div className="ml-auto"><button className="btn btn-sm !bg-white/10 !border-white/20 !text-white" title="Actualizar" onClick={cargar}><RefreshCw /></button></div>
+          <div className="ml-auto flex gap-2"><BotonEscanear className="btn btn-sm !bg-white/10 !border-white/20 !text-white" alLeer={(r) => { if (r.entrega) setAbierto(r.entrega); else aviso('Ese pedido' + (r.cliente ? ' de ' + r.cliente : '') + ' todavía no llega a Logística (Bodega aún no lo despacha).') }} /><button className="btn btn-sm !bg-white/10 !border-white/20 !text-white" title="Actualizar" onClick={cargar}><RefreshCw /></button></div>
         </div>
       </header>
       <main className="max-w-[1100px] mx-auto px-4 py-4 space-y-3">
@@ -151,15 +155,23 @@ export default function Logistica({ perfil, aviso, abrir, limpiarAbrir }: { perf
   )
 }
 
-/* ============================ Detalle ============================ */
+/* ============================ Detalle (por pasos, pensado para el teléfono) ============================ */
 type Hojas = 'mensajes' | 'confirmar' | 'guia' | 'entregar' | 'recibido' | 'noentregada' | 'incidencia' | { resolver: string } | null
+type PasoLg = 'pedido' | 'programar' | 'entregar'
+const PASOS_LG: { k: PasoLg; t: string }[] = [{ k: 'pedido', t: 'Pedido y cliente' }, { k: 'programar', t: 'Confirmar y programar' }, { k: 'entregar', t: 'Entregar' }]
 function Panel({ id, perfil, editar, equipo, aviso, cerrar }: { id: string; perfil: Perfil; editar: boolean; equipo: string[]; aviso: (t: string) => void; cerrar: () => void }) {
   const [o, setO] = useState<Entrega | null>(null)
   const [hoja, setHoja] = useState<Hojas>(null)
+  const [paso, setPaso] = useState<PasoLg>('pedido')
+  const panelRef = useRef<HTMLDivElement>(null)
+  const pasoElegido = useRef(false)
   const cargar = useCallback(async () => { const { data, error } = await supabase.from('entregas').select(COLS).eq('id', id).single(); if (error || !data) { aviso(error?.message ?? 'No se encontró la entrega'); cerrar(); return null } const e = mapear(data); setO(e); return e }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { cargar() }, [cargar])
-  useEffect(() => { document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = '' } }, [])
+  useEffect(() => { document.body.style.overflow = 'hidden'; document.body.classList.add('vm-ficha-abierta'); return () => { document.body.style.overflow = ''; document.body.classList.remove('vm-ficha-abierta') } }, [])
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape' && !hoja) cerrar() }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [hoja, cerrar])
+  // Si ya está programada (o entregada) abre directo en «Entregar»
+  useEffect(() => { if (!o || pasoElegido.current) return; pasoElegido.current = true; if (o.estado !== 'Por confirmar' && o.estado !== 'Por reprogramar') setPaso('entregar') }, [o])
+  const ir = (p: PasoLg) => { setPaso(p); panelRef.current?.scrollTo({ top: 0 }) }
   const err = (e: unknown) => aviso((e as Error).message)
 
   async function guardar(base: Entrega, campos: Record<string, unknown>, nota: string, publico: boolean, clave = '') {
@@ -206,56 +218,120 @@ function Panel({ id, perfil, editar, equipo, aviso, cerrar }: { id: string; perf
   const kv = (k: string, v: React.ReactNode) => (v ? <><dt>{k}</dt><dd>{v}</dd></> : null)
   const extras = Object.keys(e).filter((k) => e[k] && !ETIQ[k] && typeof e[k] !== 'object')
   const pr = o.prueba
+  const confirmada = !!c.confirmadoPor, guiaFalta = o.modalidad === 'Transportista' && !o.guiaNumero
+  const incAb = o.incidencias.filter((x) => !x.resuelta).length
+  const puedeEditar = editar && !cerrado
+  const estadoPaso: Record<PasoLg, string> = {
+    pedido: confirmada || cerrado ? 'ok' : '',
+    programar: cerrado || (confirmada && !guiaFalta && o.estado !== 'Por reprogramar') ? 'ok' : o.estado === 'Por reprogramar' ? 'aviso' : '',
+    entregar: cerrado ? 'ok' : incAb ? 'aviso' : '',
+  }
+  const recibe = [c.recibeNombre || e.quienRecibe || e.nombreDestinatario, c.recibeCedula || e.cedulaDestinatario].filter(Boolean).join(' · ')
+  const como = o.modalidad + (o.chofer ? ' · ' + o.chofer : '') + (o.transportista ? ' · ' + o.transportista : '')
+  const cuando = o.fechaProgramada ? dfecha(o.fechaProgramada) + (o.ventana ? ' · ' + o.ventana : '') : ''
+
+  const sInc = (
+    <div className="sec"><h3><AlertTriangle />Incidencias</h3>
+      {o.incidencias.length ? [...o.incidencias].reverse().map((x) => (
+        <div key={x.id} className={'rounded-xl p-3 mb-2 ' + (x.resuelta ? 'bg-slate-50' : 'bg-red-50')}><div className="flex gap-2 items-center flex-wrap"><span className={'pill ' + (x.resuelta ? 's-entregada' : 's-porreprogramar')}>{x.resuelta ? 'Resuelta' : 'Abierta'}</span><b className="text-sm">{x.tipo}</b><span className="text-[11px] text-slate-400 ml-auto">{x.por} · {dhora(x.fecha)}</span></div>
+          {x.detalle && <p className="text-sm mt-1">{x.detalle}</p>}{x.foto && <FotoLink ruta={x.foto} />}
+          {x.resuelta ? x.resolucion && <p className="text-xs text-emerald-700 mt-1"><b>Solución:</b> {x.resolucion}</p> : editar && <button className="btn btn-sm mt-2" onClick={() => setHoja({ resolver: x.id })}><Check />Marcar resuelta</button>}</div>
+      )) : <p className="text-xs text-slate-500 mb-2">Sin incidencias.</p>}
+      {puedeEditar && <button className="btn btn-red" onClick={() => setHoja('incidencia')}><AlertTriangle />Reportar incidencia</button>}</div>
+  )
+
+  /* Paso 1: a quién, a dónde y qué se entrega */
+  const vPedido = <>
+    <div className="grid grid-cols-3 gap-2">{tel ? <><a className="btn" href={'tel:' + tel}><Phone />Llamar</a><button className="btn btn-wa" onClick={() => setHoja('mensajes')}><MessageCircle />WhatsApp</button></> : <><span /><span /></>}{maps ? <a className="btn" href={maps} target="_blank" rel="noopener"><MapPin />Mapa</a> : <span />}</div>
+    <div className="sec"><h3><MapPin />A dónde va{o.empresa === 'FEMEDICS' && <span className="pill fm">Femedics</span>}</h3>
+      <dl className="kv">{kv('Cliente', o.cliente + (o.identificacion ? ' · ' + o.identificacion : ''))}{kv('Dirección', dir ? dir + (e.ciudad ? ', ' + e.ciudad : '') : e.ciudad)}{kv('Recibe', recibe)}
+        {kv('Teléfono', tel ? <a className="text-[var(--acc)] font-semibold" href={'tel:' + tel}>{tel}</a> : '')}{kv('Fecha pedida', e.fechaEntrega ? dfecha(e.fechaEntrega) : '')}{kv('Asesor', o.asesor.split(' (')[0])}</dl>
+      <details className="vm-mas mt-3"><summary>Todos los datos de la venta</summary>
+        <dl className="kv mt-2">{kv('Teléfono cliente', o.telefono)}{kv('Email', o.email)}
+          {Object.keys(ETIQ).filter((k) => e[k]).map((k) => <span key={k} style={{ display: 'contents' }}>{kv(ETIQ[k], k === 'urlGoogleMaps' ? <a className="text-[var(--acc)] font-semibold" href={e[k]} target="_blank" rel="noopener">Abrir</a> : e[k])}</span>)}
+          {extras.map((k) => <span key={k} style={{ display: 'contents' }}>{kv(k, e[k])}</span>)}</dl></details></div>
+    <div className="sec"><h3><Package />Productos de este envío</h3>{o.productos.map((p) => <div key={p.key} className="py-2 border-b border-slate-100 last:border-0"><p className="text-sm font-semibold">{p.cantidad}× {p.nombre}</p>{p.series?.length ? <p className="text-[11px] mono text-slate-500">Series: {p.series.join(', ')}</p> : null}</div>)}</div>
+    <div className="sec" style={{ background: 'linear-gradient(135deg,#f0fdfa,#fff)' }}><h3><Radar />Seguimiento del cliente</h3><p className="text-xs text-slate-600 mb-2">El cliente ve el avance de su pedido en este enlace.</p>
+      <div className="flex gap-2"><input className="inp mono text-xs" readOnly value={link} /><button className="btn btn-sm" title="Copiar" onClick={() => navigator.clipboard?.writeText(link).then(() => aviso('Enlace copiado'))}><Copy /></button><a className="btn btn-sm" href={link} target="_blank" rel="noopener" title="Ver"><ExternalLink /></a></div></div>
+    <details className="sec vm-mas"><summary><History style={{ width: 16, height: 16 }} />Línea de tiempo</summary>
+      <div className="mt-2">{[...o.eventos].reverse().map((ev, i) => <div key={i} className="ev"><span className="text-slate-400 shrink-0 w-28">{dhora(ev.fecha)}</span><span className="flex-1">{ev.nota} <span className="text-slate-400">— {ev.por}</span></span>{ev.publico && <span title="Lo ve el cliente" style={{ color: '#0f766e', fontSize: 11 }}>●</span>}</div>)}</div>
+      <p className="text-[10.5px] text-slate-400 mt-2">● Lo ve el cliente en su enlace de seguimiento.</p></details>
+  </>
+
+  /* Paso 2: confirmar con el cliente, programar y (si va por courier) la guía */
+  const vProgramar = <>
+    <div className="sec"><h3><ListChecks />Confirmación con el cliente {confirmada ? <span className="pill s-entregada">Confirmada</span> : <span className="pill s-porconfirmar">Pendiente</span>}</h3>
+      {confirmada ? <p className="text-[11px] text-slate-500 mb-2">Por {c.confirmadoPor} · {dhora(c.fechaConfirmacion)}</p>
+        : <p className="text-xs text-slate-600">Llama o escribe al cliente y confirma la fecha, quién recibe y cómo es el lugar. Así se entrega en un solo viaje.</p>}
+      {confirmada && <dl className="kv">{kv('Modalidad', como)}{kv('Fecha', cuando)}{kv('Costo de flete', o.costoFlete ? '$' + o.costoFlete.toFixed(2) : '')}{kv('Recibe', [c.recibeNombre, c.recibeCedula, c.recibeTelefono].filter(Boolean).join(' · '))}
+        {kv('Ascensor', c.ascensor)}{kv('Piso', c.piso)}{kv('Acceso vehicular', c.accesoVehicular)}{kv('Parqueo', c.parqueo)}{kv('Horario', c.horario)}{kv('Instalación', c.instalacion)}{kv('Permiso de ingreso', c.permisoIngreso)}{kv('Puertas / pasillos', c.puertaAdecuada)}{kv('Referencia', c.referencia)}{kv('Observaciones', c.observaciones)}</dl>}
+      {puedeEditar && confirmada && <button className="btn w-full mt-3" onClick={() => setHoja('confirmar')}><Pencil />Editar o reprogramar</button>}
+      {puedeEditar && <button className="btn btn-wa w-full mt-2" onClick={() => setHoja('mensajes')}><MessageCircle />Mensaje listo por WhatsApp</button>}</div>
+    {(o.modalidad === 'Transportista' || o.guiaNumero) && (
+      <div className="sec"><h3><FileText />Guía del transportista</h3>
+        {o.guiaNumero ? <dl className="kv">{kv('Transportista', o.transportista)}{kv('Nº de guía', <span className="mono">{o.guiaNumero}</span>)}{kv('Llega aprox.', dfecha(o.eta))}{kv('Archivo', o.guiaUrl ? <GuiaLink ruta={o.guiaUrl} /> : '')}{kv('Postventa', o.postventaCodigo ? `Activada (${o.postventaCodigo})` : o.postventaFecha ? 'Se activa el ' + dfecha(o.postventaFecha) : '')}</dl> : <p className="text-xs text-slate-500">Aún no se sube la guía.</p>}
+        {puedeEditar && o.guiaNumero && <button className="btn w-full mt-3" onClick={() => setHoja('guia')}><Upload />Cambiar guía</button>}</div>
+    )}
+  </>
+
+  /* Paso 3: la entrega en sí */
+  const vEntregar = <>
+    {cerrado ? (
+      <div className="sec" style={{ borderColor: '#9ae6c7' }}><h3 style={{ color: 'var(--teal)' }}><BadgeCheck />Entregado</h3>
+        <dl className="kv">{kv('Fecha', dhora(o.fechaEntrega))}{kv('Recibió', [pr.nombre, pr.cedula].filter(Boolean).join(' · ') || pr.confirmacion)}{kv('Ubicación', pr.lat ? <a className="text-[var(--acc)] font-semibold" target="_blank" rel="noopener" href={`https://www.google.com/maps?q=${pr.lat},${pr.lng}`}>{Number(pr.lat).toFixed(5)}, {Number(pr.lng).toFixed(5)}</a> : '')}{kv('Nota', pr.nota)}
+          {kv('Postventa', o.postventaCodigo ? `Gestión creada para el asesor (${o.postventaCodigo})` : o.postventaFecha ? 'Se activa el ' + dfecha(o.postventaFecha) : '')}</dl>
+        {pr.firma && <img src={pr.firma} alt="Firma" className="mt-2 border-b border-slate-300" style={{ height: 80 }} />}
+        {!!pr.fotos?.length && <div className="fotos mt-2">{pr.fotos.map((u) => <Foto key={u} ruta={u} />)}</div>}</div>
+    ) : (
+      <div className="sec"><h3><Truck />Cómo sale</h3>
+        <dl className="kv">{kv('Estado', o.estado)}{kv('Modalidad', como)}{kv('Fecha', cuando)}{kv('Dirección', dir ? dir + (e.ciudad ? ', ' + e.ciudad : '') : e.ciudad)}{kv('Recibe', recibe)}{kv('Guía', o.guiaNumero ? <span className="mono">{o.guiaNumero}</span> : '')}{kv('Llega aprox.', o.eta ? dfecha(o.eta) : '')}</dl>
+        {!confirmada && <p className="text-xs text-amber-700 font-semibold mt-2">Primero confirma los datos con el cliente y programa la entrega.</p>}
+        {puedeEditar && <div className="flex gap-2 flex-wrap mt-3">
+          {o.estado === 'Programada' && o.modalidad === 'Chofer propio' && <button className="btn flex-1" onClick={() => setHoja('entregar')}><PenLine />Registrar entrega</button>}
+          {(o.estado === 'En ruta' || o.estado === 'Programada') && o.modalidad !== 'Transportista' && <button className="btn btn-red flex-1" onClick={() => setHoja('noentregada')}><XCircle />No se pudo entregar</button>}
+          {tel && <a className="btn flex-1" href={'tel:' + tel}><Phone />Llamar</a>}
+        </div>}
+      </div>
+    )}
+    {sInc}
+  </>
+
+  // Acción principal de cada paso (botón grande abajo)
+  const principal = (() => {
+    if (paso === 'pedido') return <button className="btn btn-p" onClick={() => ir('programar')}>Siguiente: Confirmar y programar<ChevronRight /></button>
+    if (paso === 'programar') {
+      if (puedeEditar && !confirmada) return <button className="btn btn-p" onClick={() => setHoja('confirmar')}><CheckCircle2 />Confirmar datos y programar</button>
+      if (puedeEditar && guiaFalta) return <button className="btn btn-p" onClick={() => setHoja('guia')}><Upload />Subir guía de envío</button>
+      return <button className="btn btn-p" onClick={() => ir('entregar')}>Siguiente: Entregar<ChevronRight /></button>
+    }
+    if (cerrado) return <button className="btn btn-p" onClick={descargarConstancia}><FileText />Constancia de entrega (PDF)</button>
+    if (!editar) return <button className="btn" onClick={cerrar}><X />Cerrar</button>
+    if (o.estado === 'Por confirmar' || o.estado === 'Por reprogramar') return <button className="btn btn-p" onClick={() => { ir('programar'); setHoja('confirmar') }}><CheckCircle2 />Confirmar y programar</button>
+    if (o.estado === 'Programada' && o.modalidad === 'Chofer propio') return <button className="btn btn-p" onClick={enRuta}><Navigation />Salir a ruta</button>
+    if (o.modalidad === 'Transportista' && !o.guiaNumero) return <button className="btn btn-p" onClick={() => setHoja('guia')}><Upload />Subir guía de envío</button>
+    if (o.estado === 'Con transportista') return <button className="btn btn-ok" onClick={() => setHoja('recibido')}><BadgeCheck />Cliente confirmó que recibió</button>
+    if (o.estado === 'En ruta' || o.estado === 'Programada') return <button className="btn btn-ok" onClick={() => setHoja('entregar')}><PenLine />{o.modalidad === 'Retiro' ? 'Registrar retiro' : 'Registrar entrega'}</button>
+    return <button className="btn" onClick={cerrar}><X />Cerrar</button>
+  })()
+  const idx = PASOS_LG.findIndex((s) => s.k === paso)
+
   return (
-    <div className="panel">
-      <div className="hdr text-white sticky top-0 z-10"><div className="max-w-[900px] mx-auto px-4 py-3 flex items-center gap-3">
-        <button className="btn btn-sm !bg-white/10 !border-white/20 !text-white" onClick={cerrar} title="Cerrar"><X /></button>
-        <div className="min-w-0"><p className="font-display font-bold leading-tight truncate">{o.cliente}</p><p className="text-[11px] text-white/70 mono">{o.codigo} · Factura {o.factura || '—'}{o.envioN > 1 ? ' · Envío ' + o.envioN : ''}</p></div>
-        <span className={'pill s-' + slug(o.estado) + ' ml-auto'}>{o.estado}</span></div></div>
-      <div className="max-w-[900px] mx-auto px-4 py-4 space-y-3">
-        <div className="grid grid-cols-3 gap-2">{tel ? <><a className="btn" href={'tel:' + tel}><Phone />Llamar</a><button className="btn btn-wa" onClick={() => setHoja('mensajes')}><MessageCircle />WhatsApp</button></> : <><span /><span /></>}{maps ? <a className="btn" href={maps} target="_blank" rel="noopener"><MapPin />Mapa</a> : <span />}</div>
-        <div className="sec" style={{ background: 'linear-gradient(135deg,#f0fdfa,#fff)' }}><h3><Radar />Seguimiento del cliente</h3><p className="text-xs text-slate-600 mb-2">El cliente ve el avance de su pedido en este enlace (la página pública del cliente se activa en una etapa posterior):</p>
-          <div className="flex gap-2"><input className="inp mono text-xs" readOnly value={link} /><button className="btn btn-sm" title="Copiar" onClick={() => navigator.clipboard?.writeText(link).then(() => aviso('Enlace copiado'))}><Copy /></button><a className="btn btn-sm" href={link} target="_blank" rel="noopener" title="Ver"><ExternalLink /></a></div>
-          <button className="btn btn-wa w-full mt-2" onClick={() => setHoja('mensajes')}><MessageCircle />Enviar mensaje listo por WhatsApp</button></div>
-        <div className="sec"><h3><ClipboardList />Datos de entrega de la venta{o.empresa === 'FEMEDICS' && <span className="pill fm">Femedics</span>}</h3>
-          <dl className="kv">{kv('Cliente', o.cliente + (o.identificacion ? ' · ' + o.identificacion : ''))}{kv('Teléfono cliente', o.telefono)}{kv('Email', o.email)}{kv('Asesor', o.asesor.split(' (')[0])}
-            {Object.keys(ETIQ).filter((k) => e[k]).map((k) => <span key={k} style={{ display: 'contents' }}>{kv(ETIQ[k], k === 'urlGoogleMaps' ? <a className="text-[var(--acc)] font-semibold" href={e[k]} target="_blank" rel="noopener">Abrir</a> : e[k])}</span>)}
-            {extras.map((k) => <span key={k} style={{ display: 'contents' }}>{kv(k, e[k])}</span>)}</dl></div>
-        <div className="sec"><h3><Package />Productos de este envío</h3>{o.productos.map((p) => <div key={p.key} className="py-2 border-b border-slate-100 last:border-0"><p className="text-sm font-semibold">{p.cantidad}× {p.nombre}</p>{p.series?.length ? <p className="text-[11px] mono text-slate-500">Series: {p.series.join(', ')}</p> : null}</div>)}</div>
-        <div className="sec"><h3><ListChecks />Confirmación con el cliente {c.confirmadoPor ? <span className="pill s-entregada">Confirmada</span> : <span className="pill s-porconfirmar">Pendiente</span>}</h3>
-          {c.confirmadoPor ? <p className="text-[11px] text-slate-500 mb-2">Por {c.confirmadoPor} · {dhora(c.fechaConfirmacion)}</p> : <p className="text-xs text-slate-600 mb-2">Antes de salir, confirma estos datos con el cliente (llamada o WhatsApp).</p>}
-          <dl className="kv">{kv('Ascensor', c.ascensor)}{kv('Piso', c.piso)}{kv('Acceso vehicular', c.accesoVehicular)}{kv('Parqueo', c.parqueo)}{kv('Horario', c.horario)}{kv('Recibe', [c.recibeNombre, c.recibeCedula, c.recibeTelefono].filter(Boolean).join(' · '))}{kv('Instalación', c.instalacion)}{kv('Permiso de ingreso', c.permisoIngreso)}{kv('Puertas / pasillos', c.puertaAdecuada)}{kv('Referencia', c.referencia)}{kv('Observaciones', c.observaciones)}
-            {kv('Modalidad', o.modalidad + (o.chofer ? ' · ' + o.chofer : '') + (o.transportista ? ' · ' + o.transportista : ''))}{kv('Fecha', o.fechaProgramada ? dfecha(o.fechaProgramada) + (o.ventana ? ' · ' + o.ventana : '') : '')}{kv('Costo de flete', o.costoFlete ? '$' + o.costoFlete.toFixed(2) : '')}</dl>
-          {!cerrado && editar && <button className={'btn w-full mt-3 ' + (c.confirmadoPor ? '' : 'btn-p')} onClick={() => setHoja('confirmar')}>{c.confirmadoPor ? <Pencil /> : <CheckCircle2 />}{c.confirmadoPor ? 'Editar confirmación / reprogramar' : 'Confirmar datos y programar'}</button>}</div>
-        {(o.modalidad === 'Transportista' || o.guiaNumero) && (
-          <div className="sec"><h3><FileText />Guía del transportista</h3>
-            {o.guiaNumero ? <dl className="kv">{kv('Transportista', o.transportista)}{kv('Nº de guía', <span className="mono">{o.guiaNumero}</span>)}{kv('Llega aprox.', dfecha(o.eta))}{kv('Archivo', o.guiaUrl ? <GuiaLink ruta={o.guiaUrl} /> : '')}{kv('Postventa', o.postventaCodigo ? `Activada (${o.postventaCodigo})` : o.postventaFecha ? 'Se activa el ' + dfecha(o.postventaFecha) : '')}</dl> : <p className="text-xs text-slate-500">Aún no se sube la guía.</p>}
-            {!cerrado && editar && <button className={'btn w-full mt-3 ' + (o.guiaNumero ? '' : 'btn-p')} onClick={() => setHoja('guia')}><Upload />{o.guiaNumero ? 'Cambiar guía' : 'Subir guía de envío'}</button>}</div>
-        )}
-        {cerrado && (
-          <div className="sec" style={{ borderColor: '#9ae6c7' }}><h3 style={{ color: 'var(--teal)' }}><BadgeCheck />Entregado</h3>
-            <dl className="kv">{kv('Fecha', dhora(o.fechaEntrega))}{kv('Recibió', [pr.nombre, pr.cedula].filter(Boolean).join(' · ') || pr.confirmacion)}{kv('Ubicación', pr.lat ? <a className="text-[var(--acc)] font-semibold" target="_blank" rel="noopener" href={`https://www.google.com/maps?q=${pr.lat},${pr.lng}`}>{Number(pr.lat).toFixed(5)}, {Number(pr.lng).toFixed(5)}</a> : '')}{kv('Nota', pr.nota)}
-              {kv('Constancia', <button className="text-[var(--acc)] font-semibold" onClick={descargarConstancia}>Descargar PDF</button>)}{kv('Postventa', o.postventaCodigo ? `Gestión creada para el asesor (${o.postventaCodigo})` : o.postventaFecha ? 'Se activa el ' + dfecha(o.postventaFecha) : '')}</dl>
-            {pr.firma && <img src={pr.firma} alt="Firma" className="mt-2 border-b border-slate-300" style={{ height: 80 }} />}
-            {!!pr.fotos?.length && <div className="fotos mt-2">{pr.fotos.map((u) => <Foto key={u} ruta={u} />)}</div>}</div>
-        )}
-        <div className="sec"><h3><AlertTriangle />Incidencias</h3>
-          {o.incidencias.length ? [...o.incidencias].reverse().map((x) => (
-            <div key={x.id} className={'rounded-xl p-3 mb-2 ' + (x.resuelta ? 'bg-slate-50' : 'bg-red-50')}><div className="flex gap-2 items-center flex-wrap"><span className={'pill ' + (x.resuelta ? 's-entregada' : 's-porreprogramar')}>{x.resuelta ? 'Resuelta' : 'Abierta'}</span><b className="text-sm">{x.tipo}</b><span className="text-[11px] text-slate-400 ml-auto">{x.por} · {dhora(x.fecha)}</span></div>
-              {x.detalle && <p className="text-sm mt-1">{x.detalle}</p>}{x.foto && <FotoLink ruta={x.foto} />}
-              {x.resuelta ? x.resolucion && <p className="text-xs text-emerald-700 mt-1"><b>Solución:</b> {x.resolucion}</p> : editar && <button className="btn btn-sm mt-2" onClick={() => setHoja({ resolver: x.id })}><Check />Marcar resuelta</button>}</div>
-          )) : <p className="text-xs text-slate-500 mb-2">Sin incidencias.</p>}
-          {!cerrado && editar && <button className="btn btn-red" onClick={() => setHoja('incidencia')}><AlertTriangle />Reportar incidencia</button>}</div>
-        <div className="sec"><h3><History />Línea de tiempo</h3>{[...o.eventos].reverse().map((ev, i) => <div key={i} className="ev"><span className="text-slate-400 shrink-0 w-28">{dhora(ev.fecha)}</span><span className="flex-1">{ev.nota} <span className="text-slate-400">— {ev.por}</span></span>{ev.publico && <span title="Lo ve el cliente" style={{ color: '#0f766e', fontSize: 11 }}>●</span>}</div>)}
-          <p className="text-[10.5px] text-slate-400 mt-2">● Lo ve el cliente en su enlace de seguimiento.</p></div>
-        {!cerrado && editar && (
-          <div className="acciones"><div className="flex gap-2 flex-wrap">
-            {o.estado === 'Programada' && o.modalidad === 'Chofer propio' && <button className="btn btn-p flex-1" onClick={enRuta}><Navigation />Salir a ruta</button>}
-            {(o.estado === 'En ruta' || o.estado === 'Programada') && o.modalidad !== 'Transportista' && <button className="btn btn-ok flex-1" onClick={() => setHoja('entregar')}><PenLine />{o.modalidad === 'Retiro' ? 'Registrar retiro' : 'Registrar entrega'}</button>}
-            {o.estado === 'Con transportista' && <button className="btn btn-ok flex-1" onClick={() => setHoja('recibido')}><BadgeCheck />Cliente confirmó que recibió</button>}
-            {(o.estado === 'En ruta' || o.estado === 'Programada') && o.modalidad !== 'Transportista' && <button className="btn btn-red flex-1" onClick={() => setHoja('noentregada')}><XCircle />No se pudo entregar</button>}
-          </div></div>
-        )}
+    <div className="panel vm-ficha" ref={panelRef}>
+      <div className="sticky top-0 z-10">
+        <div className="hdr text-white"><div className="max-w-[900px] mx-auto px-4 py-3 flex items-center gap-3">
+          <button className="btn btn-sm !bg-white/10 !border-white/20 !text-white" onClick={cerrar} title="Cerrar"><X /></button>
+          <div className="min-w-0 flex-1"><p className="font-display font-bold leading-tight truncate">{o.cliente}</p><p className="text-[11px] text-white/70 mono truncate">{o.codigo} · Factura {o.factura || '—'}{o.envioN > 1 ? ' · Envío ' + o.envioN : ''}</p></div>
+          <span className={'pill s-' + slug(o.estado)}>{o.estado}</span></div></div>
+        <nav className="vm-pasos">{PASOS_LG.map((s, i) => <button key={s.k} type="button" className={'vm-paso' + (paso === s.k ? ' on' : '') + (estadoPaso[s.k] ? ' ' + estadoPaso[s.k] : '')} onClick={() => ir(s.k)}><span className="num">{estadoPaso[s.k] === 'ok' ? <Check /> : estadoPaso[s.k] === 'aviso' ? '!' : i + 1}</span>{s.t}</button>)}</nav>
+      </div>
+      <div className="vm-ficha-cont w-full px-4 py-4">
+        <div className="vm-cuerpo">
+          {paso === 'pedido' ? vPedido : paso === 'programar' ? vProgramar : vEntregar}
+          <div className="vm-barra">
+            {idx > 0 && <button className="btn atras" onClick={() => ir(PASOS_LG[idx - 1].k)} title="Paso anterior"><ChevronLeft /></button>}
+            {principal}
+          </div>
+        </div>
       </div>
       {hoja === 'mensajes' && <Mensajes o={o} link={link} cerrar={() => setHoja(null)} registrar={(t) => guardar(o, {}, 'Mensaje de WhatsApp enviado al cliente: ' + t.slice(0, 60) + '.', false).catch(() => undefined)} />}
       {hoja === 'confirmar' && <Confirmar o={o} equipo={equipo} cerrar={() => setHoja(null)} listo={async (conf) => {
@@ -267,11 +343,12 @@ function Panel({ id, perfil, editar, equipo, aviso, cerrar }: { id: string; perf
           const campos: Record<string, unknown> = { confirmacion: limpio, modalidad: conf.modalidad, fecha_programada: fp, ventana: conf.ventana.slice(0, 60) || null, chofer: conf.modalidad === 'Chofer propio' ? conf.chofer : null, transportista: conf.modalidad === 'Transportista' ? conf.transportista : null, costo_flete: conf.costoFlete !== '' ? Number(conf.costoFlete) || 0 : o.costoFlete || null }
           if (o.estado === 'Por confirmar' || o.estado === 'Por reprogramar') campos.estado = 'Programada'
           await guardar(o, campos, nota, true, 'coordinado'); setHoja(null); aviso('Entrega programada')
+          if (!(conf.modalidad === 'Transportista' && !o.guiaNumero)) ir('entregar')
         } catch (e) { err(e) } }} />}
       {hoja === 'guia' && <GuiaHoja o={o} cerrar={() => setHoja(null)} listo={async (g) => {
         try { const eta = new Date(g.eta + 'T18:00:00'); const transp = g.transportista.slice(0, 80)
           await guardar(o, { estado: 'Con transportista', modalidad: 'Transportista', transportista: transp, guia_numero: g.numero, guia_url: g.url, costo_flete: g.costoFlete !== '' ? Number(g.costoFlete) || 0 : o.costoFlete || null, eta: eta.toISOString(), postventa_fecha: eta.toISOString() },
-            `Tu pedido fue entregado a ${transp} con la guía Nº ${g.numero}. Llegada estimada: ${eta.toLocaleDateString('es-EC')}.`, true, 'camino'); setHoja(null); aviso('Guía guardada. Envíale el seguimiento al cliente.'); setTimeout(() => setHoja('mensajes'), 400)
+            `Tu pedido fue entregado a ${transp} con la guía Nº ${g.numero}. Llegada estimada: ${eta.toLocaleDateString('es-EC')}.`, true, 'camino'); setHoja(null); ir('entregar'); aviso('Guía guardada. Envíale el seguimiento al cliente.'); setTimeout(() => setHoja('mensajes'), 400)
         } catch (e) { err(e) } }} />}
       {hoja === 'entregar' && <EntregarHoja o={o} cerrar={() => setHoja(null)} listo={async (d) => { const { error } = await supabase.rpc('lg_entregar', { p_id: o.id, p: d }); if (error) throw new Error(error.message); setHoja(null); await cargar(); aviso('¡Entregado! Se registró la entrega y la postventa del asesor.') }} />}
       {hoja === 'recibido' && <RecibidoHoja cerrar={() => setHoja(null)} listo={async (d) => { try { const { error } = await supabase.rpc('lg_entregar', { p_id: o.id, p: d }); if (error) throw new Error(error.message); setHoja(null); await cargar(); aviso('Recepción confirmada') } catch (e) { err(e) } }} />}
@@ -337,27 +414,36 @@ function Confirmar({ o, equipo, cerrar, listo }: { o: Entrega; equipo: string[];
     setOcupado(true); try { await listo(f) } finally { setOcupado(false) }
   }
   return (
-    <Hoja cerrar={cerrar}><h3 className="font-display font-bold text-lg text-[var(--navy)] mb-1">Confirmación con el cliente</h3><p className="text-xs text-slate-500 mb-3">Pregunta lo necesario antes de salir para que la entrega sea en un solo viaje.</p>
-      <div className="space-y-3">
-        <label className="f">¿Cuenta con ascensor?{seg('ascensor', ['Sí', 'No', 'Planta baja'])}</label>
-        <label className="f">Piso / nivel<input className="inp" placeholder="Ej.: 3er piso, consultorio 305" value={f.piso} onChange={set('piso')} /></label>
-        <label className="f">¿Acceso para el vehículo?{seg('accesoVehicular', ['Sí', 'No', 'Calle angosta'])}</label>
-        <label className="f">Parqueo cercano{seg('parqueo', ['Sí', 'No', 'Pagado'])}</label>
-        <label className="f">Horario de recepción<input className="inp" placeholder="Ej.: lunes a viernes 9:00 a 16:00" value={f.horario} onChange={set('horario')} /></label>
-        <div className="grid grid-cols-2 gap-2"><label className="f">Quién recibe<input className="inp" value={f.recibeNombre} onChange={set('recibeNombre')} /></label><label className="f">Cédula<input className="inp" value={f.recibeCedula} onChange={set('recibeCedula')} /></label></div>
-        <label className="f">Teléfono de quien recibe<input className="inp" value={f.recibeTelefono} onChange={set('recibeTelefono')} /></label>
-        <label className="f">¿Requiere instalación o capacitación?{seg('instalacion', ['No', 'Instalación', 'Capacitación', 'Ambas'])}</label>
-        <label className="f">¿Permiso o credencial para ingresar? (hospital, edificio)<input className="inp" placeholder="Ej.: anunciarse en guardianía con cédula" value={f.permisoIngreso} onChange={set('permisoIngreso')} /></label>
-        <label className="f">¿Puertas y pasillos aptos para el tamaño del equipo?{seg('puertaAdecuada', ['Sí', 'No', 'No sabe'])}</label>
-        <label className="f">Referencia de la dirección<input className="inp" value={f.referencia} onChange={set('referencia')} /></label>
-        <label className="f">Observaciones<textarea className="inp" rows={2} value={f.observaciones} onChange={set('observaciones')} /></label>
-        <label className="f">Se confirmó por{seg('contactoPor', ['Llamada', 'WhatsApp', 'Correo'])}</label>
-        <hr className="border-slate-100" /><p className="font-display font-bold text-[var(--navy)]">Programación</p>
-        <label className="f">Modalidad<Seg opciones={['Chofer propio', 'Transportista', 'Retiro']} valor={f.modalidad} cambia={(v) => setF((x) => ({ ...x, modalidad: v || x.modalidad }))} /></label>
-        {f.modalidad === 'Chofer propio' && <label className="f">Chofer / responsable<select className="inp" value={f.chofer} onChange={set('chofer')}><option value="">— Elegir —</option>{equipo.map((x) => <option key={x}>{x}</option>)}</select></label>}
-        {f.modalidad === 'Transportista' && <label className="f">Transportista<select className="inp" value={f.transportista} onChange={set('transportista')}>{TRANSPORTISTAS.map((x) => <option key={x}>{x}</option>)}</select></label>}
-        <div className="grid grid-cols-2 gap-2"><label className="f">Fecha acordada<input type="date" className="inp" value={f.fechaProgramada} onChange={set('fechaProgramada')} /></label><label className="f">Costo de flete ($)<input type="number" step="0.01" min="0" className="inp" value={f.costoFlete} onChange={set('costoFlete')} /></label></div>
-        <label className="f">Ventana horaria{seg('ventana', VENTANAS)}</label>
+    <Hoja cerrar={cerrar}><h3 className="font-display font-bold text-lg text-[var(--navy)] mb-1">Confirmar y programar</h3><p className="text-xs text-slate-500 mb-3">Llénalo mientras hablas con el cliente. Lo marcado con * es obligatorio.</p>
+      <div className="vm-grupos">
+        <div className="vm-grupo"><p className="vm-grupo-t">1 · Cuándo y cómo se entrega</p>
+          <label className="f">Modalidad *<Seg opciones={['Chofer propio', 'Transportista', 'Retiro']} valor={f.modalidad} cambia={(v) => setF((x) => ({ ...x, modalidad: v || x.modalidad }))} /></label>
+          {f.modalidad === 'Chofer propio' && <label className="f">Chofer / responsable *<select className="inp" value={f.chofer} onChange={set('chofer')}><option value="">— Elegir —</option>{equipo.map((x) => <option key={x}>{x}</option>)}</select></label>}
+          {f.modalidad === 'Transportista' && <label className="f">Transportista<select className="inp" value={f.transportista} onChange={set('transportista')}>{TRANSPORTISTAS.map((x) => <option key={x}>{x}</option>)}</select></label>}
+          <div className="grid grid-cols-2 gap-2"><label className="f">Fecha acordada *<input type="date" className="inp" value={f.fechaProgramada} onChange={set('fechaProgramada')} /></label><label className="f">Costo de flete ($)<input type="number" inputMode="decimal" step="0.01" min="0" className="inp" value={f.costoFlete} onChange={set('costoFlete')} /></label></div>
+          <label className="f">Ventana horaria{seg('ventana', VENTANAS)}</label>
+        </div>
+        <div className="vm-grupo"><p className="vm-grupo-t">2 · Quién recibe</p>
+          <label className="f">Nombre<input className="inp" value={f.recibeNombre} onChange={set('recibeNombre')} /></label>
+          <div className="grid grid-cols-2 gap-2"><label className="f">Cédula<input className="inp" inputMode="numeric" value={f.recibeCedula} onChange={set('recibeCedula')} /></label><label className="f">Teléfono<input className="inp" inputMode="tel" value={f.recibeTelefono} onChange={set('recibeTelefono')} /></label></div>
+          <label className="f">Horario de recepción<input className="inp" placeholder="Ej.: lunes a viernes 9:00 a 16:00" value={f.horario} onChange={set('horario')} /></label>
+        </div>
+        <details className="vm-grupo vm-mas" open={!o.confirmacion.confirmadoPor}><summary>3 · Cómo es el lugar</summary>
+          <div className="vm-grupo-c">
+            <label className="f">¿Cuenta con ascensor?{seg('ascensor', ['Sí', 'No', 'Planta baja'])}</label>
+            <label className="f">Piso / nivel<input className="inp" placeholder="Ej.: 3er piso, consultorio 305" value={f.piso} onChange={set('piso')} /></label>
+            <label className="f">¿Acceso para el vehículo?{seg('accesoVehicular', ['Sí', 'No', 'Calle angosta'])}</label>
+            <label className="f">Parqueo cercano{seg('parqueo', ['Sí', 'No', 'Pagado'])}</label>
+            <label className="f">¿Puertas y pasillos aptos para el tamaño del equipo?{seg('puertaAdecuada', ['Sí', 'No', 'No sabe'])}</label>
+            <label className="f">¿Permiso o credencial para ingresar? (hospital, edificio)<input className="inp" placeholder="Ej.: anunciarse en guardianía con cédula" value={f.permisoIngreso} onChange={set('permisoIngreso')} /></label>
+            <label className="f">Referencia de la dirección<input className="inp" value={f.referencia} onChange={set('referencia')} /></label>
+          </div>
+        </details>
+        <div className="vm-grupo"><p className="vm-grupo-t">4 · Para terminar</p>
+          <label className="f">¿Requiere instalación o capacitación?{seg('instalacion', ['No', 'Instalación', 'Capacitación', 'Ambas'])}</label>
+          <label className="f">Observaciones<textarea className="inp" rows={2} value={f.observaciones} onChange={set('observaciones')} /></label>
+          <label className="f">Se confirmó por{seg('contactoPor', ['Llamada', 'WhatsApp', 'Correo'])}</label>
+        </div>
         {err && <p className="text-[12px] text-red-600">{err}</p>}</div>
       <div className="flex gap-2 mt-4"><button className="btn flex-1" onClick={cerrar}>Cancelar</button><button className="btn btn-p flex-1" disabled={ocupado} onClick={ok}>{ocupado ? <Spin /> : <><Check />Guardar y programar</>}</button></div></Hoja>
   )

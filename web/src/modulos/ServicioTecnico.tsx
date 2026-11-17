@@ -1,11 +1,13 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Archive, BookOpen, Calendar, CalendarCheck, CalendarPlus, Check, CheckCheck, ClipboardList, Cpu, FileCheck2, FileText, Gauge, GraduationCap, Hammer, History, Hourglass, Lightbulb, List, ListChecks, MapPin, MessageCircle, PackageOpen, Package, Pencil, Phone, Play, Plus, PlugZap, RefreshCw, RotateCcw, Save, ScanSearch, Search, ShieldAlert, Stethoscope, User, UserPlus, Users, Wrench, X, XCircle, BadgeCheck, Camera } from 'lucide-react'
+import { Archive, BookOpen, Calendar, CalendarCheck, CalendarPlus, Check, CheckCheck, ChevronLeft, ChevronRight, ClipboardList, Cpu, FileCheck2, FileText, Gauge, GraduationCap, Hammer, History, Hourglass, Lightbulb, List, ListChecks, MapPin, MessageCircle, PackageOpen, Package, Pencil, Phone, Play, Plus, PlugZap, RefreshCw, RotateCcw, Save, ScanSearch, Search, ShieldAlert, Stethoscope, User, UserPlus, Users, Wrench, X, XCircle, BadgeCheck, Camera } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { palabras } from '../busqueda'
 import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
 import { descargarInforme, TITULOS, type OrdenDoc, type EquipoDoc } from './servicioInforme'
 import '../estilos/servicio.css'
+import '../estilos/pasos.css'
+import { BotonEscanear } from './EscanerPedido'
 // Equipos de importación con defecto (RecepcionImportacion.gs): se carga solo al abrir la pestaña
 const RecepcionImp = lazy(() => import('./RecepcionImportaciones'))
 
@@ -45,6 +47,8 @@ type Equipo = {
 }
 type Tecnico = { id: string | null; nombre: string; tipo: 'Interno' | 'Externo'; empresa: string; email: string; telefono: string; especialidad: string; activo: boolean }
 const COLS_OS = 'id,codigo,token,fecha,tipo,origen,prioridad,estado,modalidad,cobertura,equipo_id,serie,producto_texto,empresa,cliente_texto,identificacion,contacto,telefono,email,direccion,ciudad,factura_id,factura_texto,asesor_id,tecnico_id,tecnico_texto,fecha_programada,falla_reportada,recepcion,diagnostico,checklist,mediciones,trabajo_realizado,repuestos,asistentes,fotos,recomendaciones,estado_final,proximo_mantenimiento,horas,firma,inicio,cierre,informe_numero,recepcion_numero,repuestos_descontados,facturacion,eventos,updated_at,asesor:empleados!st_ordenes_asesor_id_fkey(nombre)'
+// Listado de órdenes sin el detalle del trabajo (checklist, fotos, línea de tiempo…): se lee al abrir la orden
+const COLS_OS_LISTA = COLS_OS.replace('recepcion,diagnostico,checklist,mediciones,trabajo_realizado,repuestos,asistentes,fotos,recomendaciones,', '').replace('firma,', '').replace('eventos,', '')
 const COLS_EQ = 'id,codigo,empresa,serie,producto_id,producto_texto,marca,modelo,lote,proveedor_texto,importacion_codigo,factura_id,operacion_codigo,factura_texto,cliente_texto,identificacion,telefono,email,ciudad,direccion,ubicacion,fecha_entrega,garantia_meses,garantia_hasta,plan_mantenimiento,frecuencia_meses,proximo_mantenimiento,estado,notas,asesor:empleados!st_equipos_asesor_id_fkey(nombre),producto:productos!st_equipos_producto_id_fkey(codigo)'
 
 const norm = (v: unknown) => String(v ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -123,7 +127,7 @@ export default function ServicioTecnico({ perfil, aviso, abrir, limpiarAbrir }: 
   }, [])
   const cargarOrdenes = useCallback(async () => {
     const limite = new Date(Date.now() - 120 * 86400000).toISOString()
-    const { data, error } = await supabase.from('st_ordenes').select(COLS_OS).is('deleted_at', null).or(`estado.not.in.(Finalizada,Cancelada),cierre.gte.${limite},cierre.is.null`).order('fecha', { ascending: false }).limit(600)
+    const { data, error } = await supabase.from('st_ordenes').select(COLS_OS_LISTA).is('deleted_at', null).or(`estado.not.in.(Finalizada,Cancelada),cierre.gte.${limite},cierre.is.null`).order('fecha', { ascending: false }).limit(600)
     if (error) { setError(error.message); return }
     setError(''); setOrdenes((data ?? []).map(mapOrden))
   }, [])
@@ -179,6 +183,7 @@ export default function ServicioTecnico({ perfil, aviso, abrir, limpiarAbrir }: 
           <div className="min-w-0"><h1 className="font-display font-bold text-lg leading-tight">Servicio Técnico</h1><p className="text-[11px] text-white/70">Observaciones de inventario, seguimiento por serie e informes técnicos · {miNombre}{externo ? ' (técnico externo)' : ''}</p></div>
           <div className="ml-auto flex gap-2">
             {!externo && editar && <button className="btn btn-sm !bg-white !border-white !text-[var(--acc)]" onClick={() => setHoja({ k: 'nueva' })}><Plus />Nueva orden</button>}
+            <BotonEscanear className="btn btn-sm !bg-white/10 !border-white/20 !text-white" alLeer={(r) => { if (r.orden) setPanel({ tipo: 'orden', id: r.orden }); else aviso('Ese pedido' + (r.cliente ? ' de ' + r.cliente : '') + ' no tiene una orden de servicio técnico.') }} />
             <button className="btn btn-sm !bg-white/10 !border-white/20 !text-white" title="Actualizar" onClick={() => { recargar(); cargarTecnicos() }}><RefreshCw /></button>
           </div>
         </div>
@@ -467,6 +472,14 @@ const firmaPng = (c: HTMLCanvasElement | null) => { if (!c || !c.dataset.firmado
 type Trabajo = { diagnostico: string; trabajo: string; recomendaciones: string; horas: string; checklist: Ck[]; mediciones: Med[]; repuestos: Orden['repuestos']; asistentes: Orden['asistentes']; fotos: Foto[] }
 const aTrabajo = (o: Orden): Trabajo => ({ diagnostico: o.diagnostico, trabajo: o.trabajo, recomendaciones: o.recomendaciones, horas: o.horas ? String(o.horas) : '', checklist: JSON.parse(JSON.stringify(o.checklist)), mediciones: JSON.parse(JSON.stringify(o.mediciones)), repuestos: JSON.parse(JSON.stringify(o.repuestos)), asistentes: JSON.parse(JSON.stringify(o.asistentes)), fotos: JSON.parse(JSON.stringify(o.fotos)) })
 
+/* La orden en trabajo se llena por pasos: un tema por pantalla (pensado para el teléfono) */
+type PasoSt = 'orden' | 'diagnostico' | 'checklist' | 'mediciones' | 'asistentes' | 'trabajo' | 'fotos' | 'cierre'
+const pasosDe = (o: Orden): { k: PasoSt; t: string }[] => {
+  const cap = o.tipo === 'Capacitación', l: { k: PasoSt; t: string }[] = [{ k: 'orden', t: 'Orden' }]
+  if (!cap && o.tipo !== 'Instalación') l.push({ k: 'diagnostico', t: 'Diagnóstico' })
+  l.push({ k: 'checklist', t: cap ? 'Temas' : 'Checklist' }, cap ? { k: 'asistentes', t: 'Asistentes' } : { k: 'mediciones', t: 'Mediciones' }, { k: 'trabajo', t: cap ? 'Desarrollo' : 'Trabajo y repuestos' }, { k: 'fotos', t: 'Fotos' }, { k: 'cierre', t: 'Cierre' })
+  return l
+}
 function PanelOrden({ id, perfil, externo, editar, tecnicos, aviso, cerrar, abrirEquipo, abrirOrden }: { id: string; perfil: Perfil; externo: boolean; editar: boolean; tecnicos: Tecnico[]; aviso: (t: string) => void; cerrar: () => void; abrirEquipo: (id: string) => void; abrirOrden: (id: string) => void }) {
   const [o, setO] = useState<Orden | null>(null)
   const [eq, setEq] = useState<Equipo | null>(null)
@@ -481,6 +494,9 @@ function PanelOrden({ id, perfil, externo, editar, tecnicos, aviso, cerrar, abri
   const [repQ, setRepQ] = useState('')
   const [repAbierto, setRepAbierto] = useState(false)
   const [ckNuevo, setCkNuevo] = useState('')
+  const [paso, setPaso] = useState<PasoSt>('orden')
+  const panelRef = useRef<HTMLDivElement>(null)
+  const pasoElegido = useRef(false)
   const sinGuardarRef = useRef(false); sinGuardarRef.current = sucio
 
   const cargar = useCallback(async (resetW = true) => {
@@ -492,11 +508,25 @@ function PanelOrden({ id, perfil, externo, editar, tecnicos, aviso, cerrar, abri
     return ord
   }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { cargar() }, [cargar])
-  useEffect(() => { document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = '' } }, [])
+  useEffect(() => { document.body.style.overflow = 'hidden'; document.body.classList.add('vm-ficha-abierta'); return () => { document.body.style.overflow = ''; document.body.classList.remove('vm-ficha-abierta') } }, [])
+  // Al abrir una orden en trabajo, va directo al primer paso que falta
+  useEffect(() => {
+    if (!o || !W || pasoElegido.current || !enTrabajo(o)) return
+    pasoElegido.current = true
+    setPaso(o.tipo !== 'Capacitación' && o.tipo !== 'Instalación' && !W.diagnostico.trim() ? 'diagnostico' : W.checklist.some((x) => !x.resultado) ? 'checklist' : !W.trabajo.trim() ? 'trabajo' : o.modalidad !== 'Remoto' && !W.fotos.length ? 'fotos' : 'cierre')
+  }, [o, W])
   useEffect(() => { const f = (e: BeforeUnloadEvent) => { if (sinGuardarRef.current) { e.preventDefault(); e.returnValue = '' } }; window.addEventListener('beforeunload', f); return () => window.removeEventListener('beforeunload', f) }, [])
   const salir = (fn: () => void) => { if (sucio && !confirm('Tienes cambios sin guardar. ¿Salir sin guardar?')) return; fn() }
   const marcar = (cambio: (w: Trabajo) => void) => { setW((w) => { if (!w) return w; const n = { ...w }; cambio(n); return n }); setSucio(true) }
   const err = (e: unknown) => aviso((e as Error).message)
+  /** Cambia de paso y guarda lo escrito (para no perder nada en el teléfono). */
+  async function irA(p: PasoSt) {
+    if (p === paso) return
+    if (sucio && editar && o && abierta(o)) { try { await guardarAvance(true) } catch (e) { err(e); return } }
+    setPaso(p); panelRef.current?.scrollTo({ top: 0 })
+  }
+  // El paso activo siempre a la vista en la barra de pasos
+  useEffect(() => { panelRef.current?.querySelector('.vm-paso.on')?.scrollIntoView({ inline: 'center', block: 'nearest' }) }, [paso, o?.estado])
 
   async function evento(ord: Orden, nota: string, publico: boolean, extra: Record<string, unknown> = {}) {
     const ev = [...ord.eventos, { fecha: new Date().toISOString(), por: perfil.nombre, nota: nota.slice(0, 600), publico }].slice(-200)
@@ -597,101 +627,141 @@ function PanelOrden({ id, perfil, externo, editar, tecnicos, aviso, cerrar, abri
   const hechos = W.checklist.filter((x) => x.resultado).length
   const sug = sugeridasDe(o.producto).filter((s) => !W.mediciones.map((m) => norm(m.parametro)).includes(norm(s.parametro)))
   const ab = (id2: string) => salir(() => abrirEquipo(id2))
+  const pasos = pasosDe(o)
+  const pasoVis = trabajo && pasos.some((s) => s.k === paso) ? paso : 'orden'
+  const idx = pasos.findIndex((s) => s.k === pasoVis), sig = pasos[idx + 1]
+  const faltaCierre: string[] = []
+  if (W.checklist.some((x) => !x.resultado)) faltaCierre.push(W.checklist.filter((x) => !x.resultado).length + ' actividad(es) del checklist')
+  if (cap ? !W.asistentes.filter((a) => a.nombre).length : !W.trabajo.trim() && !W.diagnostico.trim()) faltaCierre.push(cap ? 'los asistentes' : 'el trabajo realizado')
+  if (o.modalidad !== 'Remoto' && !W.fotos.length) faltaCierre.push('fotos de evidencia')
+  const estadoPaso: Record<PasoSt, string> = {
+    orden: trabajo || cerrado ? 'ok' : '', diagnostico: W.diagnostico.trim() ? 'ok' : '', checklist: W.checklist.length && hechos === W.checklist.length ? 'ok' : '',
+    mediciones: W.mediciones.length && W.mediciones.every((m) => m.valor.trim()) ? 'ok' : '', asistentes: W.asistentes.some((a) => a.nombre.trim()) ? 'ok' : '',
+    trabajo: W.trabajo.trim() ? 'ok' : '', fotos: W.fotos.length ? 'ok' : '', cierre: cerrado ? 'ok' : '',
+  }
+
+  const sOrden = <>
+    <div className="grid grid-cols-3 gap-2">
+      {tel ? <><a className="btn" href={'tel:' + tel}><Phone />Llamar</a><button className="btn btn-wa" onClick={() => setHoja('mensajes')}><MessageCircle />WhatsApp</button></> : <><span /><span /></>}
+      {dir ? <a className="btn" target="_blank" rel="noopener" href={'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(dir + ', Ecuador')}><MapPin />Mapa</a> : <span />}
+    </div>
+    {cerrado && (() => { const f = o.firma; return (
+      <div className="sec" style={{ borderColor: o.estado === 'Cancelada' ? '#e2e8f0' : '#9ae6c7' }}><h3 style={{ color: o.estado === 'Cancelada' ? '#64748b' : 'var(--teal)' }}>{o.estado === 'Cancelada' ? <XCircle /> : <BadgeCheck />}{o.estado === 'Cancelada' ? 'Orden cancelada' : 'Servicio finalizado'}</h3>
+        <dl className="kv"><KV k="Estado del equipo" v={o.estadoFinal && <b>{o.estadoFinal}</b>} /><KV k="Cierre" v={o.cierre ? dhora(o.cierre) : ''} /><KV k="Horas" v={o.horas ? String(o.horas) : ''} /><KV k="Próximo mant." v={o.proximoMantenimiento ? dfecha(o.proximoMantenimiento) : ''} />
+          <KV k="Recibió" v={f.nombre ? [f.nombre, f.cargo, f.cedula ? 'C.I. ' + f.cedula : ''].filter(Boolean).join(' · ') : ''} /><KV k="Facturación" v={o.facturacion && o.facturacion !== 'No aplica' ? o.facturacion : ''} /><KV k="Diagnóstico" v={o.diagnostico} /><KV k="Trabajo" v={o.trabajo} /></dl>
+        {f.png && <img src={f.png} alt="Firma" className="mt-2 h-16 border-b border-slate-300" style={{ height: 64 }} />}</div>) })()}
+    <div className="sec"><h3><Cpu />Equipo{eq && <span className={'pill g-' + slug(eq.garantia) + ' ml-auto'}>Garantía {eq.garantia.toLowerCase()}</span>}</h3>
+      <dl className="kv"><KV k="Equipo" v={<b>{o.producto}</b>} /><KV k="Serie" v={<span className="mono">{o.serie}</span>} /><KV k="Garantía" v={eq?.garantiaHasta ? 'Hasta ' + dfecha(eq.garantiaHasta) : eq?.garantia} /><KV k="Plan" v={eq ? eq.plan + (eq.proximo && eq.plan !== 'Sin plan' ? ' · próximo ' + dfecha(eq.proximo) : '') : ''} /><KV k="Ubicación" v={eq?.ubicacion} /><KV k="Factura" v={o.factura} /></dl>
+      {o.equipoId && <button className="btn btn-sm mt-3" onClick={() => ab(o.equipoId)}><BookOpen />Hoja de vida ({hist.length + 1} servicio{hist.length ? 's' : ''})</button>}</div>
+    <div className="sec"><h3><ClipboardList />Orden de servicio</h3>
+      <dl className="kv"><KV k="Tipo" v={o.tipo} /><KV k="Modalidad" v={o.modalidad} /><KV k="Cobertura" v={o.cobertura} /><KV k="Prioridad" v={o.prioridad} />
+        <KV k="Técnico" v={o.tecnico ? o.tecnico + (tecnicos.find((t) => t.nombre === o.tecnico)?.tipo === 'Externo' ? ' · externo' : '') : 'Sin asignar'} /><KV k="Fecha" v={o.fechaProgramada ? dfecha(o.fechaProgramada) + (hm(o.fechaProgramada) ? ' · ' + hm(o.fechaProgramada) : '') : ''} />
+        <KV k="Contacto" v={[o.contacto, o.telefono].filter(Boolean).join(' · ')} /><KV k="Dirección" v={dir} /><KV k="Falla / motivo" v={o.falla ? <span style={{ whiteSpace: 'pre-line' }}>{o.falla}</span> : ''} /><KV k="Origen" v={o.origen} /><KV k="Asesor" v={o.asesor} /></dl>
+      {!cerrado && !externo && editar && <div className="flex gap-2 mt-3 flex-wrap"><button className="btn btn-sm" onClick={() => setHoja('editar')}><Pencil />Editar</button><button className="btn btn-sm" onClick={() => setHoja('agendar')}><Calendar />{o.tecnico ? 'Reagendar' : 'Agendar'}</button></div>}</div>
+    {o.recepcion?.entregadoPor && <div className="sec"><h3><PackageOpen />Recepción en taller</h3><dl className="kv"><KV k="Entregó" v={o.recepcion.entregadoPor + (o.recepcion.cedula ? ' · C.I. ' + o.recepcion.cedula : '')} /><KV k="Fecha" v={dhora(o.recepcion.fecha)} /><KV k="Accesorios" v={o.recepcion.accesorios} /><KV k="Estado físico" v={o.recepcion.estadoFisico} />
+      <KV k="Comprobante" v={o.recepcionN ? <button className="text-[var(--acc)] font-semibold" onClick={() => descargar('recepcion')}>{o.recepcionN} (descargar PDF)</button> : ''} /></dl></div>}
+    {!cerrado && !trabajo && editar && <div className="flex gap-2 flex-wrap">
+      {!externo && !o.tecnico && <button className="btn flex-1" onClick={iniciar}><Play />Iniciar ahora</button>}
+      <button className="btn flex-1" onClick={() => setHoja('recepcion')}><PackageOpen />Recibir en taller</button>
+      {!externo && <button className="btn btn-red" title="Cancelar orden" onClick={() => { setEstadoNuevo(''); setHoja('cancelar') }}><XCircle /></button>}</div>}
+    {hist.length > 0 && <div className="sec"><h3><History />Servicios anteriores de este equipo</h3>{hist.map((x) => <div key={x.id} className="py-2 border-b border-slate-100 flex gap-2 items-center text-sm cursor-pointer" onClick={() => salir(() => abrirOrden(x.id))}><span className="flex-1">{x.tipo} · <span className="text-slate-500 text-xs">{dfecha(x.cierre || x.fecha)} · {x.estadoFinal || x.estado}</span></span></div>)}</div>}
+    <details className="sec vm-mas"><summary><List style={{ width: 16, height: 16 }} />Línea de tiempo</summary>
+      <div className="mt-2">{[...o.eventos].reverse().map((ev, i) => <div key={i} className="ev"><span className="text-slate-400 shrink-0 w-28">{dhora(ev.fecha)}</span><span className="flex-1">{ev.nota} <span className="text-slate-400">— {ev.por}</span></span></div>)}</div>
+      {o.linkCliente ? <p className="text-[11px] text-slate-500 mt-2">El cliente ve lo marcado como público en <a className="text-[var(--acc)] font-semibold" href={o.linkCliente} target="_blank" rel="noopener noreferrer">su enlace de seguimiento</a> <button type="button" className="text-[var(--acc)] font-semibold underline" onClick={() => { navigator.clipboard?.writeText(o.linkCliente).then(() => aviso('Enlace copiado'), () => aviso(o.linkCliente)) }}>Copiar</button></p>
+        : <p className="text-[10.5px] text-slate-400 mt-2">Esta orden aún no tiene enlace de seguimiento.</p>}</details>
+  </>
+  const sDiagnostico = <div className="sec"><h3><Stethoscope />Diagnóstico</h3><p className="text-xs text-slate-500 mb-2">Falla reportada: {o.falla || '—'}</p><textarea className="inp" rows={6} placeholder="Qué encontraste, causa de la falla…" value={W.diagnostico} onChange={(e) => marcar((w) => { w.diagnostico = e.target.value })} /></div>
+  const sChecklist = (
+    <div className="sec"><h3><ListChecks />{cap ? 'Temas de la capacitación' : 'Checklist'}<span className="ml-auto text-xs text-slate-500 font-semibold">{hechos}/{W.checklist.length}</span></h3>
+      <div className="prog mb-2"><i style={{ width: (W.checklist.length ? Math.round(hechos / W.checklist.length * 100) : 0) + '%' }} /></div>
+      {W.checklist.map((x, i) => (
+        <div key={i} className="ck"><div className="flex gap-2 items-start"><span className="text-sm flex-1">{x.actividad}</span><button className="text-slate-300 hover:text-red-500" title="Quitar" onClick={() => marcar((w) => { w.checklist = w.checklist.filter((_, j) => j !== i) })}><X style={{ width: 14, height: 14 }} /></button></div>
+          <div className="res">{RESULTADOS.map((r) => <button key={r} type="button" data-r={r} className={x.resultado === r ? 'on' : ''} onClick={() => marcar((w) => { w.checklist = w.checklist.map((c, j) => (j === i ? { ...c, resultado: c.resultado === r ? '' : r } : c)) })}>{r}</button>)}</div>
+          {(x.resultado === 'Falla' || x.resultado === 'Corregido' || x.obs) && <input className="inp mt-1.5 !py-1.5 text-xs" placeholder="Observación" value={x.obs} onChange={(e) => marcar((w) => { w.checklist = w.checklist.map((c, j) => (j === i ? { ...c, obs: e.target.value } : c)) })} />}</div>
+      ))}
+      <div className="flex gap-2 mt-3"><input className="inp !py-2 text-sm" placeholder="Agregar actividad" value={ckNuevo} onChange={(e) => setCkNuevo(e.target.value)} /><button className="btn btn-sm" onClick={() => { if (ckNuevo.trim()) { marcar((w) => { w.checklist = [...w.checklist, { actividad: ckNuevo.trim(), resultado: '', obs: '' }] }); setCkNuevo('') } }}><Plus /></button></div>
+      <div className="flex gap-2 mt-2"><button className="btn btn-sm" onClick={() => marcar((w) => { w.checklist = w.checklist.map((c) => (c.resultado ? c : { ...c, resultado: 'OK' })) })}><CheckCheck />Marcar pendientes OK</button>
+        <button className="btn btn-sm" onClick={async () => { const l = await protocolo(o.tipo, o.producto); const ya = W.checklist.map((x) => norm(x.actividad)); marcar((w) => { l.filter((a) => !ya.includes(norm(a))).forEach((a) => w.checklist.push({ actividad: a, resultado: '', obs: '' })) }); aviso('Protocolo cargado') }}><RotateCcw />Protocolo</button></div></div>
+  )
+  const sMediciones = (
+    <div className="sec"><h3><Gauge />Mediciones y pruebas</h3>
+      {!W.mediciones.length && <p className="text-xs text-slate-500">Toca una medición sugerida para agregarla.</p>}
+      {W.mediciones.map((m, i) => (
+        <div key={i} className="py-2 border-b border-slate-100"><div className="flex items-center gap-2"><b className="text-sm flex-1">{m.parametro}</b><span className="text-[11px] text-slate-500">Ref. {m.referencia || '—'}</span><button className="text-slate-300 hover:text-red-500" onClick={() => marcar((w) => { w.mediciones = w.mediciones.filter((_, j) => j !== i) })}><X style={{ width: 14, height: 14 }} /></button></div>
+          <div className="fila mt-1" style={{ gridTemplateColumns: '1fr 70px auto' }}><input className="inp !py-1.5" placeholder="Valor" inputMode="decimal" value={m.valor} onChange={(e) => marcar((w) => { w.mediciones = w.mediciones.map((c, j) => (j === i ? { ...c, valor: e.target.value } : c)) })} />
+            <input className="inp !py-1.5" placeholder="Unidad" value={m.unidad} onChange={(e) => marcar((w) => { w.mediciones = w.mediciones.map((c, j) => (j === i ? { ...c, unidad: e.target.value } : c)) })} />
+            <div className="seg !mt-0"><button type="button" className={m.resultado === 'Conforme' ? 'on' : ''} onClick={() => marcar((w) => { w.mediciones = w.mediciones.map((c, j) => (j === i ? { ...c, resultado: c.resultado === 'Conforme' ? '' : 'Conforme' } : c)) })}>✓</button>
+              <button type="button" className={m.resultado === 'No conforme' ? 'on' : ''} style={m.resultado === 'No conforme' ? { background: '#c0392b', borderColor: '#c0392b' } : undefined} onClick={() => marcar((w) => { w.mediciones = w.mediciones.map((c, j) => (j === i ? { ...c, resultado: c.resultado === 'No conforme' ? '' : 'No conforme' } : c)) })}>✗</button></div></div></div>
+      ))}
+      <div className="flex gap-1.5 flex-wrap mt-2">{sug.map((s) => <span key={s.parametro} className="chip" onClick={() => marcar((w) => { w.mediciones = [...w.mediciones, { parametro: s.parametro, valor: '', unidad: s.unidad, referencia: s.referencia, resultado: '' }] })}><Plus style={{ width: 12, height: 12 }} />{s.parametro}</span>)}
+        <span className="chip" onClick={() => { const n = prompt('Nombre de la medición:'); if (n) marcar((w) => { w.mediciones = [...w.mediciones, { parametro: n, valor: '', unidad: '', referencia: '', resultado: '' }] }) }}><Plus style={{ width: 12, height: 12 }} />Otra</span></div></div>
+  )
+  const sAsistentes = (
+    <div className="sec"><h3><Users />Personal capacitado ({W.asistentes.length})</h3>
+      {W.asistentes.map((a, i) => (
+        <div key={i} className="fila py-1.5" style={{ gridTemplateColumns: '1.4fr 1fr .9fr auto' }}>{(['nombre', 'cargo', 'cedula'] as const).map((k) => <input key={k} className="inp !py-1.5 text-sm" placeholder={k === 'cedula' ? 'C.I.' : k === 'cargo' ? 'Cargo' : 'Nombre'} value={a[k]} onChange={(e) => marcar((w) => { w.asistentes = w.asistentes.map((c, j) => (j === i ? { ...c, [k]: e.target.value } : c)) })} />)}
+          <button className="text-slate-300 hover:text-red-500" onClick={() => marcar((w) => { w.asistentes = w.asistentes.filter((_, j) => j !== i) })}><X style={{ width: 14, height: 14 }} /></button></div>))}
+      <button className="btn btn-sm mt-2" onClick={() => marcar((w) => { w.asistentes = [...w.asistentes, { nombre: '', cargo: '', cedula: '' }] })}><UserPlus />Agregar persona</button></div>
+  )
+  const sTrabajo = <>
+    <div className="sec"><h3><Hammer />{cap ? 'Desarrollo de la capacitación' : 'Trabajo realizado'}</h3><textarea className="inp" rows={5} placeholder={cap ? 'Temas, prácticas realizadas, dudas resueltas…' : 'Qué se hizo, piezas cambiadas, ajustes, pruebas…'} value={W.trabajo} onChange={(e) => marcar((w) => { w.trabajo = e.target.value })} />
+      <div className="grid grid-cols-2 gap-2 mt-2"><label className="f">Horas de trabajo<input className="inp" type="number" inputMode="decimal" step="0.5" min={0} value={W.horas} onChange={(e) => marcar((w) => { w.horas = e.target.value })} /></label></div></div>
+    {!cap && <div className="sec"><h3><Package />Repuestos del inventario</h3>
+      {o.repuestosDescontados ? <p className="text-xs text-emerald-700 font-semibold mb-2">Ya se descontaron del inventario.</p> : <p className="text-[11px] text-slate-500 mb-2">Se descuentan del inventario (Movimientos) al finalizar la orden.</p>}
+      {W.repuestos.map((r, i) => <div key={r.id} className="flex items-center gap-2 py-1.5 border-b border-slate-100"><span className="text-sm flex-1">{r.nombre} <span className="mono text-[11px] text-slate-400">{r.id}</span></span>
+        <input className="inp !py-1 !w-16 text-center" type="number" min={1} value={r.cantidad} disabled={o.repuestosDescontados} onChange={(e) => marcar((w) => { w.repuestos = w.repuestos.map((c, j) => (j === i ? { ...c, cantidad: Math.max(1, +e.target.value || 1) } : c)) })} />
+        {!o.repuestosDescontados && <button className="text-slate-300 hover:text-red-500" onClick={() => marcar((w) => { w.repuestos = w.repuestos.filter((_, j) => j !== i) })}><X style={{ width: 14, height: 14 }} /></button>}</div>)}
+      {!o.repuestosDescontados && <div className="relative mt-2"><input className="inp !py-2 text-sm" placeholder="Buscar repuesto por nombre o código" autoComplete="off" value={repQ} onFocus={() => { buscarProductos(); setRepAbierto(true) }} onBlur={() => setTimeout(() => setRepAbierto(false), 200)} onChange={(e) => { setRepQ(e.target.value); setRepAbierto(true) }} />
+        {repAbierto && productos && <div className="sugg">{(() => { const w = norm(repQ).trim().split(/\s+/).filter(Boolean); const l = productos.filter((p) => !w.length || w.every((x) => norm(p.id + ' ' + p.nombre).includes(x))).slice(0, 15); return l.length ? l.map((p) => <div key={p.id} className={p.stock > 0 ? '' : 'opacity-50'} onMouseDown={() => { marcar((wk) => { const ya = wk.repuestos.find((r) => r.id === p.id); if (ya) ya.cantidad++; else wk.repuestos = [...wk.repuestos, { id: p.id, nombre: p.nombre, cantidad: 1, precio: 0 }] }); setRepQ('') }}><b>{p.nombre}</b><br /><span className="text-xs text-slate-500 mono">{p.id}</span> <span className={'text-xs font-semibold ' + (p.stock > 0 ? 'text-emerald-700' : 'text-red-600')}>· stock {p.stock}</span></div>) : <div className="text-slate-400">Sin resultados</div> })()}</div>}</div>}
+      {editar && (o.estado === 'Esperando repuesto' ? <button className="btn w-full mt-3" onClick={() => cambiarEstado('En proceso', '')}><Play />Repuesto recibido · seguir</button> : o.estado === 'En proceso' ? <button className="btn w-full mt-3" onClick={() => { setEstadoNuevo(''); setHoja('estado') }}><Hourglass />Pausar: esperar repuesto</button> : null)}</div>}
+  </>
+  const sFotos = (
+    <div className="sec"><h3><Camera />Evidencia fotográfica ({W.fotos.length})</h3>
+      <div className="vm-fotos-btn mb-3">{['Antes', 'Durante', 'Después'].map((et) => { const n = W.fotos.filter((f) => f.etapa === et).length; return <label key={et} className={'vm-foto-btn' + (n ? ' ok' : '')}>{n ? <Check /> : <Camera />}{et}<small>{n ? n + ' foto' + (n > 1 ? 's' : '') + ' · otra' : 'Tomar foto'}</small><input type="file" accept="image/*" capture="environment" multiple hidden onChange={(e) => { const f = [...(e.target.files ?? [])]; e.target.value = ''; subirFotos(f, et) }} /></label> })}</div>
+      {subiendo && <p className="text-xs text-slate-600 mb-2"><Spin /> Subiendo…</p>}
+      <div className="fotos">{W.fotos.map((f, i) => <div key={f.url} className="ft"><Foto ruta={f.url} /><button onClick={() => marcar((w) => { w.fotos = w.fotos.filter((_, j) => j !== i) })}>×</button>
+        <select value={f.etapa} onChange={(e) => marcar((w) => { w.fotos = w.fotos.map((c, j) => (j === i ? { ...c, etapa: e.target.value } : c)) })}>{['Antes', 'Durante', 'Después', 'Recepción'].map((x) => <option key={x}>{x}</option>)}</select></div>)}</div>
+      <p className="text-[11px] text-slate-500 mt-2">Hasta 8 fotos van al informe. Se reducen en el teléfono antes de subir.</p></div>
+  )
+  const sCierre = <>
+    <div className="sec"><h3><Lightbulb />Recomendaciones al cliente</h3><textarea className="inp" rows={3} placeholder="Uso, cuidados, cambios sugeridos…" value={W.recomendaciones} onChange={(e) => marcar((w) => { w.recomendaciones = e.target.value })} /></div>
+    <div>
+      {W.checklist.length > 0 && <div className={'vm-check ' + (hechos === W.checklist.length ? 'ok' : 'mal')} onClick={hechos === W.checklist.length ? undefined : () => irA('checklist')} style={{ cursor: hechos === W.checklist.length ? undefined : 'pointer' }}>{hechos === W.checklist.length ? <CheckCheck /> : <ShieldAlert />}<span>{hechos === W.checklist.length ? 'Checklist completo' : <><b>Faltan {W.checklist.length - hechos} del checklist.</b> Toca para completarlo.</>}</span></div>}
+      {cap ? <div className={'vm-check ' + (estadoPaso.asistentes ? 'ok' : 'mal')} onClick={estadoPaso.asistentes ? undefined : () => irA('asistentes')}>{estadoPaso.asistentes ? <CheckCheck /> : <ShieldAlert />}<span>{estadoPaso.asistentes ? 'Asistentes registrados' : <><b>Faltan los asistentes.</b> Toca para agregarlos.</>}</span></div>
+        : <div className={'vm-check ' + (W.trabajo.trim() || W.diagnostico.trim() ? 'ok' : 'mal')} onClick={W.trabajo.trim() || W.diagnostico.trim() ? undefined : () => irA('trabajo')}>{W.trabajo.trim() || W.diagnostico.trim() ? <CheckCheck /> : <ShieldAlert />}<span>{W.trabajo.trim() || W.diagnostico.trim() ? 'Trabajo descrito' : <><b>Falta describir el trabajo.</b> Toca para escribirlo.</>}</span></div>}
+      {o.modalidad !== 'Remoto' && <div className={'vm-check ' + (W.fotos.length ? 'ok' : 'mal')} onClick={W.fotos.length ? undefined : () => irA('fotos')}>{W.fotos.length ? <CheckCheck /> : <ShieldAlert />}<span>{W.fotos.length ? `${W.fotos.length} foto(s) de evidencia` : <><b>Faltan las fotos.</b> Toca para tomarlas.</>}</span></div>}
+    </div>
+    {editar && <div className="flex gap-2 flex-wrap">
+      {o.estado === 'Esperando repuesto' ? <button className="btn flex-1" onClick={() => cambiarEstado('En proceso', '')}><Play />Repuesto recibido</button> : o.estado === 'En proceso' ? <button className="btn flex-1" onClick={() => { setEstadoNuevo(''); setHoja('estado') }}><Hourglass />Esperar repuesto</button> : null}
+      {!externo && <button className="btn btn-red" title="Cancelar orden" onClick={() => { setEstadoNuevo(''); setHoja('cancelar') }}><XCircle />Cancelar orden</button>}</div>}
+  </>
+  const contenido = !trabajo ? sOrden : pasoVis === 'orden' ? sOrden : pasoVis === 'diagnostico' ? sDiagnostico : pasoVis === 'checklist' ? sChecklist : pasoVis === 'mediciones' ? sMediciones : pasoVis === 'asistentes' ? sAsistentes : pasoVis === 'trabajo' ? sTrabajo : pasoVis === 'fotos' ? sFotos : sCierre
+
+  // Acción principal (botón grande abajo)
+  const principal = (() => {
+    if (cerrado) return o.estado === 'Finalizada' ? <><button className="btn btn-ok" onClick={() => descargar('informe')}><FileText />Informe {o.informeN}</button><button className="btn btn-wa atras" title="Enviar por WhatsApp" onClick={() => setHoja('mensajes')}><MessageCircle /></button></> : <button className="btn" onClick={() => salir(cerrar)}><X />Cerrar</button>
+    if (!editar) return trabajo && sig ? <button className="btn btn-p" onClick={() => irA(sig.k)}>Siguiente: {sig.t}<ChevronRight /></button> : <button className="btn" onClick={() => salir(cerrar)}><X />Cerrar</button>
+    if (!trabajo) return !externo && !o.tecnico ? <button className="btn btn-p" onClick={() => setHoja('agendar')}><CalendarPlus />Agendar</button> : <button className="btn btn-p" onClick={iniciar}><Play />Iniciar servicio</button>
+    if (sig) return <button className="btn btn-p" disabled={guardando} onClick={() => irA(sig.k)}>{guardando ? <Spin /> : <>Siguiente: {sig.t}<ChevronRight /></>}</button>
+    if (o.estado === 'Esperando aprobación') return <button className="btn" disabled={guardando} onClick={() => guardarAvance().catch(err)}><Save />Guardar avance</button>
+    return <button className="btn btn-ok" onClick={() => { if (faltaCierre.length) { aviso('Antes de cerrar completa: ' + faltaCierre.join(', ') + '.'); return } setHoja('finalizar') }}><FileCheck2 />Finalizar e informe</button>
+  })()
 
   return (
-    <div className="panel">
-      <Cabecera titulo={o.cliente} sub={`${o.codigo} · ${o.tipo}`} cerrar={() => salir(cerrar)} extra={<span className={'pill s-' + slug(o.estado) + ' ml-auto'}>{o.estado}</span>} />
-      <div className="w-full px-4 lg:px-6 py-4 space-y-3">
-        <div className="grid grid-cols-3 gap-2">
-          {tel ? <><a className="btn" href={'tel:' + tel}><Phone />Llamar</a><button className="btn btn-wa" onClick={() => setHoja('mensajes')}><MessageCircle />WhatsApp</button></> : <><span /><span /></>}
-          {dir ? <a className="btn" target="_blank" rel="noopener" href={'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(dir + ', Ecuador')}><MapPin />Mapa</a> : <span />}
+    <div className="panel vm-ficha" ref={panelRef}>
+      <div className="sticky top-0 z-10">
+        <Cabecera titulo={o.cliente} sub={`${o.codigo} · ${o.tipo}`} cerrar={() => salir(cerrar)} extra={<span className={'pill s-' + slug(o.estado) + ' ml-auto'}>{o.estado}</span>} />
+        {trabajo && <nav className="vm-pasos">{pasos.map((s, i) => <button key={s.k} type="button" className={'vm-paso' + (pasoVis === s.k ? ' on' : '') + (estadoPaso[s.k] ? ' ' + estadoPaso[s.k] : '')} onClick={() => irA(s.k)}><span className="num">{estadoPaso[s.k] === 'ok' ? <Check /> : i + 1}</span>{s.t}</button>)}</nav>}
+      </div>
+      <div className="vm-ficha-cont w-full px-4 lg:px-6 py-4">
+        <div className="vm-cuerpo">
+          {contenido}
+          <div className="vm-barra">
+            {trabajo && idx > 0 && <button className="btn atras" onClick={() => irA(pasos[idx - 1].k)} title="Paso anterior"><ChevronLeft /></button>}
+            {trabajo && editar && !cerrado && sucio && <button className="btn atras btn-n" disabled={guardando} title="Guardar avance" onClick={() => guardarAvance().catch(err)}>{guardando ? <Spin /> : <Save />}</button>}
+            {principal}
+          </div>
         </div>
-        <div className="sec"><h3><Cpu />Equipo{eq && <span className={'pill g-' + slug(eq.garantia) + ' ml-auto'}>Garantía {eq.garantia.toLowerCase()}</span>}</h3>
-          <dl className="kv"><KV k="Equipo" v={<b>{o.producto}</b>} /><KV k="Serie" v={<span className="mono">{o.serie}</span>} /><KV k="Garantía" v={eq?.garantiaHasta ? 'Hasta ' + dfecha(eq.garantiaHasta) : eq?.garantia} /><KV k="Plan" v={eq ? eq.plan + (eq.proximo && eq.plan !== 'Sin plan' ? ' · próximo ' + dfecha(eq.proximo) : '') : ''} /><KV k="Ubicación" v={eq?.ubicacion} /><KV k="Factura" v={o.factura} /></dl>
-          {o.equipoId && <button className="btn btn-sm mt-3" onClick={() => ab(o.equipoId)}><BookOpen />Hoja de vida ({hist.length + 1} servicio{hist.length ? 's' : ''})</button>}</div>
-        <div className="sec"><h3><ClipboardList />Orden de servicio</h3>
-          <dl className="kv"><KV k="Tipo" v={o.tipo} /><KV k="Modalidad" v={o.modalidad} /><KV k="Cobertura" v={o.cobertura} /><KV k="Prioridad" v={o.prioridad} />
-            <KV k="Técnico" v={o.tecnico ? o.tecnico + (tecnicos.find((t) => t.nombre === o.tecnico)?.tipo === 'Externo' ? ' · externo' : '') : 'Sin asignar'} /><KV k="Fecha" v={o.fechaProgramada ? dfecha(o.fechaProgramada) + (hm(o.fechaProgramada) ? ' · ' + hm(o.fechaProgramada) : '') : ''} />
-            <KV k="Contacto" v={[o.contacto, o.telefono].filter(Boolean).join(' · ')} /><KV k="Dirección" v={dir} /><KV k="Falla / motivo" v={o.falla ? <span style={{ whiteSpace: 'pre-line' }}>{o.falla}</span> : ''} /><KV k="Origen" v={o.origen} /><KV k="Asesor" v={o.asesor} /></dl>
-          {!cerrado && !externo && editar && <div className="flex gap-2 mt-3 flex-wrap"><button className="btn btn-sm" onClick={() => setHoja('editar')}><Pencil />Editar</button><button className="btn btn-sm" onClick={() => setHoja('agendar')}><Calendar />{o.tecnico ? 'Reagendar' : 'Agendar'}</button></div>}</div>
-        {o.recepcion?.entregadoPor && <div className="sec"><h3><PackageOpen />Recepción en taller</h3><dl className="kv"><KV k="Entregó" v={o.recepcion.entregadoPor + (o.recepcion.cedula ? ' · C.I. ' + o.recepcion.cedula : '')} /><KV k="Fecha" v={dhora(o.recepcion.fecha)} /><KV k="Accesorios" v={o.recepcion.accesorios} /><KV k="Estado físico" v={o.recepcion.estadoFisico} />
-          <KV k="Comprobante" v={o.recepcionN ? <button className="text-[var(--acc)] font-semibold" onClick={() => descargar('recepcion')}>{o.recepcionN} (descargar PDF)</button> : ''} /></dl></div>}
-
-        {trabajo && (
-          <>
-            {!cap && o.tipo !== 'Instalación' && <div className="sec"><h3><Stethoscope />Diagnóstico</h3><textarea className="inp" rows={3} placeholder="Qué encontraste, causa de la falla…" value={W.diagnostico} onChange={(e) => marcar((w) => { w.diagnostico = e.target.value })} /></div>}
-            <div className="sec"><h3><ListChecks />{cap ? 'Temas de la capacitación' : 'Checklist'}<span className="ml-auto text-xs text-slate-500 font-semibold">{hechos}/{W.checklist.length}</span></h3>
-              <div className="prog mb-2"><i style={{ width: (W.checklist.length ? Math.round(hechos / W.checklist.length * 100) : 0) + '%' }} /></div>
-              {W.checklist.map((x, i) => (
-                <div key={i} className="ck"><div className="flex gap-2 items-start"><span className="text-sm flex-1">{x.actividad}</span><button className="text-slate-300 hover:text-red-500" title="Quitar" onClick={() => marcar((w) => { w.checklist = w.checklist.filter((_, j) => j !== i) })}><X style={{ width: 14, height: 14 }} /></button></div>
-                  <div className="res">{RESULTADOS.map((r) => <button key={r} type="button" data-r={r} className={x.resultado === r ? 'on' : ''} onClick={() => marcar((w) => { w.checklist = w.checklist.map((c, j) => (j === i ? { ...c, resultado: c.resultado === r ? '' : r } : c)) })}>{r}</button>)}</div>
-                  {(x.resultado === 'Falla' || x.resultado === 'Corregido' || x.obs) && <input className="inp mt-1.5 !py-1.5 text-xs" placeholder="Observación" value={x.obs} onChange={(e) => marcar((w) => { w.checklist = w.checklist.map((c, j) => (j === i ? { ...c, obs: e.target.value } : c)) })} />}</div>
-              ))}
-              <div className="flex gap-2 mt-3"><input className="inp !py-2 text-sm" placeholder="Agregar actividad" value={ckNuevo} onChange={(e) => setCkNuevo(e.target.value)} /><button className="btn btn-sm" onClick={() => { if (ckNuevo.trim()) { marcar((w) => { w.checklist = [...w.checklist, { actividad: ckNuevo.trim(), resultado: '', obs: '' }] }); setCkNuevo('') } }}><Plus /></button></div>
-              <div className="flex gap-2 mt-2"><button className="btn btn-sm" onClick={() => marcar((w) => { w.checklist = w.checklist.map((c) => (c.resultado ? c : { ...c, resultado: 'OK' })) })}><CheckCheck />Marcar pendientes OK</button>
-                <button className="btn btn-sm" onClick={async () => { const l = await protocolo(o.tipo, o.producto); const ya = W.checklist.map((x) => norm(x.actividad)); marcar((w) => { l.filter((a) => !ya.includes(norm(a))).forEach((a) => w.checklist.push({ actividad: a, resultado: '', obs: '' })) }); aviso('Protocolo cargado') }}><RotateCcw />Protocolo</button></div></div>
-            {!cap && <div className="sec"><h3><Gauge />Mediciones y pruebas</h3>
-              {W.mediciones.map((m, i) => (
-                <div key={i} className="py-2 border-b border-slate-100"><div className="flex items-center gap-2"><b className="text-sm flex-1">{m.parametro}</b><span className="text-[11px] text-slate-500">Ref. {m.referencia || '—'}</span><button className="text-slate-300 hover:text-red-500" onClick={() => marcar((w) => { w.mediciones = w.mediciones.filter((_, j) => j !== i) })}><X style={{ width: 14, height: 14 }} /></button></div>
-                  <div className="fila mt-1" style={{ gridTemplateColumns: '1fr 70px auto' }}><input className="inp !py-1.5" placeholder="Valor" inputMode="decimal" value={m.valor} onChange={(e) => marcar((w) => { w.mediciones = w.mediciones.map((c, j) => (j === i ? { ...c, valor: e.target.value } : c)) })} />
-                    <input className="inp !py-1.5" placeholder="Unidad" value={m.unidad} onChange={(e) => marcar((w) => { w.mediciones = w.mediciones.map((c, j) => (j === i ? { ...c, unidad: e.target.value } : c)) })} />
-                    <div className="seg !mt-0"><button type="button" className={m.resultado === 'Conforme' ? 'on' : ''} onClick={() => marcar((w) => { w.mediciones = w.mediciones.map((c, j) => (j === i ? { ...c, resultado: c.resultado === 'Conforme' ? '' : 'Conforme' } : c)) })}>✓</button>
-                      <button type="button" className={m.resultado === 'No conforme' ? 'on' : ''} style={m.resultado === 'No conforme' ? { background: '#c0392b', borderColor: '#c0392b' } : undefined} onClick={() => marcar((w) => { w.mediciones = w.mediciones.map((c, j) => (j === i ? { ...c, resultado: c.resultado === 'No conforme' ? '' : 'No conforme' } : c)) })}>✗</button></div></div></div>
-              ))}
-              <div className="flex gap-1.5 flex-wrap mt-2">{sug.map((s) => <span key={s.parametro} className="chip" onClick={() => marcar((w) => { w.mediciones = [...w.mediciones, { parametro: s.parametro, valor: '', unidad: s.unidad, referencia: s.referencia, resultado: '' }] })}><Plus style={{ width: 12, height: 12 }} />{s.parametro}</span>)}
-                <span className="chip" onClick={() => { const n = prompt('Nombre de la medición:'); if (n) marcar((w) => { w.mediciones = [...w.mediciones, { parametro: n, valor: '', unidad: '', referencia: '', resultado: '' }] }) }}><Plus style={{ width: 12, height: 12 }} />Otra</span></div></div>}
-            {cap && <div className="sec"><h3><Users />Personal capacitado ({W.asistentes.length})</h3>
-              {W.asistentes.map((a, i) => (
-                <div key={i} className="fila py-1.5" style={{ gridTemplateColumns: '1.4fr 1fr .9fr auto' }}>{(['nombre', 'cargo', 'cedula'] as const).map((k) => <input key={k} className="inp !py-1.5 text-sm" placeholder={k === 'cedula' ? 'C.I.' : k === 'cargo' ? 'Cargo' : 'Nombre'} value={a[k]} onChange={(e) => marcar((w) => { w.asistentes = w.asistentes.map((c, j) => (j === i ? { ...c, [k]: e.target.value } : c)) })} />)}
-                  <button className="text-slate-300 hover:text-red-500" onClick={() => marcar((w) => { w.asistentes = w.asistentes.filter((_, j) => j !== i) })}><X style={{ width: 14, height: 14 }} /></button></div>))}
-              <button className="btn btn-sm mt-2" onClick={() => marcar((w) => { w.asistentes = [...w.asistentes, { nombre: '', cargo: '', cedula: '' }] })}><UserPlus />Agregar persona</button></div>}
-            <div className="sec"><h3><Hammer />{cap ? 'Desarrollo de la capacitación' : 'Trabajo realizado'}</h3><textarea className="inp" rows={4} placeholder={cap ? 'Temas, prácticas realizadas, dudas resueltas…' : 'Qué se hizo, piezas cambiadas, ajustes, pruebas…'} value={W.trabajo} onChange={(e) => marcar((w) => { w.trabajo = e.target.value })} />
-              <div className="grid grid-cols-2 gap-2 mt-2"><label className="f">Horas de trabajo<input className="inp" type="number" step="0.5" min={0} value={W.horas} onChange={(e) => marcar((w) => { w.horas = e.target.value })} /></label></div></div>
-            {!cap && <div className="sec"><h3><Package />Repuestos del inventario</h3>
-              {o.repuestosDescontados ? <p className="text-xs text-emerald-700 font-semibold mb-2">Ya se descontaron del inventario.</p> : <p className="text-[11px] text-slate-500 mb-2">Se descuentan del inventario (Movimientos) al finalizar la orden.</p>}
-              {W.repuestos.map((r, i) => <div key={r.id} className="flex items-center gap-2 py-1.5 border-b border-slate-100"><span className="text-sm flex-1">{r.nombre} <span className="mono text-[11px] text-slate-400">{r.id}</span></span>
-                <input className="inp !py-1 !w-16 text-center" type="number" min={1} value={r.cantidad} disabled={o.repuestosDescontados} onChange={(e) => marcar((w) => { w.repuestos = w.repuestos.map((c, j) => (j === i ? { ...c, cantidad: Math.max(1, +e.target.value || 1) } : c)) })} />
-                {!o.repuestosDescontados && <button className="text-slate-300 hover:text-red-500" onClick={() => marcar((w) => { w.repuestos = w.repuestos.filter((_, j) => j !== i) })}><X style={{ width: 14, height: 14 }} /></button>}</div>)}
-              {!o.repuestosDescontados && <div className="relative mt-2"><input className="inp !py-2 text-sm" placeholder="Buscar repuesto por nombre o código" autoComplete="off" value={repQ} onFocus={() => { buscarProductos(); setRepAbierto(true) }} onBlur={() => setTimeout(() => setRepAbierto(false), 200)} onChange={(e) => { setRepQ(e.target.value); setRepAbierto(true) }} />
-                {repAbierto && productos && <div className="sugg">{(() => { const w = norm(repQ).trim().split(/\s+/).filter(Boolean); const l = productos.filter((p) => !w.length || w.every((x) => norm(p.id + ' ' + p.nombre).includes(x))).slice(0, 15); return l.length ? l.map((p) => <div key={p.id} className={p.stock > 0 ? '' : 'opacity-50'} onMouseDown={() => { marcar((wk) => { const ya = wk.repuestos.find((r) => r.id === p.id); if (ya) ya.cantidad++; else wk.repuestos = [...wk.repuestos, { id: p.id, nombre: p.nombre, cantidad: 1, precio: 0 }] }); setRepQ('') }}><b>{p.nombre}</b><br /><span className="text-xs text-slate-500 mono">{p.id}</span> <span className={'text-xs font-semibold ' + (p.stock > 0 ? 'text-emerald-700' : 'text-red-600')}>· stock {p.stock}</span></div>) : <div className="text-slate-400">Sin resultados</div> })()}</div>}</div>}</div>}
-            <div className="sec"><h3><Camera />Evidencia fotográfica ({W.fotos.length})</h3>
-              <div className="fotos">{W.fotos.map((f, i) => <div key={f.url} className="ft"><Foto ruta={f.url} /><button onClick={() => marcar((w) => { w.fotos = w.fotos.filter((_, j) => j !== i) })}>×</button>
-                <select value={f.etapa} onChange={(e) => marcar((w) => { w.fotos = w.fotos.map((c, j) => (j === i ? { ...c, etapa: e.target.value } : c)) })}>{['Antes', 'Durante', 'Después', 'Recepción'].map((x) => <option key={x}>{x}</option>)}</select></div>)}</div>
-              <div className="flex gap-2 mt-2 flex-wrap">{['Antes', 'Durante', 'Después'].map((et) => <label key={et} className="btn btn-sm cursor-pointer"><Camera />{et}<input type="file" accept="image/*" capture="environment" multiple hidden onChange={(e) => { const f = [...(e.target.files ?? [])]; e.target.value = ''; subirFotos(f, et) }} /></label>)}{subiendo && <Spin />}</div>
-              <p className="text-[11px] text-slate-500 mt-2">Hasta 8 fotos van al informe. Se reducen en el teléfono antes de subir.</p></div>
-            <div className="sec"><h3><Lightbulb />Recomendaciones al cliente</h3><textarea className="inp" rows={2} placeholder="Uso, cuidados, cambios sugeridos…" value={W.recomendaciones} onChange={(e) => marcar((w) => { w.recomendaciones = e.target.value })} /></div>
-          </>
-        )}
-        {cerrado && (() => { const f = o.firma; return (
-          <div className="sec" style={{ borderColor: o.estado === 'Cancelada' ? '#e2e8f0' : '#9ae6c7' }}><h3 style={{ color: o.estado === 'Cancelada' ? '#64748b' : 'var(--teal)' }}>{o.estado === 'Cancelada' ? <XCircle /> : <BadgeCheck />}{o.estado === 'Cancelada' ? 'Orden cancelada' : 'Servicio finalizado'}</h3>
-            <dl className="kv"><KV k="Estado del equipo" v={o.estadoFinal && <b>{o.estadoFinal}</b>} /><KV k="Cierre" v={o.cierre ? dhora(o.cierre) : ''} /><KV k="Horas" v={o.horas ? String(o.horas) : ''} /><KV k="Próximo mant." v={o.proximoMantenimiento ? dfecha(o.proximoMantenimiento) : ''} />
-              <KV k="Recibió" v={f.nombre ? [f.nombre, f.cargo, f.cedula ? 'C.I. ' + f.cedula : ''].filter(Boolean).join(' · ') : ''} /><KV k="Facturación" v={o.facturacion && o.facturacion !== 'No aplica' ? o.facturacion : ''} /><KV k="Diagnóstico" v={o.diagnostico} /><KV k="Trabajo" v={o.trabajo} /></dl>
-            {f.png && <img src={f.png} alt="Firma" className="mt-2 h-16 border-b border-slate-300" style={{ height: 64 }} />}
-            {o.estado === 'Finalizada' && <div className="grid grid-cols-2 gap-2 mt-3"><button className="btn btn-ok" onClick={() => descargar('informe')}><FileText />Descargar informe {o.informeN}</button><button className="btn btn-wa" onClick={() => setHoja('mensajes')}><MessageCircle />Enviar por WhatsApp</button></div>}</div>) })()}
-        {hist.length > 0 && <div className="sec"><h3><History />Servicios anteriores de este equipo</h3>{hist.map((x) => <div key={x.id} className="py-2 border-b border-slate-100 flex gap-2 items-center text-sm cursor-pointer" onClick={() => salir(() => abrirOrden(x.id))}><span className="flex-1">{x.tipo} · <span className="text-slate-500 text-xs">{dfecha(x.cierre || x.fecha)} · {x.estadoFinal || x.estado}</span></span></div>)}</div>}
-        <div className="sec"><h3><List />Línea de tiempo</h3>{[...o.eventos].reverse().map((ev, i) => <div key={i} className="ev"><span className="text-slate-400 shrink-0 w-28">{dhora(ev.fecha)}</span><span className="flex-1">{ev.nota} <span className="text-slate-400">— {ev.por}</span></span></div>)}
-          {o.linkCliente ? <p className="text-[11px] text-slate-500 mt-2">El cliente ve lo marcado como público en <a className="text-[var(--acc)] font-semibold" href={o.linkCliente} target="_blank" rel="noopener noreferrer">su enlace de seguimiento</a> <button type="button" className="text-[var(--acc)] font-semibold underline" onClick={() => { navigator.clipboard?.writeText(o.linkCliente).then(() => aviso('Enlace copiado'), () => aviso(o.linkCliente)) }}>Copiar</button></p>
-            : <p className="text-[10.5px] text-slate-400 mt-2">Esta orden aún no tiene enlace de seguimiento.</p>}</div>
-
-        {!cerrado && editar && (
-          <div className="acciones"><div className="flex gap-2 flex-wrap">
-            {(o.estado === 'Recibida' || o.estado === 'Agendada') && <>
-              {!externo && !o.tecnico && <button className="btn btn-p flex-1" onClick={() => setHoja('agendar')}><CalendarPlus />Agendar</button>}
-              <button className={'btn flex-1 ' + (o.tecnico ? 'btn-p' : '')} onClick={iniciar}><Play />Iniciar servicio</button>
-              <button className="btn flex-1" onClick={() => setHoja('recepcion')}><PackageOpen />Recibir en taller</button></>}
-            {trabajo && <>
-              <button className={'btn flex-1 ' + (sucio ? 'btn-n' : '')} disabled={guardando} onClick={() => guardarAvance().catch(err)}>{guardando ? <Spin /> : <><Save />{sucio ? 'Guardar avance' : 'Guardado'}</>}</button>
-              {o.estado === 'Esperando repuesto' ? <button className="btn flex-1" onClick={() => cambiarEstado('En proceso', '')}><Play />Repuesto recibido</button> : o.estado === 'En proceso' ? <button className="btn flex-1" onClick={() => { setEstadoNuevo(''); setHoja('estado') }}><Hourglass />Esperar repuesto</button> : null}
-              {o.estado !== 'Esperando aprobación' && <button className="btn btn-ok flex-1" onClick={() => {
-                const falta: string[] = []
-                if (W.checklist.some((x) => !x.resultado)) falta.push(W.checklist.filter((x) => !x.resultado).length + ' actividad(es) del checklist')
-                if (cap ? !W.asistentes.filter((a) => a.nombre).length : !W.trabajo.trim() && !W.diagnostico.trim()) falta.push(cap ? 'los asistentes' : 'el trabajo realizado')
-                if (o.modalidad !== 'Remoto' && !W.fotos.length) falta.push('fotos de evidencia')
-                if (falta.length) { aviso('Antes de cerrar completa: ' + falta.join(', ') + '.'); return }
-                setHoja('finalizar') }}><FileCheck2 />Finalizar e informe</button>}</>}
-            {!externo && <button className="btn btn-red btn-sm" title="Cancelar orden" onClick={() => setHoja('cancelar')}><XCircle /></button>}
-          </div></div>
-        )}
       </div>
       {hoja === 'editar' && <EditarOrden o={o} aviso={aviso} cerrar={() => setHoja(null)} listo={async (c) => { const { error } = await supabase.from('st_ordenes').update(c).eq('id', o.id); if (error) { aviso(error.message); return } setHoja(null); await cargar(); aviso('Orden actualizada') }} />}
       {hoja === 'agendar' && <Agendar o={o} tecnicos={tecnicos.filter((t) => t.activo)} cerrar={() => setHoja(null)} listo={async (a) => {

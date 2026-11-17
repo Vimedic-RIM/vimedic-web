@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Camera, CheckCircle2, ChevronRight, Flashlight, Keyboard, Loader2, MapPinned, Repeat, ScanLine, X } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
+import { puede } from '../permisos'
+import { resolverCodigo, type ResEscaneo } from './EscanerPedido'
 import '../estilos/tracking.css'
 
 /* Escáner de pedidos (Issue #38). Enlace directo: …/escanear (o …/#escanear), se puede guardar como ícono en el celular.
@@ -17,6 +19,10 @@ const libQr = () => (window as unknown as { Html5Qrcode?: new (id: string) => Le
 const cargarLib = () => libQr() ? Promise.resolve() : new Promise<void>((ok, fail) => {
   const s = document.createElement('script'); s.src = 'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js'; s.onload = () => ok(); s.onerror = () => fail(new Error('No se pudo cargar el lector.')); document.head.appendChild(s)
 })
+// Puesto de trabajo → módulo donde se abre el pedido escaneado (con su registro: despacho, entrega u orden)
+type Puesto = { k: string; t: string; ruta: string; campo: 'despacho' | 'entrega' | 'orden' }
+const PUESTOS: Puesto[] = [{ k: 'bodega', t: 'Bodega', ruta: 'bodega', campo: 'despacho' }, { k: 'logistica', t: 'Logística', ruta: 'logistica', campo: 'entrega' }, { k: 'servicio_tecnico', t: 'Servicio Técnico', ruta: 'serviciotecnico', campo: 'orden' }]
+type AbrirEn = { t: string; ruta: string; id: string }
 const n1 = (v: number) => Number(v || 0).toLocaleString('es-EC', { maximumFractionDigits: 1 })
 const textoError = (e: unknown) => {
   const m = String((e as Error)?.message ?? e ?? '')
@@ -33,20 +39,40 @@ export default function Escanear({ perfil, aviso, codigo, limpiarCodigo }: { per
   const [manual, setManual] = useState('')
   const [hecho, setHecho] = useState('')
   const [ocupado, setOcupado] = useState(false)
+  const [sinPedido, setSinPedido] = useState<ResEscaneo | null>(null)
   const [continuo, setContinuo] = useState(() => { try { return localStorage.getItem('vm_esc_continuo') === '1' } catch { return false } })
   const ultimo = useRef({ t: '', at: 0 })
+  // Puestos de quien escanea: los módulos donde puede editar. Con uno solo, el pedido se abre directo ahí.
+  const misPuestos = PUESTOS.filter((p) => perfil.es_superadmin || puede(perfil, p.k, 'editar'))
+  const [pref, setPref] = useState(() => { try { return localStorage.getItem('vm_esc_abrir') || 'auto' } catch { return 'auto' } })
+  const prefRef = useRef(pref); prefRef.current = pref
+  const [abrirEn, setAbrirEn] = useState<AbrirEn[]>([])
+  const opcionesDe = (m: ResEscaneo | null): AbrirEn[] => (m ? misPuestos.filter((p) => m[p.campo]).map((p) => ({ t: p.t, ruta: p.ruta, id: m[p.campo] as string })) : [])
 
   const buscar = useCallback(async (texto: string) => {
     const t = texto.trim(); if (!t) return
     if (t === ultimo.current.t && Date.now() - ultimo.current.at < 3000) return
     ultimo.current = { t, at: Date.now() }
-    setBuscando(true); setError(''); setHecho('')
+    setBuscando(true); setError(''); setHecho(''); setAbrirEn([]); setSinPedido(null)
+    // 1) ¿En qué módulo trabaja quien escanea? Si el pedido tiene registro ahí, se abre directo.
+    let mod: ResEscaneo | null = null
+    try { mod = await resolverCodigo(t) } catch { /* se intenta como pedido de Trackings */ }
+    const ops = opcionesDe(mod), p = prefRef.current
+    const elegido = PUESTOS.find((x) => x.k === p)
+    const directo = p === 'mostrar' ? null : (elegido ? ops.find((o) => o.ruta === elegido.ruta) : undefined) ?? (ops.length === 1 && misPuestos.length === 1 ? ops[0] : null)
+    if (mod && directo) {
+      try { navigator.vibrate?.(80) } catch { /* sin vibración */ }
+      setBuscando(false); aviso((mod.cliente || mod.codigo) + ' · abriendo en ' + directo.t)
+      window.location.hash = directo.ruta + '/' + directo.id; return
+    }
+    // 2) Si no, se muestra el pedido con la acción de su etapa (y botones para abrirlo en cada módulo)
     const { data, error: e } = await supabase.rpc('trk_escanear', { p_texto: t, p_dispositivo: navigator.userAgent.slice(0, 160) })
-    setBuscando(false)
-    if (e) { setError(e.message); try { navigator.vibrate?.([60, 60, 60]) } catch { /* sin vibración */ } return }
+    setBuscando(false); setAbrirEn(ops)
+    if (e && !ops.length) { setError(e.message); try { navigator.vibrate?.([60, 60, 60]) } catch { /* sin vibración */ } return }
     try { navigator.vibrate?.(80) } catch { /* sin vibración */ }
+    if (e) { setSinPedido(mod); return }
     setRes(data as Res)
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { if (codigo) { buscar(codigo); limpiarCodigo?.() } }, [codigo, limpiarCodigo, buscar])
 
@@ -62,7 +88,7 @@ export default function Escanear({ perfil, aviso, codigo, limpiarCodigo }: { per
     aviso(msg); setHecho(msg)
     if (continuo) { setRes(null); ultimo.current = { t: '', at: 0 } } else { buscar(res.codigo); ultimo.current = { t: '', at: 0 } }
   }
-  const otro = () => { setRes(null); setError(''); setHecho(''); ultimo.current = { t: '', at: 0 } }
+  const otro = () => { setRes(null); setSinPedido(null); setAbrirEn([]); setError(''); setHecho(''); ultimo.current = { t: '', at: 0 } }
   const puedeUsar = perfil.es_superadmin || ['tracking', 'bodega', 'logistica', 'servicio_tecnico', 'facturacion'].some((m) => perfil.permisos?.[m]?.includes('ver'))
 
   return (
@@ -74,12 +100,18 @@ export default function Escanear({ perfil, aviso, codigo, limpiarCodigo }: { per
       </div></header>
       <main style={{ maxWidth: 560 }}>
         {!puedeUsar && <div className="card">Necesitas acceso a Trackings, Bodega, Logística, Servicio Técnico o Facturación para usar el escáner.</div>}
-        {puedeUsar && !res && <>
+        {puedeUsar && !res && !sinPedido && <>
           <div className="tabs">
             <button className={'tab' + (modo === 'camara' ? ' on' : '')} onClick={() => setModo('camara')}><Camera size={14} style={{ verticalAlign: -2 }} /> Cámara</button>
             <button className={'tab' + (modo === 'manual' ? ' on' : '')} onClick={() => setModo('manual')}><Keyboard size={14} style={{ verticalAlign: -2 }} /> Escribir código</button>
             <label className="tab" style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><input type="checkbox" checked={continuo} onChange={(e) => { setContinuo(e.target.checked); try { localStorage.setItem('vm_esc_continuo', e.target.checked ? '1' : '0') } catch { /* nada */ } }} /><Repeat size={14} /> Continuo</label>
           </div>
+          {misPuestos.length > 0 && <label className="nota" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 10px' }}>Al escanear, abrir en
+            <select className="inp" style={{ flex: 1, minHeight: 40 }} value={pref} onChange={(e) => { setPref(e.target.value); try { localStorage.setItem('vm_esc_abrir', e.target.value) } catch { /* nada */ } }}>
+              <option value="auto">{misPuestos.length === 1 ? 'Mi puesto: ' + misPuestos[0].t : 'Preguntar (tengo varios puestos)'}</option>
+              {misPuestos.length > 1 && misPuestos.map((p) => <option key={p.k} value={p.k}>{p.t}</option>)}
+              <option value="mostrar">Solo mostrar el pedido</option>
+            </select></label>}
           {hecho && <div className="card" style={{ borderColor: '#bfe9dc', background: '#ecfaf5', color: '#04896f', fontWeight: 700, fontSize: 13 }}><CheckCircle2 size={16} style={{ verticalAlign: -3 }} /> {hecho}</div>}
           {modo === 'camara' && <Camara leido={buscar} pausado={buscando} />}
           {modo === 'manual' && <form className="card" onSubmit={(e) => { e.preventDefault(); buscar(manual) }}>
@@ -91,13 +123,17 @@ export default function Escanear({ perfil, aviso, codigo, limpiarCodigo }: { per
           {error && <div className="card" style={{ color: '#c0392b', fontSize: 13.5 }}>{error}</div>}
           <p className="nota">Consejo: guarda <b>{window.location.origin}/escanear</b> como ícono en la pantalla de inicio del celular para abrir la cámara de un toque.</p>
         </>}
-        {res && <Resultado r={res} ocupado={ocupado} error={error} accion={accion} otro={otro} />}
+        {res && <Resultado r={res} ocupado={ocupado} error={error} accion={accion} otro={otro} abrirEn={abrirEn} />}
+        {!res && sinPedido && <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}><div style={{ flex: 1, minWidth: 0 }}><b style={{ fontSize: 17, color: '#0b2545', display: 'block' }}>{sinPedido.cliente || 'Pedido'}</b><span className="nota">{sinPedido.codigo}</span></div><button className="btn" onClick={otro} aria-label="Cerrar"><X /></button></div>
+          {abrirEn.map((a) => <button key={a.ruta} className="btn p" style={{ width: '100%', minHeight: 48, fontSize: 15 }} onClick={() => { window.location.hash = a.ruta + '/' + a.id }}>Abrir en {a.t}<ChevronRight /></button>)}
+          <button className="btn" style={{ width: '100%' }} onClick={otro}><ScanLine />Escanear otro pedido</button></section>}
       </main>
     </div>
   )
 }
 
-function Resultado({ r, ocupado, error, accion, otro }: { r: Res; ocupado: boolean; error: string; accion: (a: Accion) => void; otro: () => void }) {
+function Resultado({ r, ocupado, error, accion, otro, abrirEn }: { r: Res; ocupado: boolean; error: string; accion: (a: Accion) => void; otro: () => void; abrirEn: AbrirEn[] }) {
   const s = r.estado !== 'En curso' ? 'gr' : r.atrasado ? 'mal' : r.dias > r.objetivo * 0.75 ? 'amb' : 'ok'
   const principales = r.acciones.filter((a) => a.principal), otras = r.acciones.filter((a) => !a.principal)
   return (
@@ -116,6 +152,7 @@ function Resultado({ r, ocupado, error, accion, otro }: { r: Res; ocupado: boole
       {error && <p style={{ color: '#c0392b', fontSize: 13, margin: 0 }}>{error}</p>}
       {principales.map((a, i) => <button key={i} className="btn p" style={{ width: '100%', minHeight: 48, fontSize: 15 }} disabled={ocupado} onClick={() => accion(a)}>{ocupado && !a.destino ? <Loader2 className="animate-spin" /> : null}{a.titulo}{a.destino ? <ChevronRight /> : null}</button>)}
       {otras.map((a, i) => <button key={i} className="btn" style={{ width: '100%', justifyContent: 'space-between' }} disabled={ocupado} onClick={() => accion(a)}>{a.titulo}<ChevronRight /></button>)}
+      {abrirEn.filter((x) => !r.acciones.some((a) => a.destino === x.ruta + '/' + x.id)).map((x) => <button key={x.ruta} className="btn" style={{ width: '100%', justifyContent: 'space-between' }} onClick={() => { window.location.hash = x.ruta + '/' + x.id }}>Abrir en {x.t}<ChevronRight /></button>)}
       <button className="btn" style={{ width: '100%' }} onClick={otro}><ScanLine />Escanear otro pedido</button>
     </section>
   )

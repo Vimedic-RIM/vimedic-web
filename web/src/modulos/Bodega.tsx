@@ -1,15 +1,17 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Barcode, Calendar, Camera, Check, CheckCheck, Columns3, Download, ImageUp, Inbox, List, MinusCircle, Package, PackageCheck, Play, PlayCircle, RefreshCw, RotateCcw, Save, ScanLine, ScanSearch, Search, Send, ShieldCheck, Split, Truck, Upload, Video, Warehouse, X } from 'lucide-react'
+import { AlertTriangle, Barcode, Calendar, Camera, Check, CheckCheck, ChevronLeft, ChevronRight, Columns3, Download, ImageUp, Inbox, List, MinusCircle, Package, PackageCheck, Play, PlayCircle, RefreshCw, RotateCcw, Save, ScanLine, ScanSearch, Search, Send, ShieldCheck, Split, Truck, Upload, Video, Warehouse, X } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
 import '../estilos/bodega.css'
+import '../estilos/pasos.css'
+import { BotonEscanear } from './EscanerPedido'
 // Recepción de importaciones (RecepcionImportacion.gs): se carga solo al abrirla
 const Recepcion = lazy(() => import('./RecepcionImportaciones'))
 
 /* ============================ Tipos ============================ */
 type Linea = { key: string; id: string; nombre: string; cantidad: number; requiereSerie: boolean; observacion: string; despachado: number }
-type Evid = { url: string; tipo: 'foto' | 'video'; etiqueta: string; fecha: string; por: string }
+type Evid = { url: string; tipo: 'foto' | 'video'; etiqueta: string; fecha: string; por: string; producto?: string }
 type Nov = { id: string; tipo: string; detalle: string; foto: string; fecha: string; por: string; resuelta: boolean; resolucion?: string; resueltaPor?: string; fechaResolucion?: string }
 type Envio = { n: number; fecha: string; por: string; cantidades: Record<string, number>; series: Record<string, string[]>; fotos: string[]; nota: string }
 type Hist = { fecha: string; por: string; nota: string }
@@ -22,6 +24,8 @@ type Despacho = {
 }
 const TIPOS_NOVEDAD = ['Falta stock', 'Producto dañado', 'La serie no coincide', 'Falta un accesorio', 'Dirección incompleta', 'Cliente pidió un cambio', 'Otro']
 const COLS_DB = 'id,codigo,operacion_codigo,fecha,empresa,cliente_texto,identificacion,telefono,factura_texto,factura_url,estado,entrega,productos,series,evidencias,novedades,envios,historial,preparado_por,verificado_por,fecha_despacho,updated_at,asesor:empleados!despachos_asesor_id_fkey(nombre),preparador:empleados!despachos_preparado_por_fkey(nombre),verificador:empleados!despachos_verificado_por_fkey(nombre),despachador:empleados!despachos_despachado_por_fkey(nombre)'
+// El listado no trae historial ni envíos (pesan y solo se ven al abrir el pedido)
+const COLS_LISTA = COLS_DB.replace(',envios,historial', '')
 const TABS: [string, string][] = [['pendientes', 'Por despachar'], ['novedad', 'Con novedad'], ['despachados', 'Despachados'], ['todos', 'Todos']]
 const ORDEN: Record<string, number> = { 'Por preparar': 0, 'En preparación': 1, 'Lista': 2, 'Parcial': 3, 'Despachada': 4 }
 const COLS: { k: string; t: string; ic: typeof Inbox }[] = [
@@ -111,7 +115,7 @@ export default function Bodega({ perfil, aviso, abrir, limpiarAbrir }: { perfil:
 
   const cargar = useCallback(async () => {
     const limite = new Date(Date.now() - 60 * 86400000).toISOString()
-    const { data, error } = await supabase.from('despachos').select(COLS_DB).is('deleted_at', null).or(`estado.neq.Despachada,fecha_despacho.gte.${limite},fecha_despacho.is.null`).order('fecha', { ascending: true }).limit(600)
+    const { data, error } = await supabase.from('despachos').select(COLS_LISTA).is('deleted_at', null).or(`estado.neq.Despachada,fecha_despacho.gte.${limite},fecha_despacho.is.null`).order('fecha', { ascending: true }).limit(600)
     if (error) { setError(error.message); return }
     setError(''); setLista((data ?? []).map(mapear))
   }, [])
@@ -139,7 +143,10 @@ export default function Bodega({ perfil, aviso, abrir, limpiarAbrir }: { perfil:
 
   /* Acciones rápidas desde la tarjeta */
   async function actualizar(d: Despacho, campos: Record<string, unknown>, texto: string) {
-    const { error } = await supabase.from('despachos').update({ ...campos, historial: nota(d, perfil.nombre, texto) }).eq('id', d.id).eq('updated_at', d.actualizado)
+    // El listado no trae el historial: se lee al momento para no perder lo anterior
+    const { data: h, error: eh } = await supabase.from('despachos').select('historial').eq('id', d.id).single()
+    if (eh) throw new Error(eh.message)
+    const { error } = await supabase.from('despachos').update({ ...campos, historial: nota({ ...d, historial: arr<Hist>(h?.historial) }, perfil.nombre, texto) }).eq('id', d.id).eq('updated_at', d.actualizado)
     if (error) throw new Error(error.message)
   }
   async function transicion(d: Despacho, a: 'iniciar' | 'lista' | 'verificar' | 'reabrir') {
@@ -254,6 +261,7 @@ export default function Bodega({ perfil, aviso, abrir, limpiarAbrir }: { perfil:
           <div className="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center shrink-0"><Warehouse style={{ width: 20, height: 20 }} /></div>
           <div className="min-w-0"><h1 className="font-display font-bold text-lg leading-tight">Bodega</h1><p className="text-[11px] text-white/70">{seccion === 'recepcion' ? 'Recepción de importaciones' : 'Despacho de ventas facturadas'} · {perfil.nombre}</p></div>
           <div className="ml-auto flex gap-2">
+            <BotonEscanear className="btn btn-sm !bg-white/10 !border-white/20 !text-white" alLeer={(r) => { if (r.despacho) { setSeccion('despachos'); setAbierto({ id: r.despacho }) } else aviso('Ese pedido' + (r.cliente ? ' de ' + r.cliente : '') + ' todavía no tiene despacho en Bodega.') }} />
             <button className="btn btn-sm !bg-white/10 !border-white/20 !text-white" title="Buscar número de serie" onClick={() => setHoja('serie')}><ScanSearch /><span className="hidden sm:inline">Buscar serie</span></button>
             {editar && <button className="btn btn-sm !bg-white/10 !border-white/20 !text-white" title="Traer facturas anteriores" onClick={() => setHoja('traer')}><Download /><span className="hidden sm:inline">Traer facturas</span></button>}
             <button className="btn btn-sm !bg-white/10 !border-white/20 !text-white" title="Actualizar" onClick={cargar}><RefreshCw /></button>
@@ -378,7 +386,12 @@ function Evidencia({ ev, quitable, quitar }: { ev: Evid; quitable: boolean; quit
   )
 }
 
-/* ============================ Panel de detalle ============================ */
+/* ============================ Panel de detalle (por pasos, pensado para el teléfono) ============================ */
+type PasoBod = 'pedido' | 'productos' | 'fotos' | 'despachar'
+const PASOS_BOD: { k: PasoBod; t: string }[] = [{ k: 'pedido', t: 'Pedido' }, { k: 'productos', t: 'Productos y series' }, { k: 'fotos', t: 'Fotos del envío' }, { k: 'despachar', t: 'Despachar' }]
+const FOTOS_ENVIO: { t: string; d: string }[] = [{ t: 'Paquete cerrado', d: 'La caja ya sellada' }, { t: 'Guía pegada', d: 'Si sale por courier' }, { t: 'Entrega al transportista', d: 'Cuando lo retiran' }, { t: 'Otro', d: 'Cualquier otra foto' }]
+const ESTILO_FALTA = { background: '#fff7ed', color: '#b45309' }, ESTILO_OK = { background: '#ecfdf5', color: '#047857' }, ESTILO_NADA = { background: '#f1f5f9', color: '#64748b' }
+
 function Panel({ id, despacharAlAbrir, perfil, editar, aviso, cerrar, cambio }: { id: string; despacharAlAbrir?: boolean; perfil: Perfil; editar: boolean; aviso: (t: string) => void; cerrar: () => void; cambio: () => void }) {
   const [o, setO] = useState<Despacho | null>(null)
   const [error, setError] = useState('')
@@ -386,12 +399,16 @@ function Panel({ id, despacharAlAbrir, perfil, editar, aviso, cerrar, cambio }: 
   const [hoja, setHoja] = useState<'novedad' | 'resolver' | 'despachar' | 'escaner' | null>(null)
   const [resolverId, setResolverId] = useState('')
   const [escanearA, setEscanearA] = useState<{ key: string; k: number } | null>(null)
-  const [etiqueta, setEtiqueta] = useState('Equipo con serie')
+  const [paso, setPaso] = useState<PasoBod>('pedido')
   const [subida, setSubida] = useState<{ txt: string; pct: number } | null>(null)
   const [guardando, setGuardando] = useState(false)
   const inputsRef = useRef<Record<string, HTMLInputElement | null>>({})
   const refs = { foto: useRef<HTMLInputElement>(null), fotoGal: useRef<HTMLInputElement>(null), video: useRef<HTMLInputElement>(null), videoGal: useRef<HTMLInputElement>(null) }
+  const destinoFoto = useRef<{ etiqueta: string; producto?: string }>({ etiqueta: 'Otro' })
+  const panelRef = useRef<HTMLDivElement>(null)
   const yaAbrioDespacho = useRef(false)
+  const pasoElegido = useRef(false)
+  const conCambios = useRef(false)
 
   const recargar = useCallback(async (sinSeries?: boolean) => {
     const { data, error } = await supabase.from('despachos').select(COLS_DB).eq('id', id).single()
@@ -402,16 +419,25 @@ function Panel({ id, despacharAlAbrir, perfil, editar, aviso, cerrar, cambio }: 
   }, [id])
   useEffect(() => { recargar() }, [recargar])
   useEffect(() => {
-    const c = supabase.channel('bodega-' + id).on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'despachos', filter: 'id=eq.' + id }, () => { const el = document.activeElement; if (!(el && /INPUT|TEXTAREA|SELECT/.test(el.tagName))) recargar() }).subscribe()
+    const c = supabase.channel('bodega-' + id).on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'despachos', filter: 'id=eq.' + id }, () => { const el = document.activeElement; if (!(el && /INPUT|TEXTAREA|SELECT/.test(el.tagName))) recargar(conCambios.current) }).subscribe()
     return () => { supabase.removeChannel(c) }
   }, [id, recargar])
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape' && !hoja) cerrar() }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [hoja, cerrar])
-  useEffect(() => { document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = '' } }, [])
+  useEffect(() => { document.body.style.overflow = 'hidden'; document.body.classList.add('vm-ficha-abierta'); return () => { document.body.style.overflow = ''; document.body.classList.remove('vm-ficha-abierta') } }, [])
   useEffect(() => { if (despacharAlAbrir && o && !yaAbrioDespacho.current) { yaAbrioDespacho.current = true; abrirDespacho() } }) // eslint-disable-line react-hooks/exhaustive-deps
+  // Abre en el paso que toca según cómo va el pedido
+  useEffect(() => {
+    if (!o || pasoElegido.current) return
+    pasoElegido.current = true
+    const usadas = new Set(o.envios.flatMap((en) => arr<string>(en.fotos)))
+    if (despacharAlAbrir || o.estado === 'Lista') setPaso('despachar')
+    else if (o.estado === 'En preparación' || o.estado === 'Parcial') setPaso(faltanSeriesMsg(o) ? 'productos' : o.evidencias.some((ev) => !usadas.has(ev.url)) ? 'despachar' : 'fotos')
+  }, [o, despacharAlAbrir])
 
   const cerrado = o?.estado === 'Despachada'
   const limpia = (a: string[]) => { const x = a.map((s) => s || ''); while (x.length && !x[x.length - 1]) x.pop(); return JSON.stringify(x) }
   const hayCambios = !!o && !cerrado && o.productos.some((p) => limpia((series[p.key] ?? []).map((s) => s.trim().toUpperCase())) !== limpia(arr<string>(o.series[p.key])))
+  conCambios.current = hayCambios
 
   async function actualizar(campos: Record<string, unknown>, texto?: string) {
     if (!o) throw new Error('Cargando')
@@ -441,7 +467,7 @@ function Panel({ id, despacharAlAbrir, perfil, editar, aviso, cerrar, cambio }: 
     } finally { setGuardando(false) }
   }
   const errAviso = (e: unknown) => aviso((e as Error).message)
-  async function accion(a: 'iniciar' | 'lista' | 'verificar' | 'reabrir') {
+  async function accion(a: 'iniciar' | 'lista' | 'verificar' | 'reabrir'): Promise<boolean> {
     try {
       let d = o!
       if (hayCambios) d = (await guardarSeries(true)) ?? d
@@ -450,7 +476,8 @@ function Panel({ id, despacharAlAbrir, perfil, editar, aviso, cerrar, cambio }: 
       else if (a === 'verificar') { if (d.preparadoPorId && d.preparadoPorId === perfil.id) throw new Error('La verificación la hace una persona distinta a quien preparó.'); await actualizar({ verificado_por: perfil.id }, 'Verificó el pedido (doble control).') }
       else { if (d.estado === 'Despachada') throw new Error('Ya fue despachado.'); await actualizar({ estado: 'En preparación', verificado_por: null }, 'Volvió a preparación.') }
       aviso({ iniciar: 'Preparación iniciada', lista: 'Listo para despachar', verificar: 'Verificado', reabrir: 'Volvió a preparación' }[a])
-    } catch (e) { errAviso(e) }
+      return true
+    } catch (e) { errAviso(e); return false }
   }
   async function sinSerie(p: Linea, v: boolean) {
     if (!o) return
@@ -461,10 +488,11 @@ function Panel({ id, despacharAlAbrir, perfil, editar, aviso, cerrar, cambio }: 
     } catch (e) { errAviso(e) }
   }
 
-  /* Fotos y videos → Storage */
+  /* Fotos y videos → Storage. `destinoFoto` dice qué es la foto (y de qué producto, si es la del equipo). */
+  const tomar = (cual: keyof typeof refs, etiqueta: string, producto?: string) => { destinoFoto.current = { etiqueta, producto }; refs[cual].current?.click() }
   async function subirArchivos(files: File[], tipo: 'foto' | 'video') {
     if (!o || !files.length) return
-    let actual = o
+    const dest = { ...destinoFoto.current }, prod = dest.producto ? o.productos.find((p) => p.key === dest.producto) : undefined
     for (let i = 0; i < files.length; i++) {
       const f = files[i]
       try {
@@ -475,18 +503,17 @@ function Panel({ id, despacharAlAbrir, perfil, editar, aviso, cerrar, cambio }: 
         }
         const cuerpo: Blob = tipo === 'foto' ? await reducir(f) : f
         const ext = tipo === 'foto' ? 'jpg' : (f.name.split('.').pop() || 'mp4').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 5)
-        const ruta = `${actual.id}/${Date.now()}_${i}.${ext}`
+        const ruta = `${o.id}/${Date.now()}_${i}.${ext}`
         const { error } = await supabase.storage.from('despachos').upload(ruta, cuerpo, { contentType: tipo === 'foto' ? 'image/jpeg' : f.type || 'video/mp4' })
         if (error) throw new Error(error.message)
-        const { data: fresco } = await supabase.from('despachos').select('evidencias,historial,updated_at').eq('id', actual.id).single()
-        const evidencias = [...arr<Evid>(fresco?.evidencias), { url: ruta, tipo, etiqueta: tipo === 'foto' ? etiqueta : etiqueta === 'Equipo con serie' ? 'Video del despacho' : etiqueta, fecha: new Date().toISOString(), por: perfil.nombre }]
-        const hist = [...arr<Hist>(fresco?.historial), { fecha: new Date().toISOString(), por: perfil.nombre, nota: `Subió ${tipo}: ${etiqueta}.` }].slice(-200)
-        const { error: e2 } = await supabase.from('despachos').update({ evidencias, historial: hist }).eq('id', actual.id)
+        const { data: fresco } = await supabase.from('despachos').select('evidencias,historial,updated_at').eq('id', o.id).single()
+        const ev: Evid = { url: ruta, tipo, etiqueta: dest.etiqueta, fecha: new Date().toISOString(), por: perfil.nombre, ...(prod ? { producto: prod.key } : {}) }
+        const hist = [...arr<Hist>(fresco?.historial), { fecha: new Date().toISOString(), por: perfil.nombre, nota: `Subió ${tipo}: ${dest.etiqueta}${prod ? ' — ' + prod.nombre : ''}.`.slice(0, 500) }].slice(-200)
+        const { error: e2 } = await supabase.from('despachos').update({ evidencias: [...arr<Evid>(fresco?.evidencias), ev], historial: hist }).eq('id', o.id)
         if (e2) throw new Error(e2.message)
-        actual = { ...actual, actualizado: '' }
       } catch (e) { errAviso(e) }
     }
-    setSubida(null); await recargar(true); cambio(); aviso(tipo === 'foto' ? 'Evidencia guardada' : 'Video guardado')
+    setSubida(null); await recargar(true); cambio(); aviso(tipo === 'foto' ? 'Foto guardada' : 'Video guardado')
   }
   async function quitarFoto(ev: Evid) {
     if (!o || !confirm('¿Quitar esta evidencia?')) return
@@ -500,6 +527,12 @@ function Panel({ id, despacharAlAbrir, perfil, editar, aviso, cerrar, cambio }: 
   const abrirDespacho = async () => {
     try { if (hayCambios) await guardarSeries(true); setHoja('despachar') } catch (e) { errAviso(e) }
   }
+  /** Cambia de paso; al salir de «Productos» guarda las series escritas. */
+  async function irA(p: PasoBod) {
+    if (p === paso) return
+    if (paso === 'productos' && hayCambios && editar) { try { await guardarSeries(true) } catch (e) { errAviso(e); return } }
+    setPaso(p); panelRef.current?.scrollTo({ top: 0 })
+  }
 
   if (error) return <div className="panel"><div className="text-center py-24 px-6"><p className="text-red-600 font-semibold mb-3">{error}</p><button className="btn btn-p" onClick={() => recargar()}><RefreshCw />Reintentar</button> <button className="btn" onClick={cerrar}>Cerrar</button></div></div>
   if (!o) return <div className="panel"><div className="text-center py-24 text-slate-400"><span className="spin" /> Abriendo…</div></div>
@@ -509,9 +542,22 @@ function Panel({ id, despacharAlAbrir, perfil, editar, aviso, cerrar, cambio }: 
   const recibe = e.quienRecibe || e.nombreDestinatario || '', tel = e.telefonoEntregaLocal || e.telefonoDestinatario || o.telefono || ''
   const prep = [e.empaqueCaja, e.empaqueArmado, e.empaqueStretch].filter(Boolean)
   const usadas = new Set(o.envios.flatMap((en) => arr<string>(en.fotos)))
-  let faltan = 0
+  const puedeEditar = editar && !cerrado
+  const faltanDe = (p: Linea) => (p.requiereSerie ? Array.from({ length: p.cantidad }, (_, k) => String((series[p.key] ?? [])[k] || '').trim()).filter((v) => !v).length : 0)
+  const faltan = o.productos.reduce((n, p) => n + faltanDe(p), 0)
+  const conSerie = o.productos.some((p) => p.requiereSerie)
+  const fotoNueva = o.evidencias.some((ev) => !usadas.has(ev.url))
+  const totU = o.productos.reduce((n, p) => n + p.cantidad, 0), pendU = o.productos.reduce((n, p) => n + Math.max(0, p.cantidad - (p.despachado || 0)), 0)
+  const iniciado = o.estado !== 'Por preparar'
+  const estadoPaso: Record<PasoBod, string> = {
+    pedido: iniciado ? 'ok' : '', productos: !iniciado ? '' : faltan ? 'aviso' : 'ok',
+    fotos: cerrado || fotoNueva ? 'ok' : '', despachar: cerrado ? 'ok' : pendNov.length ? 'aviso' : '',
+  }
   const kv = (k: string, v: React.ReactNode) => (v ? <><dt>{k}</dt><dd>{v}</dd></> : null)
   const lnk = (href: string, t: string) => <a className="text-[var(--acc)] font-semibold" href={href} target="_blank" rel="noopener">{t}</a>
+  const chk = (ok: boolean, mal: boolean, txt: React.ReactNode, ir?: () => void) => (
+    <div className={'vm-check' + (ok ? ' ok' : mal ? ' mal' : '')} onClick={ir} style={ir ? { cursor: 'pointer' } : undefined}>{ok ? <CheckCheck /> : mal ? <AlertTriangle /> : <ShieldCheck />}<span>{txt}</span></div>
+  )
 
   const sEnt = (
     <div className="sec"><h3><Truck />Entrega{o.empresa === 'FEMEDICS' && <span className="pill fm">Femedics</span>}</h3>
@@ -520,63 +566,6 @@ function Panel({ id, despacharAlAbrir, perfil, editar, aviso, cerrar, cambio }: 
         {kv('Recibe', recibe ? recibe + (e.cedulaDestinatario ? ' · ' + e.cedulaDestinatario : '') : '')}{kv('Teléfono', tel ? <a className="text-[var(--acc)] font-semibold" href={'tel:' + tel}>{tel}</a> : '')}
         {kv('Mapa', e.urlGoogleMaps ? lnk(e.urlGoogleMaps, 'Abrir ubicación') : '')}{kv('Preparación', prep.join(' · '))}{kv('Asesor', nombreCorto(o.asesor))}{kv('Factura', o.facturaUrl ? lnk(o.facturaUrl, 'Ver PDF') : '')}
       </dl>
-    </div>
-  )
-  const sProd = (
-    <div className="sec"><h3><Barcode />Productos y números de serie</h3>
-      <div className="space-y-4">
-        {o.productos.map((p) => {
-          const desp = p.despachado || 0, s = series[p.key] ?? []
-          return (
-            <div key={p.key} className="border border-slate-100 rounded-2xl p-3">
-              <div className="flex items-start gap-2"><div className="min-w-0 flex-1"><p className="font-bold text-sm text-slate-800">{p.nombre}</p><p className="text-[11px] text-slate-400 mono">{p.id} · {desp}/{p.cantidad} despachadas</p>{p.observacion && <p className="text-[11px] text-slate-500 mt-0.5">{p.observacion}</p>}</div></div>
-              {p.requiereSerie ? (
-                <div className="space-y-1.5 mt-2.5">
-                  {Array.from({ length: p.cantidad }, (_, k) => {
-                    const v = s[k] || ''; if (!v) faltan++
-                    const nombre = `${p.key}#${k}`
-                    return (
-                      <div key={k} className="serie"><span className="n">{k + 1}</span>
-                        <input className={'inp ' + (v ? 'ok' : '')} ref={(el) => { inputsRef.current[nombre] = el }} value={v} placeholder="Número de serie" autoComplete="off" autoCapitalize="characters" disabled={k < desp || cerrado || !editar}
-                          onChange={(ev) => setSeries((m) => ({ ...m, [p.key]: Array.from({ length: p.cantidad }, (_, i) => (i === k ? ev.target.value.toUpperCase() : m[p.key]?.[i] || '')) }))}
-                          onKeyDown={(ev) => { if (ev.key === 'Enter') { ev.preventDefault(); const sig = Object.keys(inputsRef.current).filter((n) => inputsRef.current[n] && !inputsRef.current[n]!.disabled); const i = sig.indexOf(nombre); (inputsRef.current[sig[i + 1]] || document.getElementById('btnSeries') || ev.currentTarget).focus() } }} />
-                        {k < desp ? <span className="pill s-despachada">Salió</span> : !cerrado && editar ? <button className="btn btn-sm" style={{ minWidth: 44, minHeight: 40 }} title="Escanear el código de barras de este equipo" onClick={() => { setEscanearA({ key: p.key, k }); setHoja('escaner') }}><ScanLine /></button> : null}
-                      </div>
-                    )
-                  })}
-                </div>
-              ) : <p className="text-xs text-slate-500 mt-2 flex items-center gap-1"><MinusCircle style={{ width: 13, height: 13 }} />Este producto no lleva número de serie.</p>}
-              {!cerrado && editar && <label className="flex items-center gap-2 mt-2.5 text-[11.5px] text-slate-500 cursor-pointer"><input type="checkbox" checked={!p.requiereSerie} onChange={(ev) => sinSerie(p, ev.target.checked)} /> No lleva número de serie (se recuerda para este producto)</label>}
-            </div>
-          )
-        })}
-      </div>
-      {!cerrado && editar && o.productos.some((p) => p.requiereSerie) && (
-        <div className="flex items-center gap-2 mt-3"><span className={'text-xs font-semibold ' + (faltan ? 'text-amber-700' : 'text-emerald-700')}>{faltan ? `Faltan ${faltan} series` : 'Series completas'}</span>
-          <button id="btnSeries" className="btn btn-p ml-auto" disabled={guardando} onClick={() => guardarSeries().catch(errAviso)}>{guardando ? <Ocupado /> : <><Save />Guardar series</>}</button></div>
-      )}
-    </div>
-  )
-  const sEv = (
-    <div className="sec"><h3><Camera />Evidencia del despacho <span className="text-xs font-normal text-slate-400">fotos o videos</span></h3>
-      {o.evidencias.length ? <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-3">{o.evidencias.map((ev) => <Evidencia key={ev.url} ev={ev} quitable={!usadas.has(ev.url) && !cerrado && editar} quitar={() => quitarFoto(ev)} />)}</div>
-        : <p className="text-xs text-slate-500 mb-3">Obligatoria para despachar: el equipo con su serie visible, el paquete cerrado y la guía pegada si es envío.</p>}
-      {!cerrado && editar && (
-        <>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <select className="inp" value={etiqueta} onChange={(ev) => setEtiqueta(ev.target.value)}>{['Equipo con serie', 'Paquete cerrado', 'Guía pegada', 'Entrega al transportista', 'Otro'].map((x) => <option key={x}>{x}</option>)}</select>
-            <button className="btn btn-p" onClick={() => refs.foto.current?.click()}><Camera />Tomar foto</button>
-            <button className="btn" onClick={() => refs.fotoGal.current?.click()}><ImageUp />Subir foto</button>
-            <button className="btn" onClick={() => refs.video.current?.click()}><Video />Grabar video</button>
-            <button className="btn" onClick={() => refs.videoGal.current?.click()}><Upload />Subir video</button>
-          </div>
-          {subida && <div className="mt-2"><p className="text-xs text-slate-600 mb-1">{subida.txt}</p><div className="bar"><i style={{ width: subida.pct + '%' }} /></div></div>}
-          <input ref={refs.foto} type="file" accept="image/*" capture="environment" multiple hidden onChange={(ev) => { const f = [...(ev.target.files ?? [])]; ev.target.value = ''; subirArchivos(f, 'foto') }} />
-          <input ref={refs.fotoGal} type="file" accept="image/*" multiple hidden onChange={(ev) => { const f = [...(ev.target.files ?? [])]; ev.target.value = ''; subirArchivos(f, 'foto') }} />
-          <input ref={refs.video} type="file" accept="video/*" capture="environment" hidden onChange={(ev) => { const f = [...(ev.target.files ?? [])]; ev.target.value = ''; subirArchivos(f, 'video') }} />
-          <input ref={refs.videoGal} type="file" accept="video/*" hidden onChange={(ev) => { const f = [...(ev.target.files ?? [])]; ev.target.value = ''; subirArchivos(f, 'video') }} />
-        </>
-      )}
     </div>
   )
   const sNov = (
@@ -588,12 +577,12 @@ function Panel({ id, despacharAlAbrir, perfil, editar, aviso, cerrar, cambio }: 
               <div className="flex items-center gap-2 flex-wrap"><span className={'pill ' + (n.resuelta ? 's-despachada' : 's-novedad')}>{n.resuelta ? 'Resuelta' : 'Abierta'}</span><b className="text-sm">{n.tipo}</b><span className="text-[11px] text-slate-400 ml-auto">{n.por} · {fecha(n.fecha)}</span></div>
               <p className="text-sm mt-1">{n.detalle}</p>
               {n.foto && <FotoNovedad ruta={n.foto} />}
-              {n.resuelta ? <p className="text-xs text-emerald-700 mt-1"><b>Solución:</b> {n.resolucion} — {n.resueltaPor}</p> : !cerrado && editar && <button className="btn btn-sm mt-2" onClick={() => { setResolverId(n.id); setHoja('resolver') }}><Check />Marcar resuelta</button>}
+              {n.resuelta ? <p className="text-xs text-emerald-700 mt-1"><b>Solución:</b> {n.resolucion} — {n.resueltaPor}</p> : puedeEditar && <button className="btn btn-sm mt-2" onClick={() => { setResolverId(n.id); setHoja('resolver') }}><Check />Marcar resuelta</button>}
             </div>
           ))}
         </div>
       ) : <p className="text-xs text-slate-500 mb-3">Sin novedades.</p>}
-      {!cerrado && editar && <button className="btn btn-red" onClick={() => setHoja('novedad')}><AlertTriangle />Reportar novedad</button>}
+      {puedeEditar && <button className="btn btn-red" onClick={() => setHoja('novedad')}><AlertTriangle />Reportar novedad</button>}
     </div>
   )
   const sEnv = o.envios.length ? (
@@ -605,38 +594,134 @@ function Panel({ id, despacharAlAbrir, perfil, editar, aviso, cerrar, cambio }: 
     </div>
   ) : null
   const sHist = (
-    <details className="sec"><summary className="font-display font-bold text-[15px] text-[var(--navy)] cursor-pointer">Historial</summary>
-      <div className="mt-2 space-y-1.5">{[...o.historial].reverse().map((h, i) => <p key={i} className="text-xs"><span className="text-slate-400">{fecha(h.fecha)}</span> · <b>{h.por}</b> — {h.nota}</p>)}</div>
+    <details className="sec vm-mas"><summary>Historial</summary>
+      <div className="mt-2 space-y-2">{[...o.historial].reverse().map((h, i) => <p key={i} className="text-xs"><span className="text-slate-400">{fecha(h.fecha)}</span> · <b>{h.por}</b> — {h.nota}</p>)}</div>
       <p className="text-[11px] text-slate-400 mt-2">Preparó: {o.preparadoPor || '—'} · Verificó: {o.verificadoPor || '—'} · Despachó: {o.despachadoPor || '—'}</p>
     </details>
   )
 
+  /* Paso 1: qué es el pedido y a dónde va */
+  const vPedido = <>
+    {pendNov.length > 0 && <div className="sec" style={{ borderColor: '#f5c6c0', background: '#fff7f6' }}><h3 style={{ color: 'var(--red)' }}><AlertTriangle />Novedad sin resolver</h3>{pendNov.map((n) => <p key={n.id} className="text-sm"><b>{n.tipo}:</b> {n.detalle}</p>)}<p className="text-[11px] text-slate-500 mt-1">No se puede despachar hasta resolverla (abajo, en Novedades).</p></div>}
+    <div className="sec"><h3><Package />Qué se despacha <span className="text-xs font-normal text-slate-400">{totU} unidad{totU === 1 ? '' : 'es'}</span></h3>
+      <div className="space-y-2">{o.productos.map((p) => { const f = faltanDe(p); return (
+        <div key={p.key} className="flex items-start gap-2">
+          <b className="mono text-sm" style={{ minWidth: 30, color: 'var(--navy)' }}>{p.cantidad}×</b>
+          <div className="min-w-0 flex-1"><p className="text-sm font-semibold text-slate-800 leading-snug">{p.nombre}</p><p className="text-[11px] text-slate-400 mono">{p.id}{p.despachado ? ` · ${p.despachado} ya salieron` : ''}</p>{p.observacion && <p className="text-[11px] text-slate-500">{p.observacion}</p>}</div>
+          <span className="vm-estado" style={!p.requiereSerie ? ESTILO_NADA : f ? ESTILO_FALTA : ESTILO_OK}>{!p.requiereSerie ? 'Sin serie' : f ? `Faltan ${f} series` : 'Series ok'}</span>
+        </div>) })}</div>
+    </div>
+    {sEnt}{sNov}{sEnv}{sHist}
+  </>
+
+  /* Paso 2: cada producto con sus series y la foto del equipo */
+  const vProductos = <>
+    <p className="text-xs text-slate-500">Escribe o escanea la serie de cada equipo y tómale una foto donde se vea la serie. Al pasar al siguiente paso se guarda solo.</p>
+    {o.productos.map((p) => {
+      const desp = p.despachado || 0, s = series[p.key] ?? [], f = faltanDe(p)
+      const fotos = o.evidencias.filter((ev) => ev.producto === p.key)
+      return (
+        <div key={p.key} className={'vm-prod' + (!f && (fotos.length || !p.requiereSerie) ? ' ok' : '')}>
+          <div className="vm-prod-h">
+            <div className="tit"><b>{p.nombre}</b><small className="mono">{p.id} · {p.cantidad} unidad{p.cantidad === 1 ? '' : 'es'}{desp ? ` · ${desp} ya salieron` : ''}</small>{p.observacion && <small>{p.observacion}</small>}</div>
+            <span className="vm-estado" style={!p.requiereSerie ? ESTILO_NADA : f ? ESTILO_FALTA : ESTILO_OK}>{!p.requiereSerie ? 'Sin serie' : f ? `Faltan ${f}` : 'Completo'}</span>
+          </div>
+          {p.requiereSerie ? (
+            <div className="space-y-2 mt-2.5">
+              {Array.from({ length: p.cantidad }, (_, k) => {
+                const v = s[k] || '', nombre = `${p.key}#${k}`
+                return (
+                  <div key={k} className="serie"><span className="n">{k + 1}</span>
+                    <input className={'inp ' + (v ? 'ok' : '')} ref={(el) => { inputsRef.current[nombre] = el }} value={v} placeholder="Número de serie" autoComplete="off" autoCapitalize="characters" disabled={k < desp || cerrado || !editar}
+                      onChange={(ev) => setSeries((m) => ({ ...m, [p.key]: Array.from({ length: p.cantidad }, (_, i) => (i === k ? ev.target.value.toUpperCase() : m[p.key]?.[i] || '')) }))}
+                      onKeyDown={(ev) => { if (ev.key === 'Enter') { ev.preventDefault(); const sig = Object.keys(inputsRef.current).filter((n) => inputsRef.current[n] && !inputsRef.current[n]!.disabled); const i = sig.indexOf(nombre); (inputsRef.current[sig[i + 1]] || document.getElementById('btnSeries') || ev.currentTarget).focus() } }} />
+                    {k < desp ? <span className="pill s-despachada">Salió</span> : puedeEditar ? <button className="btn btn-sm" style={{ minWidth: 44, minHeight: 40 }} title="Escanear el código de barras de este equipo" onClick={() => { setEscanearA({ key: p.key, k }); setHoja('escaner') }}><ScanLine /></button> : null}
+                  </div>
+                )
+              })}
+            </div>
+          ) : <p className="text-xs text-slate-500 mt-2 flex items-center gap-1"><MinusCircle style={{ width: 13, height: 13 }} />Este producto no lleva número de serie.</p>}
+          {fotos.length > 0 && <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mt-2.5">{fotos.map((ev) => <Evidencia key={ev.url} ev={ev} quitable={!usadas.has(ev.url) && puedeEditar} quitar={() => quitarFoto(ev)} />)}</div>}
+          {puedeEditar && <div className="flex gap-2 mt-2.5">
+            <button className="btn flex-1" onClick={() => tomar('foto', 'Equipo con serie', p.key)}><Camera />{fotos.length ? 'Otra foto del equipo' : 'Foto del equipo'}</button>
+            <button className="btn" title="Subir la foto desde la galería" onClick={() => tomar('fotoGal', 'Equipo con serie', p.key)}><ImageUp /></button>
+          </div>}
+          {puedeEditar && <label className="flex items-center gap-2 mt-2.5 text-[11.5px] text-slate-500 cursor-pointer"><input type="checkbox" checked={!p.requiereSerie} onChange={(ev) => sinSerie(p, ev.target.checked)} /> No lleva número de serie (se recuerda para este producto)</label>}
+        </div>
+      )
+    })}
+    {puedeEditar && conSerie && (
+      <div className="flex items-center gap-2"><span className={'text-xs font-semibold ' + (faltan ? 'text-amber-700' : 'text-emerald-700')}>{faltan ? `Faltan ${faltan} series` : 'Series completas'}</span>
+        <button id="btnSeries" className="btn ml-auto" disabled={guardando || !hayCambios} onClick={() => guardarSeries().catch(errAviso)}>{guardando ? <Ocupado /> : <><Save />Guardar series</>}</button></div>
+    )}
+  </>
+
+  /* Paso 3: fotos del empaque y de la salida */
+  const vFotos = <>
+    {puedeEditar && <>
+      <p className="text-xs text-slate-500">Toca lo que vas a fotografiar y se abre la cámara. Para despachar hace falta al menos una foto nueva de este envío.</p>
+      <div className="vm-fotos-btn">
+        {FOTOS_ENVIO.map((x) => { const hecha = o.evidencias.some((ev) => ev.etiqueta === x.t && !usadas.has(ev.url)); return <button key={x.t} type="button" className={'vm-foto-btn' + (hecha ? ' ok' : '')} onClick={() => tomar('foto', x.t)}>{hecha ? <Check /> : <Camera />}{x.t}<small>{hecha ? 'Tomada · toca para otra' : x.d}</small></button> })}
+        <button type="button" className="vm-foto-btn" onClick={() => tomar('video', 'Video del despacho')}><Video />Grabar video<small>Hasta 50 MB</small></button>
+      </div>
+      <div className="flex gap-2"><button className="btn flex-1" onClick={() => tomar('fotoGal', 'Otro')}><ImageUp />Foto de la galería</button><button className="btn flex-1" onClick={() => tomar('videoGal', 'Video del despacho')}><Upload />Video de la galería</button></div>
+    </>}
+    <div className="sec"><h3><Camera />Fotos y videos <span className="text-xs font-normal text-slate-400">{o.evidencias.length}</span></h3>
+      {o.evidencias.length ? <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">{o.evidencias.map((ev) => <Evidencia key={ev.url} ev={ev} quitable={!usadas.has(ev.url) && puedeEditar} quitar={() => quitarFoto(ev)} />)}</div>
+        : <p className="text-xs text-slate-500">Aún no hay fotos: el equipo con su serie visible, el paquete cerrado y la guía pegada si es envío.</p>}
+    </div>
+  </>
+
+  /* Paso 4: revisar que todo esté y despachar */
+  const vDespachar = cerrado ? <>
+    {chk(true, false, <><b>Despachado completo</b> · {fecha(o.fechaDespacho)}{o.despachadoPor ? ' · ' + o.despachadoPor : ''}</>)}
+    {sEnv}
+  </> : <>
+    <div>
+      {chk(!pendNov.length, pendNov.length > 0, pendNov.length ? <><b>Hay una novedad sin resolver.</b> Toca para verla.</> : 'Sin novedades abiertas', pendNov.length ? () => irA('pedido') : undefined)}
+      {conSerie && chk(!faltan, faltan > 0, faltan ? <><b>Faltan {faltan} series.</b> Toca para completarlas.</> : 'Series completas', faltan ? () => irA('productos') : undefined)}
+      {chk(fotoNueva, !fotoNueva, fotoNueva ? 'Foto del envío tomada' : <><b>Falta la foto del envío.</b> Toca para tomarla.</>, fotoNueva ? undefined : () => irA('fotos'))}
+      {chk(!!o.verificadoPorId, false, o.verificadoPorId ? 'Verificado por ' + (o.verificadoPor || 'otra persona') : 'Verificación de otra persona (opcional)')}
+      {chk(false, false, <>Salen <b>{pendU}</b> de {totU} unidad{totU === 1 ? '' : 'es'}. Si envías menos, queda como despacho parcial.</>)}
+    </div>
+    {puedeEditar && <div className="flex gap-2 flex-wrap">
+      {(o.estado === 'En preparación' || o.estado === 'Parcial') && <button className="btn flex-1" onClick={() => accion('lista')}><CheckCheck />Marcar lista</button>}
+      {!o.verificadoPorId && iniciado && o.preparadoPorId !== perfil.id && <button className="btn flex-1" onClick={() => accion('verificar')}><ShieldCheck />Verificar</button>}
+      {o.estado === 'Lista' && <button className="btn flex-1" onClick={() => accion('reabrir')}><RotateCcw />Volver a preparar</button>}
+    </div>}
+    {sEnv}
+  </>
+
+  const idx = PASOS_BOD.findIndex((s) => s.k === paso), sig = PASOS_BOD[idx + 1]
   return (
-    <div className="panel">
-      <div className="hdr text-white sticky top-0 z-10">
-        <div className="w-full px-4 lg:px-6 py-3 flex items-center gap-3">
-          <button className="btn btn-sm !bg-white/10 !border-white/20 !text-white" onClick={cerrar} title="Cerrar"><X /></button>
-          <div className="min-w-0"><p className="font-display font-bold leading-tight truncate">{o.cliente || 'Despacho'}</p><p className="text-[11px] text-white/70 mono">{o.codigo} · Factura {o.factura || '—'}</p></div>
-          <span className={'pill s-' + slug(o.estado) + ' ml-auto'}>{o.estado}</span>
+    <div className="panel vm-ficha" ref={panelRef}>
+      <div className="sticky top-0 z-10">
+        <div className="hdr text-white">
+          <div className="w-full px-4 lg:px-6 py-3 flex items-center gap-3">
+            <button className="btn btn-sm !bg-white/10 !border-white/20 !text-white" onClick={cerrar} title="Cerrar"><X /></button>
+            <div className="min-w-0 flex-1"><p className="font-display font-bold leading-tight truncate">{o.cliente || 'Despacho'}</p><p className="text-[11px] text-white/70 mono truncate">{o.codigo} · Factura {o.factura || '—'}</p></div>
+            <span className={'pill s-' + slug(o.estado)}>{o.estado}</span>
+          </div>
+        </div>
+        <nav className="vm-pasos">{PASOS_BOD.map((s, i) => <button key={s.k} type="button" className={'vm-paso' + (paso === s.k ? ' on' : '') + (estadoPaso[s.k] ? ' ' + estadoPaso[s.k] : '')} onClick={() => irA(s.k)}><span className="num">{estadoPaso[s.k] === 'ok' ? <Check /> : estadoPaso[s.k] === 'aviso' ? '!' : i + 1}</span>{s.t}</button>)}</nav>
+      </div>
+      <div className="vm-ficha-cont w-full px-4 lg:px-6 py-4">
+        <div className="vm-cuerpo">
+          {subida && <div className="sec"><p className="text-xs text-slate-600 mb-1">{subida.txt}</p><div className="bar"><i style={{ width: subida.pct + '%' }} /></div></div>}
+          {paso === 'pedido' ? vPedido : paso === 'productos' ? vProductos : paso === 'fotos' ? vFotos : vDespachar}
+          <div className="vm-barra">
+            {idx > 0 && <button className="btn atras" onClick={() => irA(PASOS_BOD[idx - 1].k)} title="Paso anterior"><ChevronLeft /></button>}
+            {paso === 'pedido' && puedeEditar && !iniciado
+              ? <button className="btn btn-p" onClick={async () => { if (await accion('iniciar')) { setPaso('productos'); panelRef.current?.scrollTo({ top: 0 }) } }}><Play />Iniciar preparación</button>
+              : paso === 'despachar' ? (puedeEditar ? <button className="btn btn-ok" onClick={abrirDespacho} disabled={pendNov.length > 0} title={pendNov.length ? 'Resuelve la novedad primero' : undefined}><Send />Despachar</button> : <button className="btn" onClick={cerrar}><X />Cerrar</button>)
+              : <button className="btn btn-p" disabled={guardando} onClick={() => irA(sig.k)}>{guardando ? <Ocupado /> : <>{paso === 'productos' && hayCambios ? 'Guardar y seguir' : 'Siguiente: ' + sig.t}<ChevronRight /></>}</button>}
+          </div>
         </div>
       </div>
-      <div className="w-full px-4 lg:px-6 py-4 space-y-3">
-        {pendNov.length > 0 && <div className="sec" style={{ borderColor: '#f5c6c0', background: '#fff7f6' }}><h3 style={{ color: 'var(--red)' }}><AlertTriangle />Novedad sin resolver</h3>{pendNov.map((n) => <p key={n.id} className="text-sm"><b>{n.tipo}:</b> {n.detalle}</p>)}<p className="text-[11px] text-slate-500 mt-1">No se puede despachar hasta resolverla.</p></div>}
-        <div className="lg:hidden space-y-3">{sEnt}</div>
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] items-start">
-          <div className="space-y-3">{sProd}{sEv}</div>
-          <div className="space-y-3"><div className="hidden lg:block">{sEnt}</div>{sNov}{sEnv}{sHist}</div>
-        </div>
-        {!cerrado && editar && (
-          <div className="acciones"><div className="flex gap-2 flex-wrap lg:justify-end">
-            {o.estado === 'Por preparar' && <button className="btn btn-p flex-1 lg:flex-none lg:min-w-[170px]" onClick={() => accion('iniciar')}><Play />Iniciar preparación</button>}
-            {(o.estado === 'En preparación' || o.estado === 'Parcial') && <button className="btn flex-1 lg:flex-none lg:min-w-[170px]" onClick={() => accion('lista')}><CheckCheck />Marcar lista</button>}
-            {!o.verificadoPorId && o.estado !== 'Por preparar' && <button className="btn flex-1 lg:flex-none lg:min-w-[170px]" onClick={() => accion('verificar')}><ShieldCheck />Verificar</button>}
-            {o.estado === 'Lista' && <button className="btn flex-1 lg:flex-none lg:min-w-[170px]" onClick={() => accion('reabrir')}><RotateCcw />Volver a preparar</button>}
-            <button className="btn btn-ok flex-1 lg:flex-none lg:min-w-[170px]" onClick={abrirDespacho} disabled={pendNov.length > 0} title={pendNov.length ? 'Resuelve la novedad primero' : undefined}><Send />Despachar</button>
-          </div></div>
-        )}
-      </div>
+      <input ref={refs.foto} type="file" accept="image/*" capture="environment" multiple hidden onChange={(ev) => { const f = [...(ev.target.files ?? [])]; ev.target.value = ''; subirArchivos(f, 'foto') }} />
+      <input ref={refs.fotoGal} type="file" accept="image/*" multiple hidden onChange={(ev) => { const f = [...(ev.target.files ?? [])]; ev.target.value = ''; subirArchivos(f, 'foto') }} />
+      <input ref={refs.video} type="file" accept="video/*" capture="environment" hidden onChange={(ev) => { const f = [...(ev.target.files ?? [])]; ev.target.value = ''; subirArchivos(f, 'video') }} />
+      <input ref={refs.videoGal} type="file" accept="video/*" hidden onChange={(ev) => { const f = [...(ev.target.files ?? [])]; ev.target.value = ''; subirArchivos(f, 'video') }} />
       {hoja === 'novedad' && <NovedadHoja o={o} perfil={perfil} cerrar={() => setHoja(null)} listo={async () => { setHoja(null); await recargar(true); cambio(); aviso('Novedad reportada y avisada') }} />}
       {hoja === 'resolver' && <ResolverHoja o={o} nid={resolverId} perfil={perfil} cerrar={() => setHoja(null)} listo={async () => { setHoja(null); await recargar(true); cambio(); aviso('Novedad resuelta') }} />}
       {hoja === 'despachar' && <DespacharHoja o={o} cerrar={() => setHoja(null)} listo={async (r) => { setHoja(null); await recargar(); cambio(); aviso(r === 'Despachada' ? 'Despachado. Pasó a Logística.' : 'Despacho parcial registrado. Pasó a Logística.') }} />}
