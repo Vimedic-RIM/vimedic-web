@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowDown, ArrowUp, BadgeCheck, Boxes, Building2, Clock, CreditCard, Download, Eye, FileCheck2, FilePenLine, FilePlus2, FileUp, Folder, Gift, Hash, History, Inbox,
-  Layers, Link2, List, Lock, Megaphone, Package, Plus, Printer, Receipt, ReceiptText, RefreshCw, Search, ShieldCheck, SlidersHorizontal, Trash2, Truck, TriangleAlert, Upload, X,
+  Layers, Link2, List, Lock, Megaphone, Package, Pencil, Plus, Printer, Receipt, ReceiptText, RefreshCw, Search, ShieldCheck, SlidersHorizontal, Trash2, Truck, TriangleAlert, Upload, X,
 } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { agrupar } from '../tiempoReal'
@@ -414,12 +414,14 @@ function PanelLateral(r: Fila | null, accion: (qa: string, r: Fila) => void, img
   acts.push(r.estado === 'Pendiente' ? act('factura', Upload, '#055c9d', 'Subir factura', !r.datosCompletos) : act('verFactura', Receipt, '#055c9d', 'Ver factura', !r.facturaUrl))
   if (r.estado === 'Facturado' || r.actaUrl) {
     acts.push(r.actaUrl ? act('verActa', FileCheck2, '#04896f', 'Ver acta .pdf') : act('acta', FilePlus2, '#04896f', 'Generar acta'))
+    if (r.actaUrl) acts.push(act('acta', Pencil, '#0f766e', 'Editar acta'))   // mismo formulario, con lo guardado
   }
   if (r.estado === 'Facturado' || r.guiaDespachoUrl) {
     acts.push(r.guiaDespachoUrl ? act('verGuiaDespacho', Boxes, '#c98a1f', 'Ver guía despacho') : act('guiaDespacho', Boxes, '#c0392b', 'Generar guía despacho'))
   }
   if (r.esEnvio || r.guiaEnvioUrl) {
     acts.push(r.guiaEnvioUrl ? act('verGuiaEnvio', Truck, '#c98a1f', 'Ver etiqueta envío') : act('guiaEnvio', Truck, '#64748b', 'Generar etiqueta envío'))
+    if (r.guiaEnvioUrl) acts.push(act('guiaEnvio', Pencil, '#b7791f', 'Editar guía'))
   }
   if (r.actaConformidadUrl) acts.push(act('conformidad', BadgeCheck, '#17a9ba', 'Conformidad'))
   if (r.estado === 'Facturado' || r.obsequioId) acts.push(act('obsequio', Gift, '#ec4899', r.obsequioId ? 'Cambiar obsequio' : 'Elegir obsequio'))
@@ -570,7 +572,7 @@ function Detalle({ r, perfil, puedeEditar, cerrar, accion, facturar, aviso, reca
               </div>
               {(full.estado === 'Facturado' || full.actaUrl) && (
                 <div className="pm-doc"><p className="pm-doc-h"><span className="ic" style={{ ['--c' as string]: '#04896f' }}><FileCheck2 /></span>Acta de entrega / garantía</p>
-                  {full.actaUrl ? <button type="button" className="pm-btn ok w-full" onClick={() => accion('verActa', full)}>Ver acta .pdf</button> : <button type="button" className="pm-btn solid w-full" style={{ background: '#04896f' }} onClick={() => accion('acta', full)}>Generar acta</button>}</div>
+                  {full.actaUrl ? <div className="flex items-center gap-1.5"><button type="button" className="pm-btn ok flex-1" onClick={() => accion('verActa', full)}>Ver acta .pdf</button><button type="button" title="Editar y regenerar acta" aria-label="Editar acta" className="pm-btn ok w-10 !px-0" onClick={() => accion('acta', full)}><Pencil className="w-4 h-4" /></button></div> : <button type="button" className="pm-btn solid w-full" style={{ background: '#04896f' }} onClick={() => accion('acta', full)}>Generar acta</button>}</div>
               )}
               <div className="pm-doc">
                 <p className="pm-doc-h"><span className="ic" style={{ ['--c' as string]: '#ec4899' }}><Gift /></span>Obsequio de evangelización <span className="text-red-600">*</span></p>
@@ -590,7 +592,7 @@ function Detalle({ r, perfil, puedeEditar, cerrar, accion, facturar, aviso, reca
               )}
               {(full.esEnvio || full.guiaEnvioUrl) && (
                 <div className="pm-doc"><p className="pm-doc-h"><span className="ic" style={{ ['--c' as string]: '#64748b' }}><Truck /></span>Guía de envío (etiqueta)</p>
-                  {full.guiaEnvioUrl ? <button type="button" className="pm-btn warn w-full" onClick={() => accion('verGuiaEnvio', full)}>Ver etiqueta</button> : <button type="button" className="pm-btn solid w-full" style={{ background: '#64748b' }} onClick={() => accion('guiaEnvio', full)}>Generar etiqueta de envío</button>}</div>
+                  {full.guiaEnvioUrl ? <div className="flex items-center gap-1.5"><button type="button" className="pm-btn warn flex-1" onClick={() => accion('verGuiaEnvio', full)}>Ver etiqueta</button><button type="button" title="Editar y regenerar guía" aria-label="Editar guía" className="pm-btn warn w-10 !px-0" onClick={() => accion('guiaEnvio', full)}><Pencil className="w-4 h-4" /></button></div> : <button type="button" className="pm-btn solid w-full" style={{ background: '#64748b' }} onClick={() => accion('guiaEnvio', full)}>Generar etiqueta de envío</button>}</div>
               )}
               {tiene(full.numeroFactura) && (
                 <div className="pm-doc"><p className="pm-doc-h"><span className="ic" style={{ ['--c' as string]: '#7c3aed' }}><ReceiptText /></span>Notas de crédito</p>
@@ -949,26 +951,26 @@ function ModalGuiaEnvio({ r, perfil, cerrar, guardado }: { r: Fila; perfil: Perf
           <div className="fi-sec">
             <div className="fi-sec-h"><span className="fi-num" style={{ background: '#c0392b' }}>1</span><div className="flex-1"><b>Remitente</b></div></div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <input type="text" value={d.nombreRemitente} onChange={(e) => set('nombreRemitente', e.target.value)} placeholder="Nombre remitente *" className="fi-in" />
-              <input type="text" value={d.cedulaRemitente} onChange={(e) => set('cedulaRemitente', e.target.value)} placeholder="C.I./RUC remitente" className="fi-in" />
+              <label className="fi-lab">Nombre remitente *<input type="text" value={d.nombreRemitente} onChange={(e) => set('nombreRemitente', e.target.value)} className="fi-in" /></label>
+              <label className="fi-lab">Cédula/RUC remitente<input type="text" value={d.cedulaRemitente} onChange={(e) => set('cedulaRemitente', e.target.value)} className="fi-in" /></label>
             </div>
           </div>
           <div className="fi-sec">
             <div className="fi-sec-h"><span className="fi-num" style={{ background: '#c0392b' }}>2</span><div className="flex-1"><b>Destinatario</b></div></div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <input type="text" value={d.nombreDestinatario} onChange={(e) => set('nombreDestinatario', e.target.value)} placeholder="Nombre destinatario *" className="fi-in" />
-              <input type="text" value={d.cedulaDestinatario} onChange={(e) => set('cedulaDestinatario', e.target.value)} placeholder="C.I./RUC destinatario" className="fi-in" />
-              <input type="text" value={d.telefonoDestinatario} onChange={(e) => set('telefonoDestinatario', e.target.value)} placeholder="Celular destinatario *" className="fi-in" />
-              <input type="text" value={d.ciudad} onChange={(e) => set('ciudad', e.target.value)} placeholder="Ciudad *" className="fi-in" />
-              <input type="text" value={d.direccionEnvio} onChange={(e) => set('direccionEnvio', e.target.value)} placeholder="Dirección de envío *" className="fi-in sm:col-span-2" />
-              <input type="email" value={d.emailDestinatario} onChange={(e) => set('emailDestinatario', e.target.value)} placeholder="Email destinatario (opcional)" className="fi-in sm:col-span-2" />
+              <label className="fi-lab">Nombre destinatario *<input type="text" value={d.nombreDestinatario} onChange={(e) => set('nombreDestinatario', e.target.value)} className="fi-in" /></label>
+              <label className="fi-lab">Cédula destinatario<input type="text" value={d.cedulaDestinatario} onChange={(e) => set('cedulaDestinatario', e.target.value)} className="fi-in" /></label>
+              <label className="fi-lab">Teléfono destinatario *<input type="text" value={d.telefonoDestinatario} onChange={(e) => set('telefonoDestinatario', e.target.value)} className="fi-in" /></label>
+              <label className="fi-lab">Ciudad *<input type="text" value={d.ciudad} onChange={(e) => set('ciudad', e.target.value)} className="fi-in" /></label>
+              <label className="fi-lab sm:col-span-2">Dirección de envío *<input type="text" value={d.direccionEnvio} onChange={(e) => set('direccionEnvio', e.target.value)} className="fi-in" /></label>
+              <label className="fi-lab sm:col-span-2">Email destinatario<input type="email" value={d.emailDestinatario} onChange={(e) => set('emailDestinatario', e.target.value)} className="fi-in" /></label>
             </div>
           </div>
           {msg && <p className="fi-err">{msg}</p>}
         </div>
         <div className="shrink-0 border-t border-slate-200 bg-white p-4 flex items-center gap-2">
           <button type="button" onClick={cerrar} className="h-11 px-4 rounded-2xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50">Cancelar</button>
-          <button type="button" onClick={guardar} disabled={guardando || noEsEnvio} className="flex-1 h-11 rounded-2xl text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: '#c0392b' }}>{guardando ? 'Generando PDF…' : 'Generar guía de envío'}</button>
+          <button type="button" onClick={guardar} disabled={guardando || noEsEnvio} className="flex-1 h-11 rounded-2xl text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: '#c0392b' }}>{guardando ? 'Generando PDF…' : r.guiaEnvioUrl ? 'Volver a generar la guía' : 'Generar guía de envío'}</button>
         </div>
       </div>
     </div>
@@ -1181,9 +1183,11 @@ function ModalActaGarantia({ r, perfil, cerrar, aviso, guardado }: { r: Fila; pe
   const [mantObs, setMantObs] = useState<string[]>([])
   const [anexo, setAnexo] = useState(false)
   const [anexoManual, setAnexoManual] = useState(false)
-  const [nuevoNombre, setNuevoNombre] = useState('')
-  const [nuevoCodigo, setNuevoCodigo] = useState('')
+  const [nuevoTxt, setNuevoTxt] = useState('')
+  const [sugerencias, setSugerencias] = useState<{ codigo: string | null; nombre: string; imagen_url: string | null }[]>([])
   const [nuevoCant, setNuevoCant] = useState('1')
+  const [fotos, setFotos] = useState<Record<string, string>>({})
+  const fotosPedidas = useRef(new Set<string>())
   const [cotizacionId, setCotizacionId] = useState<string | null>(null)
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState('')
@@ -1227,6 +1231,19 @@ function ModalActaGarantia({ r, perfil, cerrar, aviso, guardado }: { r: Fila; pe
     return () => { vivo = false }
   }, [r.uuid, r.id])
 
+  /* Foto (miniatura) de cada equipo del acta, por su código del catálogo. */
+  const codigosActa = equipos.map((e) => e.codigo).filter(Boolean).join('|')
+  useEffect(() => {
+    const faltan = codigosActa.split('|').filter((c) => c && !fotosPedidas.current.has(c))
+    if (!faltan.length) return
+    faltan.forEach((c) => fotosPedidas.current.add(c))
+    supabase.from('productos').select('codigo,imagen_url').in('codigo', faltan).is('deleted_at', null).then(({ data }) => {
+      const m: Record<string, string> = {}
+      for (const p of (data as { codigo: string; imagen_url: string | null }[] | null) ?? []) if (p.imagen_url) m[p.codigo] = p.imagen_url
+      if (Object.keys(m).length) setFotos((f) => ({ ...m, ...f }))
+    })
+  }, [codigosActa])
+
   const cantNum = Number(garantiaCant) || 0
   const meses = garantiaUnidad === 'anios' ? cantNum * 12 : cantNum
   const nMant = Math.min(20, Math.floor(meses / 6))
@@ -1245,14 +1262,45 @@ function ModalActaGarantia({ r, perfil, cerrar, aviso, guardado }: { r: Fila; pe
     setEquipos((es) => es.map((e) => (e.key === key ? { ...e, series: Array.from({ length: e.cantidad }, (_, i) => partes[i] || '') } : e)))
   }
   function toggleSinGarantia(key: string) { setEquipos((es) => es.map((e) => (e.key === key ? { ...e, sinGarantia: !e.sinGarantia } : e))) }
-  function quitarEquipo(key: string) { setEquipos((es) => es.filter((e) => e.key !== key)) }
-  function agregarEquipo() {
-    const nombre = nuevoNombre.replace(/\s+/g, ' ').trim().slice(0, 200)
-    const cant = Math.max(1, Math.min(999, parseInt(nuevoCant, 10) || 1))
-    if (!nombre) { aviso('Cada equipo añadido necesita un nombre.'); return }
+  function quitarEquipo(e: EquipoActa) {
+    if (!confirm('¿Quitar "' + e.nombre + '" del acta?')) return
+    setEquipos((es) => es.filter((x) => x.key !== e.key))
+  }
+  /* Cantidad de un equipo añadido: las casillas de serie crecen o se recortan conservando lo escrito. */
+  function setCantidad(key: string, v: string) {
+    const n = Math.max(1, Math.min(999, parseInt(v, 10) || 1))
+    setEquipos((es) => es.map((e) => (e.key === key ? { ...e, cantidad: n, series: ajustarSeries(e.series, n) } : e)))
+  }
+  /* Como el original: Enter en una serie pasa a la siguiente (sirve con lector de código de barras). */
+  function siguienteSerie(ev: React.KeyboardEvent<HTMLInputElement>) {
+    if (ev.key !== 'Enter') return
+    ev.preventDefault()
+    const todos = Array.from(document.querySelectorAll<HTMLInputElement>('input[data-ac-serie]'))
+    todos[todos.indexOf(ev.currentTarget) + 1]?.focus()
+  }
+  /* Añadir producto: busca en el catálogo por código o nombre (visibles al público primero); si no está, se escribe a mano. */
+  useEffect(() => {
+    const t = nuevoTxt.trim().replace(/[,()%*\\]/g, ' ')
+    if (t.length < 2) { setSugerencias([]); return }
+    const h = setTimeout(() => {
+      supabase.from('productos').select('codigo,nombre,imagen_url').is('deleted_at', null).or('nombre.ilike.%' + t + '%,codigo.ilike.%' + t + '%')
+        .order('en_vista_publica', { ascending: false }).order('nombre').limit(8)
+        .then(({ data }) => setSugerencias((data as { codigo: string | null; nombre: string; imagen_url: string | null }[]) ?? []))
+    }, 250)
+    return () => clearTimeout(h)
+  }, [nuevoTxt])
+  function agregarEquipo(p?: { codigo: string | null; nombre: string }) {
+    const txt = nuevoTxt.replace(/\s+/g, ' ').trim()
+    const cant = parseInt(nuevoCant, 10) || 1
+    if (!p && !txt) return
+    if (cant < 1 || cant > 999) { aviso('La cantidad debe ser de 1 a 999.'); return }
+    // Si escribió el código exacto de un producto, se toma ese producto.
+    const prod = p ?? sugerencias.find((x) => String(x.codigo || '').toLowerCase() === txt.toLowerCase())
+    const codigo = prod ? String(prod.codigo || '') : '', nombre = prod ? prod.nombre : txt
+    if (nombre.length > 200) { aviso('El nombre es demasiado largo.'); return }
     if (equipos.filter((e) => e.extra).length >= 30) { aviso('Puedes añadir hasta 30 equipos al acta.'); return }
-    setEquipos((es) => [...es, { key: 'EXTRA-' + (es.filter((e) => e.extra).length + 1) + '|1', codigo: nuevoCodigo.trim().slice(0, 40), nombre, cantidad: cant, series: Array(cant).fill(''), sinGarantia: false, extra: true }])
-    setNuevoNombre(''); setNuevoCodigo(''); setNuevoCant('1')
+    setEquipos((es) => [...es, { key: 'EXTRA-' + (es.filter((e) => e.extra).length + 1) + '|1', codigo: codigo.slice(0, 40), nombre, cantidad: cant, series: Array(cant).fill(''), sinGarantia: false, extra: true }])
+    setNuevoTxt(''); setNuevoCant('1'); setSugerencias([])
   }
 
   async function generar() {
@@ -1309,7 +1357,8 @@ function ModalActaGarantia({ r, perfil, cerrar, aviso, guardado }: { r: Fila; pe
             <button type="button" onClick={cerrar} className="w-8 h-8 rounded-xl bg-white/15 hover:bg-white/25 flex items-center justify-center" aria-label="Cerrar"><X className="w-4 h-4" /></button>
           </div>
           <h3 className="font-display font-bold text-lg leading-snug mt-1.5">{r.cliente || 'Venta'}</h3>
-          <p className="text-[11px] text-white/75">Equipos, números de serie y Carta de Garantía · Factura {r.numeroFactura || '(sin subir)'}</p>
+          <p className="text-[11px] text-white/75">Equipos con números de serie + carta de garantía · una sola firma del cliente · Factura {r.numeroFactura || '(sin subir)'}</p>
+          {r.actaUrl && <p className="text-[11px] text-white font-semibold mt-1">Editando el acta ya generada: al guardar se vuelve a generar el PDF con los cambios.</p>}
         </div>
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3">
           {!r.numeroFactura && <p className="fi-err">Primero sube la factura — el acta necesita su número.</p>}
@@ -1333,36 +1382,62 @@ function ModalActaGarantia({ r, perfil, cerrar, aviso, guardado }: { r: Fila; pe
               <input type="number" min="0" max={garantiaUnidad === 'anios' ? 10 : 120} step="1" value={garantiaCant} onChange={(e) => setGarantiaCant(e.target.value)} className="fi-in" />
               <select value={garantiaUnidad} onChange={(e) => setGarantiaUnidad(e.target.value as 'anios' | 'meses')} className="fi-in"><option value="anios">Años</option><option value="meses">Meses</option></select>
             </div>
-            <p className="text-[11px] text-slate-500 mt-2">{conGarantia ? `Se adjunta la Carta de Garantía de ${duracionTxt} para ${conGarantia} equipo(s), con firma electrónica de la empresa.` : 'Sin garantía: el acta queda solo de entera satisfacción.'}</p>
+            <p className="text-[11px] text-slate-500 mt-2">{duracionTxt ? <>Se entrega <b>Carta de Garantía de {duracionTxt}</b> para {conGarantia} equipo(s), con firma electrónica de la empresa. El cliente firma solo el acta.</> : 'Sin garantía: el PDF lleva solo el acta de entera satisfacción.'}</p>
           </div>
 
           <div className="fi-sec">
-            <div className="fi-sec-h"><span className="fi-num" style={{ background: 'var(--teal)' }}>3</span><div className="flex-1"><b>Equipos y números de serie</b><small>Una serie por unidad · {reg} / {tot} registradas</small></div></div>
+            <div className="fi-sec-h"><span className="fi-num" style={{ background: 'var(--teal)' }}>3</span><div className="flex-1"><b>Equipos y números de serie</b><small>Una serie por unidad · si un equipo no lleva garantía, márcalo</small></div><span className="text-[10px] font-bold px-2 py-1 rounded-full bg-slate-100 text-slate-500 shrink-0">{reg} / {tot} series</span></div>
             <div className="space-y-2">
               {equipos.map((e) => (
-                <div key={e.key} className="fi-item">
-                  <div className="flex items-center gap-2">
-                    {e.codigo && <span className="font-mono-spec text-[10px] text-slate-400 flex items-center gap-1">{!e.extra && <Lock className="w-2.5 h-2.5" />}{e.codigo}</span>}
-                    <span className="text-xs font-semibold text-slate-700 truncate flex-1">{e.nombre}</span>
-                    <span className="text-xs font-bold text-slate-500">× {e.cantidad}</span>
-                    {e.extra && <button type="button" onClick={() => quitarEquipo(e.key)} className="w-6 h-6 rounded-lg text-red-500 hover:bg-red-50 flex items-center justify-center shrink-0" title="Quitar"><Trash2 className="w-3.5 h-3.5" /></button>}
+                <div key={e.key} className={'ac-eq' + (e.sinGarantia ? ' sin' : '') + (e.extra ? ' extra' : '')}>
+                  <div className="flex items-start gap-2">
+                    <span className="w-10 h-10 rounded-lg bg-white border border-slate-200 overflow-hidden flex items-center justify-center shrink-0">
+                      {fotos[e.codigo] ? <img src={imagen(fotos[e.codigo], 80)} alt="" loading="lazy" className="w-full h-full object-cover" onError={(ev) => { ev.currentTarget.style.visibility = 'hidden' }} /> : <Package className="w-4 h-4 text-slate-300" />}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12.5px] font-bold text-slate-800 leading-snug">{e.codigo && <span className="font-mono-spec text-[10.5px] text-slate-400 mr-1.5">{e.codigo}</span>}{e.nombre}</p>
+                      <p className={'text-[10.5px] mt-0.5 ' + (e.sinGarantia || !duracionTxt ? 'text-slate-400' : 'text-emerald-700 font-semibold')}>{e.sinGarantia || !duracionTxt ? 'Sin garantía' : 'Garantía: ' + duracionTxt}</p>
+                    </div>
+                    {e.extra
+                      ? <input type="number" min="1" max="999" value={e.cantidad} onChange={(ev) => setCantidad(e.key, ev.target.value)} className="fi-in !mt-0 shrink-0" style={{ width: 64, flex: '0 0 64px' }} title="Cantidad" aria-label="Cantidad" />
+                      : <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 shrink-0">×{e.cantidad}</span>}
+                    {e.extra && <span className="text-[9.5px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 shrink-0">Añadido</span>}
+                    {e.extra && <button type="button" className="ac-quitar" onClick={() => quitarEquipo(e)} title="Quitar del acta" aria-label="Quitar del acta"><X /></button>}
                   </div>
-                  {meses > 0 && <label className="flex items-center gap-1.5 text-[10.5px] font-semibold text-slate-500 mt-1.5"><input type="checkbox" checked={e.sinGarantia} onChange={() => toggleSinGarantia(e.key)} className="w-3.5 h-3.5" /> Sin garantía</label>}
-                  {e.cantidad <= 12
-                    ? <div className="grid gap-1.5 mt-1.5" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(110px,1fr))' }}>
-                        {e.series.map((s, i) => <input key={i} type="text" value={s} onChange={(ev) => setSerie(e.key, i, ev.target.value)} placeholder={`Serie ${i + 1}`} className={'fi-in !mt-0' + (s.trim() ? ' lk-ok' : '')} />)}
-                      </div>
-                    : <textarea value={e.series.join('\n')} onChange={(ev) => setSerieBulk(e.key, ev.target.value)} placeholder={`Una serie por línea (${e.cantidad} unidades)`} rows={4} className="fi-in mt-1.5" />}
+                  <label className="flex items-center gap-1.5 text-[10.5px] font-semibold text-slate-500 mt-1.5"><input type="checkbox" checked={e.sinGarantia} onChange={() => toggleSinGarantia(e.key)} className="w-3.5 h-3.5" /> Sin garantía</label>
+                  <div className="ac-ser">
+                    {e.cantidad <= 12
+                      ? e.series.map((s, i) => <input key={i} type="text" maxLength={80} value={s} data-ac-serie="" onChange={(ev) => setSerie(e.key, i, ev.target.value)} onKeyDown={siguienteSerie} placeholder={`Serie ${i + 1}`} className={s.trim() ? 'ok' : ''} />)
+                      : <textarea value={e.series.join('\n')} onChange={(ev) => setSerieBulk(e.key, ev.target.value)} placeholder={`Una serie por línea (${e.cantidad} unidades)`} rows={4} style={{ gridColumn: '1/-1' }} />}
+                  </div>
                 </div>
               ))}
-              {!equipos.length && <p className="text-xs text-slate-400 text-center py-2">Todos los productos fueron acreditados. Añade un equipo si corresponde.</p>}
+              {!equipos.length && <p className="text-[11px] text-slate-400 py-3 text-center">Sin equipos vigentes. Añade abajo los equipos que se entregan.</p>}
             </div>
-            <div className="mt-2 grid grid-cols-[1fr_90px_70px_auto] gap-1.5 items-center">
-              <input type="text" value={nuevoNombre} onChange={(e) => setNuevoNombre(e.target.value)} placeholder="Añadir equipo entregado aparte…" className="fi-in !mt-0" />
-              <input type="text" value={nuevoCodigo} onChange={(e) => setNuevoCodigo(e.target.value)} placeholder="Código" className="fi-in !mt-0" />
-              <input type="number" min="1" max="999" value={nuevoCant} onChange={(e) => setNuevoCant(e.target.value)} className="fi-in !mt-0" />
-              <button type="button" onClick={agregarEquipo} className="h-[34px] px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center gap-1 text-[11px] font-bold shrink-0"><Plus className="w-3.5 h-3.5" />Añadir</button>
+            {/* Añadir productos al acta (accesorios, repuestos, entregas aparte): listado rápido con foto, código y nombre. */}
+            <div className="ac-add">
+              <input type="text" value={nuevoTxt} onChange={(e) => setNuevoTxt(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); agregarEquipo() } }}
+                placeholder="Añadir equipo: busca por código o nombre, o escríbelo" className="fi-in !mt-0" autoComplete="off" />
+              <input type="number" min="1" max="999" value={nuevoCant} onChange={(e) => setNuevoCant(e.target.value)} className="fi-in !mt-0" title="Cantidad" aria-label="Cantidad" />
+              <button type="button" onClick={() => agregarEquipo()} className="ac-add-btn"><Plus />Añadir</button>
             </div>
+            {sugerencias.length > 0 && (
+              <div className="mt-1.5 border border-slate-200 rounded-xl bg-white overflow-hidden">
+                {sugerencias.map((p, i) => (
+                  <button key={(p.codigo || '') + p.nombre} type="button" onClick={() => { if (p.codigo && p.imagen_url) setFotos((f) => ({ ...f, [String(p.codigo)]: String(p.imagen_url) })); agregarEquipo(p) }}
+                    className="w-full flex items-center gap-2.5 px-2.5 py-1.5 text-left hover:bg-slate-50" style={i ? { borderTop: '1px solid #f1f5f9' } : undefined}>
+                    <span className="w-9 h-9 rounded-lg bg-slate-100 overflow-hidden flex items-center justify-center shrink-0">
+                      {p.imagen_url ? <img src={imagen(p.imagen_url, 80)} alt="" loading="lazy" className="w-full h-full object-cover" onError={(ev) => { ev.currentTarget.style.visibility = 'hidden' }} /> : <Package className="w-4 h-4 text-slate-300" />}
+                    </span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block font-mono-spec text-[10.5px] text-slate-400">{p.codigo || 'sin código'}</span>
+                      <span className="block text-[12px] font-semibold text-slate-800 truncate">{p.nombre}</span>
+                    </span>
+                    <Plus className="w-4 h-4 shrink-0" style={{ color: '#04896f' }} />
+                  </button>
+                ))}
+              </div>
+            )}
             <label className="flex items-center gap-1.5 text-[11.5px] text-slate-600 mt-3">
               <input type="checkbox" checked={anexo} onChange={(e) => { setAnexo(e.target.checked); setAnexoManual(true) }} className="w-4 h-4" /> Incluir hoja anexa para pegar los stickers de serie
             </label>
@@ -1371,12 +1446,11 @@ function ModalActaGarantia({ r, perfil, cerrar, aviso, guardado }: { r: Fila; pe
           {nMant > 0 && (
             <div className="fi-sec">
               <div className="fi-sec-h"><span className="fi-num" style={{ background: 'var(--teal)' }}>4</span><div className="flex-1"><b>Cronograma de mantenimiento</b><small>Cada 6 meses desde la fecha del acta · observación opcional</small></div></div>
-              <div className="space-y-1.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 {mantObs.map((o, i) => (
-                  <div key={i} className="grid grid-cols-[150px_1fr] gap-2 items-center">
-                    <span className="text-[11px] font-semibold text-slate-600">{fechaLarga(sumarMeses(fechaBase, 6 * (i + 1)))}</span>
-                    <input type="text" value={o} maxLength={300} onChange={(e) => setMantObs((m) => m.map((x, idx) => (idx === i ? e.target.value : x)))} placeholder="Observación" className="fi-in !mt-0" />
-                  </div>
+                  <label key={i} className="ac-l">Mantenimiento {i + 1} (mes {(i + 1) * 6}) · {fechaLarga(sumarMeses(fechaBase, 6 * (i + 1)))}
+                    <input type="text" value={o} maxLength={300} onChange={(e) => setMantObs((m) => m.map((x, idx) => (idx === i ? e.target.value : x)))} placeholder="Observación (opcional)" className="fi-in" />
+                  </label>
                 ))}
               </div>
             </div>
