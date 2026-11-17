@@ -41,6 +41,7 @@ const TOGGLES: Tog[] = [
   { k: 'ofertas', t: 'Acceso a Ofertas y Liquidación', d: 'Stock dormido y con observaciones: estrategias, ofertas y resultados.', mod: 'ofertas' },
   { k: 'femedics', t: 'Acceso a Femedics CRM', mod: 'femedics' },
   { k: 'marketing', t: 'Módulo Marketing', mod: 'marketing' },
+  { k: 'plantillas', t: 'Acceso a Plantillas de documentos', d: 'Logo, colores y diseño de proformas, actas, garantías, guías y constancias. Con "editar" cambia los formatos.', mod: 'plantillas' },
 ]
 /* Issue #3: antes de activar un permiso sensible, confirmación explícita en vez de un toggle instantáneo. */
 const ACCIONES_RIESGO = new Set(['eliminar', 'aprobar', 'administrar', 'ver_costos', 'restaurar'])
@@ -57,7 +58,7 @@ const MODS_ACC: [string, string][] = [
   ['crm', 'CRM Vimedic'], ['clientes', 'Clientes'], ['femedics', 'Femedics CRM'], ['inventario', 'Inventario'], ['movimientos', 'Movimientos'], ['facturacion', 'Facturación'],
   ['agenda', 'Agenda'], ['empleados', 'Empleados'], ['marketing', 'Marketing'], ['catalogos', 'Catálogos'], ['ofertas', 'Ofertas y Liquidación'], ['bodega', 'Bodega'],
   ['logistica', 'Logística'], ['tracking', 'Trackings'], ['importaciones', 'Importaciones'], ['servicio_tecnico', 'Servicio Técnico'], ['documentos_tecnicos', 'Documentos técnicos'],
-  ['talento_humano', 'Talento Humano'], ['financiero', 'Financiero'],
+  ['talento_humano', 'Talento Humano'], ['financiero', 'Financiero'], ['plantillas', 'Plantillas de documentos'],
 ]
 /* Tabla unificada de permisos: un interruptor de "Acceso al módulo" (TOGGLES) se combina en la
    misma fila con sus acciones (crear/editar/eliminar/aprobar) en vez de mostrarse por separado. */

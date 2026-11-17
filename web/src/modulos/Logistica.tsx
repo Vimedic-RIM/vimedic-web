@@ -4,7 +4,8 @@ import { supabase, type Perfil } from '../supabase'
 import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
 import { enlaceSeguimiento } from '../enlacesPublicos'
-import { encabezadoDocHtml, pieDocHtml } from '../documentoMarca'
+import { cargarPlantillas } from '../plantillas'
+import { htmlConstancia } from './documentosEntrega'
 import '../estilos/logistica.css'
 
 /* ============================ Tipos y constantes ============================ */
@@ -178,16 +179,17 @@ function Panel({ id, perfil, editar, equipo, aviso, cerrar }: { id: string; perf
   }
   async function descargarConstancia() {
     if (!o) return
-    const p = o.prueba, e = o.entrega, esc = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-    const filas = o.productos.map((x) => `<tr><td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:center">${esc(x.cantidad)}</td><td style="padding:8px;border-bottom:1px solid #e2e8f0"><strong>${esc(x.nombre)}</strong><br><span style="color:#64748b;font-size:10px">${esc(x.id)}</span></td><td style="padding:8px;border-bottom:1px solid #e2e8f0;font-family:monospace;font-size:10px">${(x.series || []).map(esc).join('<br>')}</td></tr>`).join('')
-    // Encabezado y pie de la proforma, con el logo oficial (documentoMarca.ts).
-    const html = `<div style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#1e293b;font-size:12px">` + encabezadoDocHtml({ titulo: 'Constancia de entrega', etiqueta: 'Nº ENTREGA', numero: o.codigo, fecha: new Date().toLocaleDateString('es-EC'), empresa: o.empresa }) +
-      `<p><b>Cliente:</b> ${esc(o.cliente)} &nbsp; <b>Factura:</b> ${esc(o.factura || '—')}</p><p><b>Dirección:</b> ${esc(e.direccionEnvio || e.direccionEntregaLocal || (o.modalidad === 'Retiro' ? 'Retiro en oficina' : '—'))}${e.ciudad ? ', ' + esc(e.ciudad) : ''}</p>` +
-      `<p><b>Modalidad:</b> ${esc(o.modalidad)}${o.transportista ? ' · ' + esc(o.transportista) + ' guía ' + esc(o.guiaNumero) : ''}</p>` +
-      `<table style="width:100%;border-collapse:collapse;margin:12px 0"><thead><tr style="background:#055c9d;color:#fff"><th style="padding:6px 6px 10px;text-align:center;width:50px">Cant.</th><th style="padding:6px 6px 10px;text-align:left">Producto</th><th style="padding:6px 6px 10px;text-align:left">N° de serie</th></tr></thead><tbody>${filas}</tbody></table>` +
-      `<p><b>Recibió:</b> ${esc(p.nombre || p.confirmacion || '—')}${p.cedula ? ' · C.I. ' + esc(p.cedula) : ''}</p><p><b>Fecha y hora:</b> ${esc(dhora(p.fecha || o.fechaEntrega))}${p.lat ? ` · Ubicación: ${Number(p.lat).toFixed(5)}, ${Number(p.lng).toFixed(5)}` : ''}</p>` +
-      `${p.firma ? `<p><b>Firma:</b><br><img src="${esc(p.firma)}" style="height:90px;border-bottom:1px solid #94a3b8"></p>` : ''}${p.nota ? `<p><b>Observación:</b> ${esc(p.nota)}</p>` : ''}` +
-      `<p style="margin-top:18px;font-size:10px;color:#64748b">Entregado por ${esc(p.por || '')}. El cliente declara recibir los productos detallados en buen estado.</p>${pieDocHtml(o.empresa)}</div>`
+    const p = o.prueba, e = o.entrega
+    // Plantilla «Constancia de entrega» (Plantillas de documentos), con el logo y el pie de la marca.
+    await cargarPlantillas()
+    const html = htmlConstancia({
+      codigo: o.codigo, fecha: new Date().toLocaleDateString('es-EC'), empresa: o.empresa, cliente: o.cliente, factura: o.factura || '',
+      direccion: (e.direccionEnvio || e.direccionEntregaLocal || (o.modalidad === 'Retiro' ? 'Retiro en oficina' : '—')) + (e.ciudad ? ', ' + e.ciudad : ''),
+      modalidad: o.modalidad + (o.transportista ? ' · ' + o.transportista + ' guía ' + (o.guiaNumero || '') : ''),
+      productos: o.productos.map((x) => ({ cantidad: Number(x.cantidad) || 0, nombre: x.nombre, id: x.id, series: x.series || [] })),
+      recibio: p.nombre || p.confirmacion || '', cedula: p.cedula || '', fechaHora: dhora(p.fecha || o.fechaEntrega),
+      ubicacion: p.lat ? Number(p.lat).toFixed(5) + ', ' + Number(p.lng).toFixed(5) : '', firma: p.firma || '', nota: p.nota || '', entregadoPor: p.por || '',
+    })
     try {
       const html2pdf = (await import('html2pdf.js')).default
       const caja = document.createElement('div'); caja.style.cssText = 'position:fixed;left:-10000px;top:0;width:180mm;background:#fff'; caja.innerHTML = html; document.body.appendChild(caja)

@@ -709,3 +709,17 @@ Problema: Google Workspace bloquea descargar la clave JSON de la cuenta de servi
 | Cuenta de servicio | Clave JSON, como antes | `drive` (tokenGoogle) |
 
 Migración 20261117090000: proveedor google_app, función integracion_guardar_servicio (solo service_role) y arreglo de la restricción que no dejaba guardar meta_pixel / tiktok_pixel. Pruebas: supabase/tests/google_oauth_drive.sql (9/9).
+
+## Módulo nuevo: Plantillas de documentos (17-nov-2026)
+
+Pedido del usuario: editar los formatos de los documentos sin programar (ordenar arrastrando, agregar bloques, cambiar textos, logo y colores).
+
+| Qué | Cómo | Dónde |
+|---|---|---|
+| Marca y pie | Logo (sube PNG/JPG/SVG o usa el oficial), color principal, color de la etiqueta, leyenda junto al título y pie; se aplica a todos los documentos | plantilla general, `documentoMarca.ts` |
+| Diseño por bloques | Proforma, comprobante de venta, acta de entrega, carta de garantía, anexo de series, guía de despacho y constancia de entrega: título, lugar, partes del sistema (mover, ocultar, titular) y bloques libres (texto con **negrita** y {variables}, imagen, firma, línea, espacio) | `plantillas.ts`, `documentosFacturacion.ts`, `documentosEntrega.ts`, `proforma.tsx` |
+| Vista previa en vivo | Con datos de ejemplo, armada con el mismo código que el documento real | `modulos/Plantillas.tsx` |
+| Historial | Cada guardado es una versión (quién y cuándo); se puede volver a una anterior o al diseño original | tablas plantillas_documento y plantillas_documento_versiones, función plantilla_guardar |
+| Permisos | Módulo `plantillas`: ver / editar (Empleados y Seguridad). Todos los empleados leen las plantillas para generar sus documentos | migración 20261117100000, pruebas supabase/tests/plantillas_documentos.sql (11/11) |
+
+Sin plantilla guardada, cada documento sale igual que antes. Informe técnico, ficha técnica, guía de envío y listas de ofertas toman la marca (logo, colores, leyenda, pie) pero no tienen todavía edición por bloques.

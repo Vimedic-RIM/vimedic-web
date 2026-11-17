@@ -8,7 +8,9 @@ import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
 import { imagen } from './inventarioUtil'
 import { enlaceSeguimiento } from '../enlacesPublicos'
-import { encabezadoDocHtml, logoDocDataUrl, pieDocHtml } from '../documentoMarca'
+import { logoDocDataUrl } from '../documentoMarca'
+import { cargarPlantillas } from '../plantillas'
+import { htmlGuiaDespacho } from './documentosEntrega'
 import { fechaDeTexto, fechaLarga, htmlActa, htmlGuia, pdfDeHtml, sumarMeses, tamanoGuia, type DatosGuia } from './documentosFacturacion'
 import '../estilos/facturacion.css'
 
@@ -1033,44 +1035,15 @@ function ModalGuiaDespacho({ r, cerrar, aviso, guardado }: { r: Fila; cerrar: ()
     if (!d.direccionEntrega.trim()) { setError('Completa la dirección de entrega.'); return }
     setError(''); setGuardando(true)
     try {
-      const esc = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       const link = enlaceSeguimiento(desp.token_seguimiento)
-      // El logo va dentro del archivo: la guía se guarda y se abre después, fuera de la app.
-      const logoData = await logoDocDataUrl()
-      const filas = lineas.map((it) => `<tr>
-          <td style="font-family:monospace;font-size:10px">${esc(it.codigo)}</td>
-          <td><strong>${esc(it.nombre)}</strong></td>
-          <td style="text-align:center">${esc(Math.abs(it.cantidad))}</td>
-          <td style="font-size:10.5px;color:#64748b">${esc(it.observacion || '')}</td>
-        </tr>`).join('')
-      const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Guía de despacho ${esc(desp.numero_guia)}</title>
-        <style>@page{size:A4;margin:12mm}html{background:#e2e8f0}body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#1e293b;font-size:12px;margin:0 auto;padding:12mm;width:210mm;min-height:297mm;box-sizing:border-box;background:#fff;box-shadow:0 0 0 1px #cbd5e1}@media print{html{background:#fff}body{width:auto;min-height:0;margin:0;padding:0;box-shadow:none}}
-        *{-webkit-print-color-adjust:exact;print-color-adjust:exact}p{margin:0}
-        .box{background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:10px;flex:1}.box-title{font-size:11px;font-weight:bold;color:#055c9d;text-transform:uppercase;margin-bottom:6px;border-bottom:1px solid #e2e8f0;padding-bottom:7px}
-        .dt{width:100%;border-collapse:collapse;font-size:11px}.dt td{padding:2px 0;vertical-align:top}
-        .items{width:100%;border-collapse:collapse;margin-top:12px}.items th{background:#055c9d;color:#fff;padding:7px 8px;font-size:11px;text-align:left}.items td{padding:9px 8px;border-bottom:1px solid #e2e8f0;vertical-align:top;font-size:11px}</style></head>
-        <body>
-          ${encabezadoDocHtml({ titulo: 'Guía de despacho', etiqueta: 'Nº GUÍA', numero: desp.numero_guia, fecha: new Date().toLocaleDateString('es-EC'), empresa: r.empresa, logo: logoData, extraDerecha: qrImg ? `<img src="${qrImg}" width="92" height="92" alt="QR de seguimiento">` : '' })}
-          <div style="display:flex;gap:6px;margin-bottom:15px">
-            <div class="box"><div class="box-title">Datos del Cliente</div><table class="dt">
-              <tr><td style="width:95px"><strong>Nombre:</strong></td><td>${esc(r.cliente)}</td></tr>
-              <tr><td><strong>Cédula / RUC:</strong></td><td>${esc(r.identificacion)}</td></tr>
-              <tr><td><strong>Factura:</strong></td><td>${esc(r.numeroFactura || '—')}</td></tr>
-              <tr><td><strong>Asesor:</strong></td><td>${esc(r.asesor)}</td></tr></table></div>
-            <div class="box"><div class="box-title">Datos de Entrega</div><table class="dt">
-              <tr><td style="width:95px"><strong>Dirección:</strong></td><td>${esc(d.direccionEntrega)}${d.ciudad ? ', ' + esc(d.ciudad) : ''}</td></tr>
-              <tr><td><strong>Recibe:</strong></td><td>${esc(d.contacto)}</td></tr>
-              <tr><td><strong>Teléfono:</strong></td><td>${esc(d.telefono)}</td></tr></table></div>
-          </div>
-          <table class="items"><thead><tr><th style="width:90px">Código</th><th>Producto</th><th style="width:50px;text-align:center">Cant.</th><th style="width:170px">Observación</th></tr></thead><tbody>${filas}</tbody></table>
-          ${d.nota ? `<div class="box" style="margin-top:14px"><div class="box-title">Observaciones generales</div><p style="font-size:11px">${esc(d.nota)}</p></div>` : ''}
-          <div style="display:flex;justify-content:space-between;margin-top:46px;font-size:11px">
-            <div style="width:30%;text-align:center;border-top:1px solid #94a3b8;padding-top:4px">Bodega (preparó)</div>
-            <div style="width:30%;text-align:center;border-top:1px solid #94a3b8;padding-top:4px">Logística (retiró)</div>
-            <div style="width:30%;text-align:center;border-top:1px solid #94a3b8;padding-top:4px">Cliente (recibió conforme)</div>
-          </div>
-          ${pieDocHtml(r.empresa, 'Seguimiento del pedido: ' + esc(link))}
-        </body></html>`
+      // Plantilla «Guía de despacho» (Plantillas de documentos); el logo va dentro del archivo: la guía se guarda y se abre después, fuera de la app.
+      await cargarPlantillas()
+      const html = htmlGuiaDespacho({
+        numeroGuia: desp.numero_guia, fecha: new Date().toLocaleDateString('es-EC'), empresa: r.empresa, logo: await logoDocDataUrl(), qr: qrImg,
+        cliente: r.cliente, identificacion: r.identificacion, factura: r.numeroFactura || '', asesor: r.asesor,
+        direccion: d.direccionEntrega, ciudad: d.ciudad, recibe: d.contacto, telefono: d.telefono, nota: d.nota, enlace: link,
+        lineas: lineas.map((it) => ({ codigo: it.codigo || '', nombre: it.nombre, cantidad: it.cantidad, observacion: it.observacion })),
+      })
 
       const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
       const ruta = 'guias/' + desp.numero_guia + '.html'
@@ -1324,6 +1297,7 @@ function ModalActaGarantia({ r, perfil, cerrar, aviso, guardado }: { r: Fila; pe
       const lista = equipos.map((e) => (e.extra ? { ...e, key: 'EXTRA-' + (++k) + '|1' } : e))
       const series: Record<string, string[]> = {}, sinGarantia: Record<string, boolean> = {}
       lista.forEach((e) => { const s = e.series.map((x) => x.trim().slice(0, 80)); while (s.length && !s[s.length - 1]) s.pop(); series[e.key] = s; if (e.sinGarantia) sinGarantia[e.key] = true })
+      await cargarPlantillas()   // textos y orden de las plantillas «Acta de entrega», «Carta de garantía» y «Anexo»
       const doc = htmlActa({
         numeroFactura: r.numeroFactura, fecha: fechaDeTexto(fecha),
         cliente: { nombre: cliente.nombre.trim(), identificacion: r.identificacion, ciudad: cliente.ciudad.trim(), direccion: cliente.direccion.trim(), telefono: cliente.telefono.trim(), email: cliente.email.trim() },

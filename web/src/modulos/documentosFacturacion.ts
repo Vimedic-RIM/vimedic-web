@@ -4,9 +4,11 @@
    El HTML se convierte a PDF en el navegador (html2pdf) y se guarda en Drive, como en el original.
    Los estilos van dentro de .vd para no tocar la página mientras se arma el PDF.
    Encabezado, colores y pie: los de la proforma (documentoMarca.ts), con el logo oficial. */
-import { AZUL_DOC, encabezadoDocHtml, logoDocUrl, pieDocHtml } from '../documentoMarca'
+import { colorDoc, encabezadoDocHtml, logoDocUrl, pieDocHtml } from '../documentoMarca'
+import { armarBloques, plantillaDe } from '../plantillas'
 
-const NAVY = AZUL_DOC
+/** Color de la marca (Plantillas de documentos › Marca y pie). */
+const NAVY = colorDoc
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
 /** formatFechaLarga_: "16 de noviembre de 2026". */
 export const fechaLarga = (d: Date): string => `${d.getDate()} de ${MESES[d.getMonth()]} de ${d.getFullYear()}`
@@ -16,7 +18,8 @@ export const sumarMeses = (d: Date, n: number): Date => { const x = new Date(d);
 export const fechaDeTexto = (s: string): Date => { const p = String(s || '').split('-').map(Number); const d = p.length === 3 ? new Date(p[0], p[1] - 1, p[2]) : new Date(); return isNaN(d.getTime()) ? new Date() : d }
 const esc = (v: unknown): string => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
-// Firma de la Carta de Garantía (Core.gs: DIRECTOR_EJECUTIVO_NOMBRE / DIRECTOR_EJECUTIVO_CARGO).
+// Firma de la Carta de Garantía (Core.gs: DIRECTOR_EJECUTIVO_NOMBRE / DIRECTOR_EJECUTIVO_CARGO). Hoy se edita en la plantilla
+// «Carta de garantía» (bloque Firma); estos valores son los del diseño por defecto.
 export const DIRECTOR_EJECUTIVO_NOMBRE = 'Victor Ricardo Lopez Cordonez'
 export const DIRECTOR_EJECUTIVO_CARGO = 'Director Ejecutivo'
 const logo = logoDocUrl
@@ -36,27 +39,31 @@ function estiloActa(): string {
 .vd .info-field{font-size:10.5px;margin-bottom:8px}
 .vd table{border-collapse:collapse}
 .vd table.doc-table{width:100%;margin:10px 0 16px}
-.vd table.doc-table th{background:${NAVY};color:#fff;padding:8px 9px;font-size:9.5px;text-transform:uppercase;letter-spacing:.03em;text-align:left}
+.vd table.doc-table th{background:${NAVY()};color:#fff;padding:8px 9px;font-size:9.5px;text-transform:uppercase;letter-spacing:.03em;text-align:left}
 .vd table.doc-table td{padding:8px 9px;border-bottom:1px solid #edf1f6;font-size:10.5px;vertical-align:top}
 .vd table.doc-table tr:nth-child(even) td{background:#f8fafc}
 .vd tr{page-break-inside:avoid}
-.vd .doc-badge{display:inline-block;background:${NAVY};color:#fff;font-weight:bold;padding:3px 10px;border-radius:6px}
+.vd .doc-badge{display:inline-block;background:${NAVY()};color:#fff;font-weight:bold;padding:3px 10px;border-radius:6px}
 .vd .pagebreak{page-break-before:always;height:0}`
 }
 
-/** Encabezado de la proforma: logo, título en dos líneas, línea azul; debajo el número de factura y el lugar y la fecha. */
-function encabezado(l1: string, l2: string, lugarFecha: string, numero: string): string {
-  return encabezadoDocHtml({ titulo: l1, titulo2: l2, lugarFecha, etiqueta: 'Nº FACTURA', numero })
+/** Encabezado de la proforma con el título y el lugar de la plantilla; debajo el número de factura y el lugar y la fecha. */
+function encabezado(codigo: string, fechaLetra: string, numero: string): string {
+  const p = plantillaDe(codigo)
+  return encabezadoDocHtml({ titulo: p.titulo, titulo2: p.titulo2, lugarFecha: (p.lugar ? p.lugar + ', ' : '') + fechaLetra, etiqueta: 'Nº FACTURA', numero })
 }
 
-/** seccionTitulo_: barra lateral navy, texto en mayúsculas y una línea hasta el margen. */
-function seccion(texto: string): string {
+/** seccionTitulo_: barra lateral del color de la marca, texto en mayúsculas y una línea hasta el margen. `html` ya viene escapado. */
+function seccion(html: string): string {
+  if (!html) return ''
   return `<div style="display:table;width:100%;margin:16px 0 10px">
-<div style="display:table-cell;vertical-align:middle;padding-left:8px;border-left:4px solid ${NAVY};white-space:nowrap"><span style="font-weight:700;color:${NAVY};font-size:11px;text-transform:uppercase;letter-spacing:.06em">${texto}</span></div>
+<div style="display:table-cell;vertical-align:middle;padding-left:8px;border-left:4px solid ${NAVY()};white-space:nowrap"><span style="font-weight:700;color:${NAVY()};font-size:11px;text-transform:uppercase;letter-spacing:.06em">${html}</span></div>
 <div style="display:table-cell;width:100%;vertical-align:middle;padding-left:10px"><div style="border-top:1px solid #cbd5e1"></div></div></div>`
 }
+const titulo = (t: string) => seccion(esc(t))
 
-/** El mismo documento de generarActaCompleta: acta (única firma del cliente), carta de garantía (si hay equipos con garantía) y anexo opcional. */
+/** El mismo documento de generarActaCompleta: acta (única firma del cliente), carta de garantía (si hay equipos con garantía) y anexo opcional.
+ *  Textos, orden de las partes y firma salen de las plantillas «acta_entrega», «carta_garantia» y «anexo_series». */
 export function htmlActa(d: DatosActaDoc): string {
   const fechaLetra = fechaLarga(d.fecha)
   const conGarantia = d.equipos.filter((e) => e.garantia)
@@ -85,15 +92,25 @@ export function htmlActa(d: DatosActaDoc): string {
   for (let i = 1; i <= d.nMant; i++) {
     filasMant += `<tr><td style="text-align:center;padding:8px 9px;border-bottom:1px solid #edf1f6;font-size:10.5px">${fechaLarga(sumarMeses(d.fecha, 6 * i)).toUpperCase()}</td><td style="text-align:center;padding:8px 9px;border-bottom:1px solid #edf1f6;font-size:10.5px;color:#64748b">${esc(d.observaciones[i - 1] || '')}</td></tr>`
   }
-  const clausulaGarantia = conGarantia.length
-    ? '3. Junto con la presente acta se entrega al cliente la <strong>Carta de Garantía</strong> (adjunta) de los equipos indicados, por el período señalado para cada uno en la tabla anterior, cuyas condiciones el cliente declara conocer y aceptar.<br>'
-      + '4. La firma de esta acta constituye la única firma de conformidad del cliente: acredita la recepción de los equipos y de su Carta de Garantía, la cual no requiere una firma adicional del cliente.'
-    : '3. Los equipos detallados se entregan sin garantía adicional.'
+  const th = (t: string, extra = '') => `<th style="background:${NAVY()};color:#fff;padding:8px 6px;font-size:9px;text-transform:uppercase;${extra}">${t}</th>`
+  const vars: Record<string, string> = {
+    cliente: esc(c.nombre), ruc: esc(c.identificacion || ''), fecha: fechaLetra, factura: esc(d.numeroFactura), ciudad: esc(c.ciudad || ''),
+    garantia: esc(d.garantiaTxt || 'sin garantía'),
+    con_carta: conGarantia.length ? ', junto con su respectiva Carta de Garantía' : '',
+    clausulas_garantia: conGarantia.length
+      ? '3. Junto con la presente acta se entrega al cliente la <strong>Carta de Garantía</strong> (adjunta) de los equipos indicados, por el período señalado para cada uno en la tabla anterior, cuyas condiciones el cliente declara conocer y aceptar.<br>'
+        + '4. La firma de esta acta constituye la única firma de conformidad del cliente: acredita la recepción de los equipos y de su Carta de Garantía, la cual no requiere una firma adicional del cliente.'
+      : '3. Los equipos detallados se entregan sin garantía adicional.',
+    condicion_mantenimiento: d.nMant
+      ? 'Para que la garantía se mantenga vigente, el acreedor deberá realizar con nuestra institución los mantenimientos preventivos cada 6 meses, conforme a las fechas establecidas.'
+      : 'Para hacer válida la garantía, el equipo deberá ser revisado por nuestro departamento técnico.',
+  }
+  const comun = { vars, tituloSeccion: seccion }
 
-  const acta = encabezado('ACTA DE ENTREGA /', 'ENTERA SATISFACCIÓN', 'Quito, ' + fechaLetra, d.numeroFactura)
-    + `<p>A través de la presente, se deja constancia de la entrega adecuada, oportuna y a entera satisfacción del cliente, de los equipos detallados a continuación${conGarantia.length ? ', junto con su respectiva Carta de Garantía' : ''}:</p>`
-    + seccion('Información del Cliente')
-    + `<div class="info-box"><table style="width:100%"><tr>
+  const acta = encabezado('acta_entrega', fechaLetra, d.numeroFactura) + armarBloques(plantillaDe('acta_entrega'), {
+    ...comun,
+    secciones: {
+      cliente: (t) => titulo(t) + `<div class="info-box"><table style="width:100%"><tr>
 <td style="width:50%;vertical-align:top">
 <div class="info-field"><strong>Nombre del cliente:</strong> ${esc(c.nombre)}</div>
 <div class="info-field"><strong>Cédula / RUC:</strong> ${esc(c.identificacion || '—')}</div>
@@ -101,50 +118,33 @@ export function htmlActa(d: DatosActaDoc): string {
 <td style="width:50%;vertical-align:top">
 <div class="info-field"><strong>Ubicación:</strong> ${esc(c.direccion || '—')}</div>
 <div class="info-field"><strong>Contacto:</strong> ${esc(c.telefono || '—')}</div>
-<div class="info-field"><strong>Email:</strong> ${esc(c.email || '—')}</div></td></tr></table></div>`
-    + seccion('Detalle de Equipos Entregados')
-    + `<table class="doc-table"><thead><tr><th style="text-align:center">Cant.</th><th>Código</th><th>Equipo</th><th>N° de serie</th><th style="text-align:center">Garantía</th></tr></thead><tbody>${filasEntrega}</tbody></table>`
-    + seccion('Cláusulas')
-    + `<p>1. Todos los equipos en la presente acta, a partir de la firma, estarán bajo responsabilidad, buen uso y custodia de quien recibe.<br>
-2. Se deja constancia de que los equipos se encuentran instalados/entregados, revisados y en perfecto estado de funcionamiento.<br>${clausulaGarantia}</p>`
-    + `<table style="width:100%;margin-top:22px"><tr>
-<td style="width:50%;padding-right:10px;vertical-align:top"><div class="info-box"><strong style="color:${NAVY}">Entregado por (VIMEDIC)</strong><br><br>Firma: ____________________<br>Nombre: ____________________<br>C.I.: ____________________<br>Cargo: ____________________</div></td>
-<td style="width:50%;padding-left:10px;vertical-align:top"><div class="info-box"><strong style="color:${NAVY}">Recibido a entera satisfacción por</strong><br><br>Firma: ____________________<br>Nombre: ____________________<br>C.I.: ____________________<br>Cargo: ____________________</div></td></tr></table>`
-    + pieDocHtml()
+<div class="info-field"><strong>Email:</strong> ${esc(c.email || '—')}</div></td></tr></table></div>`,
+      equipos: (t) => titulo(t) + `<table class="doc-table"><thead><tr><th style="text-align:center">Cant.</th><th>Código</th><th>Equipo</th><th>N° de serie</th><th style="text-align:center">Garantía</th></tr></thead><tbody>${filasEntrega}</tbody></table>`,
+      firmas: (t) => titulo(t) + `<table style="width:100%;margin-top:22px"><tr>
+<td style="width:50%;padding-right:10px;vertical-align:top"><div class="info-box"><strong style="color:${NAVY()}">Entregado por (VIMEDIC)</strong><br><br>Firma: ____________________<br>Nombre: ____________________<br>C.I.: ____________________<br>Cargo: ____________________</div></td>
+<td style="width:50%;padding-left:10px;vertical-align:top"><div class="info-box"><strong style="color:${NAVY()}">Recibido a entera satisfacción por</strong><br><br>Firma: ____________________<br>Nombre: ____________________<br>C.I.: ____________________<br>Cargo: ____________________</div></td></tr></table>`,
+    },
+  }) + pieDocHtml()
 
   const carta = !conGarantia.length ? '' : '<div class="pagebreak"></div>'
-    + encabezado('CARTA DE', 'GARANTÍA', 'Quito DM, ' + fechaLetra, d.numeroFactura)
-    + `<p>Por la factura <span class="doc-badge" style="font-size:10px">N° ${esc(d.numeroFactura)}</span> con fecha ${fechaLetra} emitida a <strong>${esc(c.nombre)}</strong> con RUC <strong>${esc(c.identificacion || '')}</strong>, se confiere la presente carta de garantía de los siguientes equipos:</p>`
-    + seccion('Equipos en Garantía')
-    + `<table class="doc-table"><thead><tr><th>Código</th><th>Equipo</th><th style="text-align:center">Cant.</th><th>N° de serie</th><th style="text-align:center">Garantía</th></tr></thead><tbody>${filasGarantia}</tbody></table>`
-    + seccion('Condiciones de Garantía')
-    + `<p>1. Los equipos son entregados previa verificación de funcionamiento; se comprueba que se encuentran 100% operativos y en perfecto estado. Una vez recibidos a conformidad, no se aceptan cambios ni devoluciones.<br><br>
-2. Se otorga garantía por defectos de fábrica por el período indicado para cada equipo (<strong>${esc(d.garantiaTxt)}</strong>), contado desde la fecha de entrega. Esta garantía no incluye golpes, rayaduras, uso incorrecto, uso inadecuado u otros daños similares.<br><br>
-${d.nMant ? '3. Para que la garantía se mantenga vigente, el acreedor deberá realizar con nuestra institución los mantenimientos preventivos cada 6 meses, conforme a las fechas establecidas.<br><br>' : '3. Para hacer válida la garantía, el equipo deberá ser revisado por nuestro departamento técnico.<br><br>'}
-4. Cada mantenimiento, sea preventivo o correctivo, tiene un valor que será determinado por el departamento técnico luego de la revisión correspondiente y deberá ser cubierto por el acreedor.<br><br>
-5. Si durante un mantenimiento preventivo se detecta la necesidad de mantenimiento correctivo, este tendrá un valor adicional por reparación, repuestos y demás rubros aplicables.<br><br>
-6. Si el departamento técnico detecta manipulación o mantenimiento por parte de personal ajeno, la garantía se perderá inmediatamente.<br><br>
-7. Esta carta forma parte del Acta de Entrega / Entera Satisfacción N° ${esc(d.numeroFactura)}, firmada por el cliente; no requiere una firma adicional del cliente.</p>`
-    + (d.nMant ? seccion('Cronograma de Mantenimiento') + `<div style="width:78%;margin:0 auto 16px;border:1px solid #dde6f0;border-radius:12px;overflow:hidden">
+    + encabezado('carta_garantia', fechaLetra, d.numeroFactura) + armarBloques(plantillaDe('carta_garantia'), {
+      ...comun,
+      secciones: {
+        equipos_garantia: (t) => titulo(t) + `<table class="doc-table"><thead><tr><th>Código</th><th>Equipo</th><th style="text-align:center">Cant.</th><th>N° de serie</th><th style="text-align:center">Garantía</th></tr></thead><tbody>${filasGarantia}</tbody></table>`,
+        cronograma: (t) => !d.nMant ? '' : titulo(t) + `<div style="width:78%;margin:0 auto 16px;border:1px solid #dde6f0;border-radius:12px;overflow:hidden">
 <table style="width:100%"><thead><tr>
-<th style="background:${NAVY};color:#fff;padding:8px 9px;font-size:9.5px;text-transform:uppercase;text-align:center">Fecha de Mantenimiento</th>
-<th style="background:${NAVY};color:#fff;padding:8px 9px;font-size:9.5px;text-transform:uppercase;text-align:center">Observación</th></tr></thead><tbody>${filasMant}</tbody></table></div>` : '')
-    + `<p style="margin-top:20px">Sin otro particular que mencionar.<br>Saludos cordiales.</p>
-<p style="text-align:center;margin-top:8px">Atentamente</p>
-<div style="text-align:center;border:1px dashed #e2e8f0;border-radius:8px;padding:32px;margin:12px auto;width:260px;color:#cbd5e1;font-size:9.5px">Espacio para firma electrónica</div>
-<p style="text-align:center;margin-top:6px"><strong>${DIRECTOR_EJECUTIVO_NOMBRE}</strong><br>${DIRECTOR_EJECUTIVO_CARGO}</p>`
-    + pieDocHtml()
+<th style="background:${NAVY()};color:#fff;padding:8px 9px;font-size:9.5px;text-transform:uppercase;text-align:center">Fecha de Mantenimiento</th>
+<th style="background:${NAVY()};color:#fff;padding:8px 9px;font-size:9.5px;text-transform:uppercase;text-align:center">Observación</th></tr></thead><tbody>${filasMant}</tbody></table></div>`,
+      },
+    }) + pieDocHtml()
 
   const anexo = !d.anexo ? '' : '<div class="pagebreak"></div>'
-    + encabezado('ANEXO /', 'NÚMEROS DE SERIE', 'Quito, ' + fechaLetra, d.numeroFactura)
-    + '<p>En este anexo se colocarán los stickers correspondientes a los números de serie de los equipos entregados.</p>'
-    + seccion('Detalle de Series')
-    + `<table style="width:100%;border:1px solid #dde6f0"><thead><tr>
-<th style="background:${NAVY};color:#fff;padding:8px 6px;font-size:9px;text-transform:uppercase;width:60px">Código</th>
-<th style="background:${NAVY};color:#fff;padding:8px 6px;font-size:9px;text-transform:uppercase;width:160px">Equipo</th>
-<th style="background:${NAVY};color:#fff;padding:8px 6px;font-size:9px;text-transform:uppercase;text-align:center;width:45px">Cant.</th>
-<th style="background:${NAVY};color:#fff;padding:8px 6px;font-size:9px;text-transform:uppercase">Espacio para sticker de serie</th></tr></thead><tbody>${filasAnexo}</tbody></table>`
-    + pieDocHtml()
+    + encabezado('anexo_series', fechaLetra, d.numeroFactura) + armarBloques(plantillaDe('anexo_series'), {
+      ...comun,
+      secciones: {
+        series: (t) => titulo(t) + `<table style="width:100%;border:1px solid #dde6f0"><thead><tr>${th('Código', 'width:60px')}${th('Equipo', 'width:160px')}${th('Cant.', 'text-align:center;width:45px')}${th('Espacio para sticker de serie')}</tr></thead><tbody>${filasAnexo}</tbody></table>`,
+      },
+    }) + pieDocHtml()
 
   return `<style>${estiloActa()}</style><div class="vd">${acta}${carta}${anexo}</div>`
 }
@@ -167,15 +167,15 @@ export function htmlGuia(d: DatosGuia, tamano: number): string {
 .vg .logo{height:${Math.max(38, Math.round(tamano * 1.9))}px;max-width:320px;display:block}
 .vg .dato{margin:0 0 ${Math.max(4, Math.round(tamano / 3))}px;font-size:${tamano}px;white-space:pre-wrap;overflow-wrap:break-word;word-wrap:break-word}
 .vg .dato:last-child{margin-bottom:0}
-.vg .et{font-weight:700;color:${NAVY}}
-.vg .nombre{font-weight:700;color:${NAVY}}
-.vg .ciudad-txt{font-size:${tamano + 14}px;font-weight:800;color:${NAVY};text-align:center;letter-spacing:1px;margin:0}
-.vg .hdr{width:100%;border-collapse:collapse;margin:0 0 12px;border-bottom:3px solid ${NAVY}}
+.vg .et{font-weight:700;color:${NAVY()}}
+.vg .nombre{font-weight:700;color:${NAVY()}}
+.vg .ciudad-txt{font-size:${tamano + 14}px;font-weight:800;color:${NAVY()};text-align:center;letter-spacing:1px;margin:0}
+.vg .hdr{width:100%;border-collapse:collapse;margin:0 0 12px;border-bottom:3px solid ${NAVY()}}
 .vg .hdr td{padding:0 0 10px;vertical-align:middle}
-.vg .gtit{display:inline-block;color:${NAVY};font-family:Arial,Helvetica,sans-serif;font-size:24px;font-weight:bold;letter-spacing:0;text-transform:uppercase;white-space:nowrap}
-.vg .cb{border:3px solid ${NAVY};border-radius:10px;padding:${pad}px 16px;margin:0 0 10px;text-align:center}
-.vg .card{border:2px solid ${NAVY};border-radius:10px;margin:0 0 10px}
-.vg .bandc{color:${NAVY};font-weight:bold;letter-spacing:3px;font-size:${tamBand}px;padding:6px 16px;border-bottom:2px solid ${NAVY}}
+.vg .gtit{display:inline-block;color:${NAVY()};font-family:Arial,Helvetica,sans-serif;font-size:24px;font-weight:bold;letter-spacing:0;text-transform:uppercase;white-space:nowrap}
+.vg .cb{border:3px solid ${NAVY()};border-radius:10px;padding:${pad}px 16px;margin:0 0 10px;text-align:center}
+.vg .card{border:2px solid ${NAVY()};border-radius:10px;margin:0 0 10px}
+.vg .bandc{color:${NAVY()};font-weight:bold;letter-spacing:3px;font-size:${tamBand}px;padding:6px 16px;border-bottom:2px solid ${NAVY()}}
 .vg .cont{padding:${pad}px 16px}`
   const tarjeta = (t: string, c: string) => `<div class="card"><div class="bandc">${t}</div><div class="cont">${c}</div></div>`
   return `<style>${css}</style><div class="vg">

@@ -1,6 +1,6 @@
 /* Informe técnico / comprobante de recepción: HTML A4 → PDF en el navegador (sin guardar PDFs). */
 import { supabase } from '../supabase'
-import { encabezadoDocHtml } from '../documentoMarca'
+import { acentoDoc, colorDoc, encabezadoDocHtml } from '../documentoMarca'
 
 export type OrdenDoc = {
   codigo: string; tipo: string; empresa: string; cobertura: string; modalidad: string; cliente: string; identificacion: string; direccion: string; ciudad: string; contacto: string; telefono: string
@@ -38,7 +38,7 @@ export async function fotoDataUrl(ruta: string): Promise<string> {
 
 export async function htmlInforme(o: OrdenDoc, eq: EquipoDoc, variante: 'informe' | 'recepcion', logo = ''): Promise<{ titulo: string; cuerpo: string }> {
   const fm = o.empresa === 'FEMEDICS'
-  const C = fm ? { p: '#0e5b66', a: '#14a3b4', s: '#e6f6f8', l: '#cfe9ed' } : { p: '#055c9d', a: '#2ab9c7', s: '#eef4fb', l: '#d6e2ef' }
+  const C = fm ? { p: '#0e5b66', a: '#14a3b4', s: '#e6f6f8', l: '#cfe9ed' } : { p: colorDoc(), a: acentoDoc(), s: '#eef4fb', l: '#d6e2ef' }   // colores de la marca (Plantillas de documentos)
   const marca = fm ? 'FEMEDICS' : 'VIMEDIC', rec = variante === 'recepcion'
   const titulo = rec ? TITULOS.recepcion : TITULOS[o.tipo] || 'Informe Técnico'
   const numero = rec ? o.recepcionN : o.informeN

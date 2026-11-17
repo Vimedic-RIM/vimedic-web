@@ -1,6 +1,6 @@
 import {
   BookOpen, CalendarCheck, ChartNoAxesCombined, Contact, Database, Kanban, Landmark, Megaphone, Package,
-  Inbox, MapPinned, PackagePlus, ReceiptText, ScanLine, UserRound, Ship, ShieldCheck, Tag, Truck, UsersRound, Users, Warehouse, Wrench,
+  Inbox, LayoutTemplate, MapPinned, PackagePlus, ReceiptText, ScanLine, UserRound, Ship, ShieldCheck, Tag, Truck, UsersRound, Users, Warehouse, Wrench,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -37,6 +37,7 @@ export const MODULOS: Record<string, Modulo> = {
   solicitudes: { id: 'solicitudes', label: 'Solicitudes', desc: 'Aprobación de vacaciones, permisos y horas de tu equipo y validación de Talento Humano.', icono: Inbox, permiso: 'solicitudes', c: '#9d174d', listo: true },
   seguridad: { id: 'seguridad', label: 'Seguridad y Auditoría', desc: 'Usuarios, roles, sesiones activas y bitácora de actividad.', icono: ShieldCheck, permiso: 'seguridad', c: '#334155', listo: true },
   // En la base nueva "bases de datos" cuelga del módulo seguridad.
+  plantillas: { id: 'plantillas', label: 'Plantillas de documentos', desc: 'Logo, colores y diseño de proformas, actas, garantías, guías y constancias.', icono: LayoutTemplate, permiso: 'plantillas', c: '#055c9d', listo: true },
   basedatos: { id: 'basedatos', label: 'Bases de Datos', desc: 'Tablas, registros, exportaciones, respaldos y restauración.', icono: Database, permiso: 'basedatos', c: '#0f172a', listo: true },
 }
 
@@ -44,5 +45,5 @@ export const MODULOS: Record<string, Modulo> = {
 export const ORDEN_MODULOS = [
   'miperfil', 'crm', 'clientes', 'marketing', 'inventario', 'agenda', 'facturacion', 'dashboard', 'movimientos', 'femedics', 'bodega',
   'logistica', 'tracking', 'escanear', 'serviciotecnico', 'talentohumano', 'importaciones', 'articulos', 'adquisiciones', 'financiero', 'catalogos',
-  'ofertas', 'empleados', 'solicitudes', 'seguridad', 'basedatos',
+  'ofertas', 'empleados', 'solicitudes', 'seguridad', 'plantillas', 'basedatos',
 ]

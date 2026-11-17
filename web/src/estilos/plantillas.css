@@ -1,0 +1,72 @@
+/* Plantillas de documentos (modulos/Plantillas.tsx). Usa además el kit común .vm-ui (comun.css). */
+.vm-pla{--line:#e2e8f0;--muted:#64748b;--ink:#0b2545;color:#1e293b;font-family:Inter,sans-serif}
+.vm-pla .pla-hdr{background:linear-gradient(120deg,#0b2545,var(--primary,#055c9d));color:#fff;padding:18px 20px;border-radius:0 0 18px 18px}
+.vm-pla .pla-hdr h1{font-family:"Space Grotesk",sans-serif;font-size:20px;font-weight:700;margin:0}
+.vm-pla .pla-hdr p{font-size:12px;opacity:.8;margin:2px 0 0}
+.vm-pla .pla-cuerpo{padding:14px 16px 40px;display:grid;grid-template-columns:230px minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
+@media(max-width:1280px){.vm-pla .pla-cuerpo{grid-template-columns:210px minmax(0,1fr)}.vm-pla .pla-previa{grid-column:1/-1}}
+@media(max-width:820px){.vm-pla .pla-cuerpo{grid-template-columns:minmax(0,1fr);padding:12px}}
+.vm-pla .pla-lista{display:flex;flex-direction:column;gap:6px}
+@media(max-width:820px){.vm-pla .pla-lista{flex-direction:row;overflow-x:auto;padding-bottom:4px}.vm-pla .pla-doc{min-width:190px}}
+.vm-pla .pla-doc{display:flex;gap:10px;align-items:flex-start;text-align:left;border:1px solid var(--line);background:#fff;border-radius:12px;padding:10px 11px;cursor:pointer;font:inherit;color:inherit}
+.vm-pla .pla-doc:hover{border-color:#bfd5ea}
+.vm-pla .pla-doc.on{border-color:var(--primary,#055c9d);box-shadow:0 0 0 3px rgba(5,92,157,.12);background:#f5f9fd}
+.vm-pla .pla-doc svg{width:17px;height:17px;flex-shrink:0;margin-top:1px;color:var(--primary,#055c9d)}
+.vm-pla .pla-doc b{display:block;font-size:12.5px;color:var(--ink)}
+.vm-pla .pla-doc small{display:block;font-size:10.5px;color:var(--muted);line-height:1.35;margin-top:2px}
+.vm-pla .pla-doc .mod{display:inline-block;margin-top:4px;font-size:9.5px;font-weight:800;color:#b45309;background:#fff7ed;border-radius:99px;padding:1px 7px}
+.vm-pla .pla-panel{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px}
+.vm-pla .pla-panel h2{font-family:"Space Grotesk",sans-serif;font-size:15px;font-weight:700;color:var(--ink);margin:0}
+.vm-pla .pla-panel .sub{font-size:11.5px;color:var(--muted);margin:2px 0 12px}
+.vm-pla .lab{display:block;font-size:10.5px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:10px 0 4px}
+.vm-pla .fila2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+@media(max-width:520px){.vm-pla .fila2{grid-template-columns:1fr}}
+.vm-pla .inp{width:100%}
+.vm-pla textarea.inp{resize:vertical;line-height:1.5;font-size:12.5px}
+.vm-pla .bloques{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.vm-pla .bq{border:1px solid var(--line);border-radius:12px;background:#fbfdff}
+.vm-pla .bq.oculto{opacity:.55;background:#f8fafc}
+.vm-pla .bq.arrastrando{opacity:.4}
+.vm-pla .bq.encima{border-color:var(--primary,#055c9d);box-shadow:0 -3px 0 var(--primary,#055c9d)}
+.vm-pla .bq-cab{display:flex;align-items:center;gap:6px;padding:7px 8px}
+.vm-pla .bq-asa{cursor:grab;color:#94a3b8;display:grid;place-items:center;width:22px;height:26px;flex-shrink:0}
+.vm-pla .bq-asa svg{width:16px;height:16px}
+.vm-pla .bq-ico{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;flex-shrink:0}
+.vm-pla .bq-ico svg{width:14px;height:14px}
+.vm-pla .bq-txt{flex:1;min-width:0}
+.vm-pla .bq-txt b{display:block;font-size:12px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vm-pla .bq-txt small{display:block;font-size:10.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vm-pla .ib{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;color:#64748b;background:none;border:0;cursor:pointer;flex-shrink:0}
+.vm-pla .ib:hover{background:#eef2f7;color:var(--ink)}
+.vm-pla .ib:disabled{opacity:.3;cursor:default;background:none}
+.vm-pla .ib svg{width:15px;height:15px}
+.vm-pla .ib.rojo:hover{background:#fdecea;color:#c0392b}
+.vm-pla .bq-ed{border-top:1px dashed var(--line);padding:4px 10px 10px}
+.vm-pla .chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.vm-pla .chip{border:1px solid #d6e2ef;background:#eef6fd;color:#055c9d;border-radius:99px;padding:2px 8px;font-size:10.5px;font-weight:700;cursor:pointer;font-family:"IBM Plex Mono",monospace}
+.vm-pla .chip:hover{background:#dcecfa}
+.vm-pla .agregar{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;padding:10px;border:1px dashed #cbd5e1;border-radius:12px;background:#f8fafc}
+.vm-pla .agregar span{font-size:11px;font-weight:800;color:var(--muted);align-self:center;margin-right:4px}
+.vm-pla .barra{position:sticky;bottom:0;display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:14px;padding:10px;border-radius:12px;background:#fff;border:1px solid var(--line);box-shadow:0 -8px 20px -16px rgba(11,37,69,.4)}
+.vm-pla .barra .esp{flex:1}
+.vm-pla .aviso-sucio{font-size:11px;font-weight:800;color:#b45309}
+.vm-pla .pla-previa{position:sticky;top:10px}
+.vm-pla .previa-marco{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#e2e8f0}
+.vm-pla .previa-marco iframe{display:block;width:100%;height:78vh;border:0;background:#e2e8f0}
+.vm-pla .previa-cab{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.vm-pla .previa-cab b{font-size:12px;color:var(--ink)}
+.vm-pla .previa-cab small{font-size:10.5px;color:var(--muted)}
+.vm-pla .logo-caja{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px;border:1px solid var(--line);border-radius:12px;background:#fbfdff}
+.vm-pla .logo-caja img{max-width:200px;max-height:60px;object-fit:contain;background:#fff}
+.vm-pla .colores{display:flex;gap:12px;flex-wrap:wrap}
+.vm-pla .colores label{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:var(--ink)}
+.vm-pla .colores input[type=color]{width:42px;height:32px;border:1px solid var(--line);border-radius:8px;padding:2px;background:#fff;cursor:pointer}
+.vm-pla .check{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink);margin-top:8px}
+.vm-pla .hist{margin-top:10px;border:1px solid var(--line);border-radius:12px;max-height:260px;overflow:auto}
+.vm-pla .hist-f{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid #f1f5f9;font-size:11.5px}
+.vm-pla .hist-f:last-child{border-bottom:0}
+.vm-pla .hist-f .v{font-family:"IBM Plex Mono",monospace;font-weight:800;color:#055c9d;width:34px;flex-shrink:0}
+.vm-pla .hist-f .d{flex:1;min-width:0;color:#334155}
+.vm-pla .hist-f .d small{display:block;color:var(--muted)}
+.vm-pla .nota-ayuda{font-size:11px;color:var(--muted);line-height:1.5;margin-top:6px}
+.vm-pla .solo-ver{font-size:11.5px;font-weight:700;color:#b45309;background:#fff7ed;border:1px solid #fde2c3;border-radius:10px;padding:8px 10px;margin-bottom:10px}

@@ -41,7 +41,7 @@ Dos proyectos de Supabase: **vimedic-pruebas** (QA) y **vimedic-produccion**. Nu
 - Acciones: `ver`, `crear`, `editar`, `eliminar`, `aprobar`, `exportar`, `ver_todos`, `ver_costos`, `respaldar`, `restaurar` (solo basedatos), `administrar`.
 - Módulos: crm, clientes, femedics, inventario, movimientos, facturacion, agenda, empleados, dashboard,
   marketing, catalogos, ofertas, promociones, documentos_tecnicos, bodega, logistica, importaciones,
-  servicio_tecnico, talento_humano, financiero, seguridad.
+  servicio_tecnico, talento_humano, financiero, seguridad, plantillas (Plantillas de documentos).
 - En SQL: `app.puede('crm','editar')`, `app.puede_alguno(array[...], 'ver')`, `app.es_superadmin()`, `app.empleado_id()`.
 - En el frontend: `supabase.rpc('mi_perfil')` devuelve el empleado, su rol y sus permisos efectivos.
 - CRM: un asesor ve solo sus leads/cotizaciones/clientes y los de su equipo; `ver_todos` ve todo.

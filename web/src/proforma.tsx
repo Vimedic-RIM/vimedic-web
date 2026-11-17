@@ -3,6 +3,8 @@ import { BadgePercent, Download, Printer, X } from 'lucide-react'
 import { imagen } from './modulos/inventarioUtil'
 import { nombreOferta, ofertaAplicada, pctTexto, type OfertaLinea } from './modulos/ofertaLinea'
 import { supabase } from './supabase'
+import { logoDocUrl, marcaDoc, PIE_FEMEDICS } from './documentoMarca'
+import { armarBloques, cargarPlantillas, plantillaDe } from './plantillas'
 
 /* Proforma / comprobante de venta en HTML listo para imprimir o guardar como PDF en A4.
    Mismo diseño que la proforma de la app original (Documentos.gs → generateInternalQuotePDFBase_). */
@@ -26,7 +28,11 @@ const m2 = (n: number) => '$' + n.toFixed(2)
 
 function armar(d: DatosDoc, base: string): { titulo: string; cuerpo: string } {
   const femedics = d.empresa === 'FEMEDICS'
-  const pie = femedics ? 'FEMEDICS IMPORTACIONES · Distribuidor autorizado de la marca VIMEDIC' : 'Quito, Ecuador — Agende su visita a nuestras salas de exhibición'
+  // Marca (logo, colores, leyenda, pie) y orden de las partes: Plantillas de documentos › «Proforma / Cotización» o «Comprobante de venta».
+  const m = marcaDoc(), c = m.color, ac = m.acento
+  const plantilla = plantillaDe(d.tipo === 'Venta' ? 'venta' : 'proforma')
+  const pie = femedics ? PIE_FEMEDICS : m.pie
+  const leyenda = femedics || !m.mostrarLeyenda ? '' : m.leyenda
   let total = 0, baseIva = 0
   const filas = d.items.map((i, k) => {
     const unit = Number(i.precio) || 0, cant = Number(i.cantidad) || 0, pct = Number(i.descuento) || 0
@@ -40,7 +46,7 @@ function armar(d: DatosDoc, base: string): { titulo: string; cuerpo: string } {
       `<tr><td class="l">CANTIDAD:</td><td class="r">${cant}</td></tr>` +
       (enPromo ? `<tr><td class="l">PRECIO NORMAL:</td><td class="r" style="color:#94a3b8;text-decoration:line-through">${m2(unit)}</td></tr>` : `<tr><td class="l">P. UNITARIO:</td><td class="r">${m2(unit)}</td></tr>`) +
       (pct > 0 ? `<tr><td class="l">DESCUENTO (%):</td><td class="r" style="color:#c0392b">${pct.toFixed(2)}%</td></tr><tr><td class="l">AHORRO (USD):</td><td class="r" style="color:#c0392b">${m2(ahorro)}</td></tr><tr><td class="l" style="color:#0b2545">${enPromo ? 'PRECIO PROMOCIÓN:' : 'V. UNIT. CON DESC.:'}</td><td class="r" style="color:#04896f">${m2(unit * (1 - pct / 100))}</td></tr>` : '') +
-      `<tr><td class="l" style="color:#0b2545;font-weight:bold;padding-top:4px;border-top:1px solid #e2e8f0">SUBTOTAL (USD):</td><td class="r" style="color:#055c9d;padding-top:4px;border-top:1px solid #e2e8f0">${m2(sub)}</td></tr>`
+      `<tr><td class="l" style="color:#0b2545;font-weight:bold;padding-top:4px;border-top:1px solid #e2e8f0">SUBTOTAL (USD):</td><td class="r" style="color:${c};padding-top:4px;border-top:1px solid #e2e8f0">${m2(sub)}</td></tr>`
     return `<tr class="fila">
       <td style="text-align:center;font-size:11px">${k + 1}</td>
       <td style="text-align:center;width:70px">${img}</td>
@@ -48,7 +54,7 @@ function armar(d: DatosDoc, base: string): { titulo: string; cuerpo: string } {
         ${i.categoria ? `<span style="color:#64748b;font-size:10px">${esc(i.categoria)}</span>` : ''}
         ${i.descripcion ? `<div style="color:#475569;font-size:9.5px;margin-top:5px;line-height:1.5;white-space:pre-line">${esc(i.descripcion)}</div>` : ''}
         ${i.observacion ? `<div style="margin-top:4px;font-size:9.5px;font-weight:bold;color:#b45309">📌 ${esc(i.observacion)}</div>` : ''}
-        ${i.carpeta || i.ficha ? `<div style="margin-top:7px">${i.carpeta ? `<a href="${esc(i.carpeta)}" class="btn-doc" style="background:#04896f">🖼️ Ver Imágenes</a>` : ''}${i.ficha ? `<a href="${esc(i.ficha)}" class="btn-doc" style="background:#055c9d">📄 Ver Ficha Técnica</a>` : ''}</div>` : ''}</td>
+        ${i.carpeta || i.ficha ? `<div style="margin-top:7px">${i.carpeta ? `<a href="${esc(i.carpeta)}" class="btn-doc" style="background:#04896f">🖼️ Ver Imágenes</a>` : ''}${i.ficha ? `<a href="${esc(i.ficha)}" class="btn-doc" style="background:${c}">📄 Ver Ficha Técnica</a>` : ''}</div>` : ''}</td>
       <td style="width:155px"><table style="width:100%;font-size:9.5px;border-collapse:collapse">${tot}</table></td></tr>`
   }).join('')
   const iva = baseIva * 0.15, totalIva = total + iva
@@ -57,55 +63,64 @@ function armar(d: DatosDoc, base: string): { titulo: string; cuerpo: string } {
   const cajaPago = pe ? `<div class="box" style="margin:0 0 15px"><div class="box-title">Detalles de Pago y Entrega</div>
     <table class="details-table"><tr><td style="width:85px"><strong>Pago:</strong></td><td>${esc(pe.pago || '—')}</td></tr>
     <tr><td><strong>Entrega:</strong></td><td>${esc(pe.entrega || '—')}${(pe.detalle ?? []).map((x) => '<br><span style="color:#64748b">' + esc(x) + '</span>').join('')}</td></tr></table></div>` : ''
-  const titulo = d.tipo === 'Venta' ? 'COMPROBANTE DE VENTA' : 'PROFORMA / COTIZACIÓN'
-  const etiqueta = d.tipo === 'Venta' ? 'Nº VENTA' : 'Nº SOLICITUD'
-
-  const cuerpo = `<style>
-  .pdoc { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #1e293b; background: #fff; width: 186mm; margin: 0 auto; padding: 0; font-size: 12px; }
-  .pdoc * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .pdoc table { border-collapse: collapse; } .pdoc p { margin: 0; }
-  .pdoc .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 3px solid #055c9d; padding-bottom: 12px; }
-  .pdoc .logo { width: 160px; max-height: 60px; object-fit: contain; }
-  .pdoc .company-info { text-align: right; font-size: 11px; color: #365679; }
-  .pdoc .title { font-size: 18px; color: #055c9d; font-weight: bold; text-transform: uppercase; margin-bottom: 2px; }
-  .pdoc .grid2 { display: flex; gap: 6px; margin-bottom: 15px; }
-  .pdoc .grid2 > div { flex: 1; }
-  .pdoc .box { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; }
-  .pdoc .box-title { font-size: 11px; font-weight: bold; color: #055c9d; text-transform: uppercase; margin-bottom: 6px; border-bottom: 1px solid #e2e8f0; line-height: 13px; padding-bottom: 7px; }
-  .pdoc .details-table { width: 100%; border-collapse: collapse; font-size: 11px; } .pdoc .details-table td { padding: 2px 0; }
-  .pdoc .items { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 10px; }
-  .pdoc .items th { background: #055c9d; color: #fff; border: 0; line-height: 13px; padding: 6px 8px 12px; font-size: 11px; text-align: left; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .pdoc .items td { padding: 10px 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
-  .pdoc .fila { break-inside: avoid; page-break-inside: avoid; }
-  .pdoc .l { color: #64748b; padding: 1.5px 0; } .pdoc .r { text-align: right; font-weight: bold; padding: 1.5px 0; }
-  .pdoc .btn-doc { display: inline-block; color: #fff; text-decoration: none; font-size: 9px; font-weight: bold; line-height: 12px; padding: 3px 10px 7px; border-radius: 5px; margin: 0 5px 0 0; vertical-align: top; white-space: nowrap; overflow: visible; }
-  .pdoc .sin-iva { background: #f1f5f9; color: #64748b; font-size: 8.5px; font-weight: bold; padding: 1px 5px; border-radius: 4px; }
-  .pdoc .totales { width: 260px; margin-left: auto; margin-top: 10px; font-size: 12px; border-collapse: collapse; break-inside: avoid; }
-  .pdoc .totales td { padding: 4px 6px; } .pdoc .totales .grand td { padding-top: 8px; font-weight: bold; font-size: 14px; color: #055c9d; border-top: 2px solid #055c9d; }
-  .pdoc .footer { margin-top: 30px; text-align: center; font-size: 10px; color: #64748b; border-top: 1px solid #e2e8f0; padding-top: 12px; }
-  .pdoc .badge { background: #2ab9c7; color: #fff; display: inline-block; line-height: 13px; padding: 3px 8px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; }
-
-</style><div class="pdoc">
-  <div class="header">
-    <div>${femedics ? '<div style="font-size:20px;font-weight:bold;color:#055c9d">FEMEDICS</div>' : `<img src="${esc(base)}logo-documento.png" class="logo" alt="VIMEDIC" />`}</div>
-    <div class="company-info"><div class="title">${titulo}</div>${femedics ? '' : '<div>' + pie + '</div>'}</div>
-  </div>
-  <div style="display:flex;justify-content:space-between;margin-bottom:15px">
-    <span class="badge">${etiqueta}: ${esc(d.codigo)}</span>
-    <span style="font-size:11px;color:#475569"><strong>Fecha:</strong> ${esc(d.fecha)}</span>
-  </div>
-  <div class="grid2">
+  const tituloSec = (h: string) => (h ? `<div class="box-title" style="margin-top:12px">${h}</div>` : '')
+  const cuerpoBloques = armarBloques(plantilla, {
+    vars: { cliente: esc(d.cliente.nombre), ruc: esc(d.cliente.identificacion), fecha: esc(d.fecha), numero: esc(d.codigo), asesor: esc(d.asesor), correo: esc(d.cliente.email), telefono: esc(d.cliente.telefono), total: m2(totalIva) },
+    tituloSeccion: tituloSec, letra: 11,
+    secciones: {
+      datos: (t) => tituloSec(esc(t)) + `<div class="grid2">
     <div class="box"><div class="box-title">Datos del Cliente</div><table class="details-table">
       <tr><td style="width:85px"><strong>Nombre:</strong></td><td>${esc(d.cliente.nombre)}</td></tr>
       <tr><td><strong>Cédula / RUC:</strong></td><td>${esc(d.cliente.identificacion)}</td></tr>
       <tr><td><strong>Correo:</strong></td><td>${esc(d.cliente.email)}</td></tr>
       <tr><td><strong>Teléfono:</strong></td><td>${esc(d.cliente.telefono)}</td></tr></table></div>
     <div class="box"><div class="box-title">Asesor Comercial</div><table class="details-table"><tr><td style="width:85px"><strong>Nombre:</strong></td><td>${esc(d.asesor)}</td></tr></table></div>
+  </div>`,
+      nota: (t) => (nota ? tituloSec(esc(t)) + nota : ''),
+      pago_entrega: (t) => (cajaPago ? tituloSec(esc(t)) + cajaPago : ''),
+      productos: (t) => tituloSec(esc(t)) + `<table class="items"><thead><tr><th style="width:25px;text-align:center">#</th><th style="width:70px;text-align:center">Img</th><th>Producto</th><th style="width:155px;text-align:right">Totales</th></tr></thead><tbody>${filas}</tbody></table>`,
+      totales: (t) => tituloSec(esc(t)) + `<table class="totales"><tr><td>Subtotal:</td><td style="text-align:right">${m2(total)}</td></tr><tr><td>IVA (15%):</td><td style="text-align:right">${m2(iva)}</td></tr><tr class="grand"><td>TOTAL:</td><td style="text-align:right">${m2(totalIva)}</td></tr></table>`,
+    },
+  })
+  const titulo = esc(plantilla.titulo) + (plantilla.titulo2 ? '<br>' + esc(plantilla.titulo2) : '')
+  const etiqueta = d.tipo === 'Venta' ? 'Nº VENTA' : 'Nº SOLICITUD'
+
+  const cuerpo = `<style>
+  .pdoc { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #1e293b; background: #fff; width: 186mm; margin: 0 auto; padding: 0; font-size: 12px; }
+  .pdoc * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .pdoc table { border-collapse: collapse; } .pdoc p { margin: 0; }
+  .pdoc .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 3px solid ${c}; padding-bottom: 12px; }
+  .pdoc .logo { width: 160px; max-height: 60px; object-fit: contain; }
+  .pdoc .company-info { text-align: right; font-size: 11px; color: #365679; }
+  .pdoc .title { font-size: 18px; color: ${c}; font-weight: bold; text-transform: uppercase; margin-bottom: 2px; }
+  .pdoc .grid2 { display: flex; gap: 6px; margin-bottom: 15px; }
+  .pdoc .grid2 > div { flex: 1; }
+  .pdoc .box { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; }
+  .pdoc .box-title { font-size: 11px; font-weight: bold; color: ${c}; text-transform: uppercase; margin-bottom: 6px; border-bottom: 1px solid #e2e8f0; line-height: 13px; padding-bottom: 7px; }
+  .pdoc .details-table { width: 100%; border-collapse: collapse; font-size: 11px; } .pdoc .details-table td { padding: 2px 0; }
+  .pdoc .items { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 10px; }
+  .pdoc .items th { background: ${c}; color: #fff; border: 0; line-height: 13px; padding: 6px 8px 12px; font-size: 11px; text-align: left; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .pdoc .items td { padding: 10px 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+  .pdoc .fila { break-inside: avoid; page-break-inside: avoid; }
+  .pdoc .l { color: #64748b; padding: 1.5px 0; } .pdoc .r { text-align: right; font-weight: bold; padding: 1.5px 0; }
+  .pdoc .btn-doc { display: inline-block; color: #fff; text-decoration: none; font-size: 9px; font-weight: bold; line-height: 12px; padding: 3px 10px 7px; border-radius: 5px; margin: 0 5px 0 0; vertical-align: top; white-space: nowrap; overflow: visible; }
+  .pdoc .sin-iva { background: #f1f5f9; color: #64748b; font-size: 8.5px; font-weight: bold; padding: 1px 5px; border-radius: 4px; }
+  .pdoc .totales { width: 260px; margin-left: auto; margin-top: 10px; font-size: 12px; border-collapse: collapse; break-inside: avoid; }
+  .pdoc .totales td { padding: 4px 6px; } .pdoc .totales .grand td { padding-top: 8px; font-weight: bold; font-size: 14px; color: ${c}; border-top: 2px solid ${c}; }
+  .pdoc .footer { margin-top: 30px; text-align: center; font-size: 10px; color: #64748b; border-top: 1px solid #e2e8f0; padding-top: 12px; }
+  .pdoc .badge { background: ${ac}; color: #fff; display: inline-block; line-height: 13px; padding: 3px 8px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; }
+
+</style><div class="pdoc">
+  <div class="header">
+    <div>${femedics ? '<div style="font-size:20px;font-weight:bold;color:${c}">FEMEDICS</div>' : `<img src="${esc(logoDocUrl(base))}" class="logo" alt="VIMEDIC" />`}</div>
+    <div class="company-info"><div class="title">${titulo}</div>${leyenda ? '<div>' + esc(leyenda) + '</div>' : ''}</div>
   </div>
-  ${nota}${cajaPago}
-  <table class="items"><thead><tr><th style="width:25px;text-align:center">#</th><th style="width:70px;text-align:center">Img</th><th>Producto</th><th style="width:155px;text-align:right">Totales</th></tr></thead><tbody>${filas}</tbody></table>
-  <table class="totales"><tr><td>Subtotal:</td><td style="text-align:right">${m2(total)}</td></tr><tr><td>IVA (15%):</td><td style="text-align:right">${m2(iva)}</td></tr><tr class="grand"><td>TOTAL:</td><td style="text-align:right">${m2(totalIva)}</td></tr></table>
-  <div class="footer"><p>${pie}</p></div>
+  <div style="display:flex;justify-content:space-between;margin-bottom:15px">
+    <span class="badge">${etiqueta}: ${esc(d.codigo)}</span>
+    <span style="font-size:11px;color:#475569"><strong>Fecha:</strong> ${esc(d.fecha)}</span>
+  </div>
+  ${cuerpoBloques}
+  ${pie ? `<div class="footer"><p>${esc(pie)}</p></div>` : ''}
 </div>`
   return { titulo: (d.tipo === 'Venta' ? 'Venta_' : 'Proforma_') + d.codigo.replace(/[^\w.-]+/g, '_'), cuerpo }
 }
@@ -133,6 +148,9 @@ export async function enriquecerItems(items: ItemDoc[]): Promise<ItemDoc[]> {
 /* Visor dentro de la app: vista previa A4 + botón para imprimir / guardar como PDF (sin ventanas emergentes). */
 export function ProformaVisor({ datos, cerrar }: { datos: DatosDoc; cerrar: () => void }) {
   const ref = useRef<HTMLIFrameElement>(null)
+  // Plantilla vigente (Plantillas de documentos): se vuelve a armar en cuanto llega de la base.
+  const [, setCargada] = useState(0)
+  useEffect(() => { let vivo = true; cargarPlantillas().then(() => { if (vivo) setCargada((x) => x + 1) }); return () => { vivo = false } }, [])
   const html = htmlProforma(datos, window.location.origin + '/')
   useEffect(() => { const f = (e: KeyboardEvent) => { if (e.key === 'Escape') cerrar() }; document.addEventListener('keydown', f); return () => document.removeEventListener('keydown', f) }, [cerrar])
   const [descargando, setDescargando] = useState(false)
@@ -140,6 +158,7 @@ export function ProformaVisor({ datos, cerrar }: { datos: DatosDoc; cerrar: () =
   const descargar = async () => {
     setDescargando(true)
     try {
+      await cargarPlantillas()
       const html2pdf = (await import('html2pdf.js')).default
       const nombre = (datos.tipo === 'Venta' ? 'Venta_' : 'Proforma_') + datos.codigo.replace(/[^\w.-]+/g, '_') + '.pdf'
       await html2pdf().set({
