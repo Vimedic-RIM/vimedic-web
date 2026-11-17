@@ -32,7 +32,7 @@ const TOGGLES: Tog[] = [
   { k: 'logistica', t: 'Acceso a Logística', d: 'Envíos, entregas y seguimiento de pedidos.', mod: 'logistica' },
   { k: 'tracking', t: 'Acceso a Trackings', d: 'Seguimiento de pedidos por etapa, atrasos y errores. Con "editar" configura los tiempos objetivo.', mod: 'tracking' },
   { k: 'serviciotecnico', t: 'Acceso a Servicio Técnico', d: 'Órdenes de servicio, mantenimientos e instalaciones.', mod: 'servicio_tecnico' },
-  { k: 'documentostecnicos', t: 'Subir documentos técnicos', d: 'Manuales, hojas de datos, certificados y registros de cada equipo, sin acceso al resto de Servicio Técnico.', mod: 'documentos_tecnicos' },
+  { k: 'documentostecnicos', t: 'Ver documentos técnicos', d: 'Ve los manuales, hojas de datos, certificados y registros de cada equipo en la ficha del producto (Inventario). Para subirlos o cambiarlos, activa «crear» y «editar» de Documentos técnicos en la tabla de abajo.', mod: 'documentos_tecnicos' },
   { k: 'talentohumano', t: 'Acceso a Talento Humano', d: 'Personal, solicitudes, permisos y capacitaciones.', mod: 'talento_humano' },
   { k: 'importaciones', t: 'Acceso a Importaciones', d: 'Pedidos a proveedores, embarques y nacionalización.', mod: 'importaciones' },
   { k: 'importacionesaprueba', t: 'Aprueba importaciones (Gerencia)', d: 'Aprueba órdenes de compra y pagos al exterior en Importaciones.', fondo: 'indigo', mod: 'importaciones', acc: 'aprobar' },

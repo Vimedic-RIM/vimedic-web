@@ -768,3 +768,10 @@ Cotizaciones anteriores (sin copia) toman los términos actuales al abrir la pro
 |---|---|---|
 | Acta de entrega, guía de despacho y etiqueta de envío | Se generan en HTML al instante y se abren en un visor dentro de la app (vista A4, «Imprimir», «Descargar PDF», «Editar»), igual que la proforma. Antes se armaba un PDF y se subía a Drive antes de abrirlo en otra pestaña, y el navegador bloqueaba esa pestaña (había que generar dos veces) | `VisorDocumento.tsx`, `Facturacion.tsx` |
 | Dónde se guardan | HTML en el bucket privado «despachos» (actas/ y guias/); «Ver acta / guía» lo abre en el visor. Las actas y guías anteriores en Drive (PDF) se siguen abriendo en otra pestaña | Migración 20261117140000; pruebas supabase/tests/facturacion_actas_storage.sql (4/4) |
+
+## Inventario › Documentos técnicos con autorización (17-nov-2026)
+
+| Qué | Cómo | Dónde |
+|---|---|---|
+| Ver documentos técnicos en Inventario | La ficha del producto muestra sus documentos técnicos (manual, hoja de datos, certificado, registro sanitario, otro) con tipo, versión y vencimiento (vencido / por vencer); de un mismo documento, la versión más reciente es la vigente | `Inventario.tsx` (DocumentosTecnicos) |
+| Autorización | Empleados › «Ver documentos técnicos» (documentos_tecnicos › ver). La base de datos solo deja leerlos a quien la tiene, a Servicio Técnico y a Marketing (antes los leía cualquier módulo con productos). Se suben en Marketing › Multimedia (crear/editar de Documentos técnicos) | Migración 20261117150000; pruebas supabase/tests/documentos_tecnicos_ver.sql (6/6) |

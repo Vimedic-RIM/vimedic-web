@@ -1003,6 +1003,7 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
           editar={editar}
           eliminar={puede(perfil, 'inventario', 'eliminar')}
           verMovimientos={puede(perfil, 'movimientos', 'ver')}
+          verDocs={puede(perfil, 'documentos_tecnicos', 'ver')}
           irAMovimientos={irAMovimientos}
           car={car}
           cerrar={() => setCajon(null)}
@@ -1207,9 +1208,46 @@ function urlVideoEmbed(url: string): string | null {
   return null
 }
 
-function DetalleProducto({ p, editar, eliminar, verMovimientos, irAMovimientos, cerrar, abrirEditar, eliminado, car, editarMultimedia }: {
+/* Documentos técnicos del producto (manuales, hojas de datos, certificados, registros): solo con la autorización
+   «Documentos técnicos» en Empleados. Se suben en Marketing › Multimedia. */
+type DocTec = { id: string; tipo: string; nombre: string; url: string | null; version: string | null; vence: string | null; created_at: string }
+function DocumentosTecnicos({ productoId }: { productoId: string }) {
+  const [docs, setDocs] = useState<DocTec[] | null>(null)
+  useEffect(() => {
+    setDocs(null)
+    supabase.from('documentos_tecnicos').select('id,tipo,nombre,url,version,vence,created_at').eq('producto_id', productoId).is('deleted_at', null)
+      .order('tipo').order('created_at', { ascending: false })
+      .then(({ data }) => setDocs((data as DocTec[] | null) ?? []))
+  }, [productoId])
+  const hoy = new Date().toISOString().slice(0, 10), en60 = new Date(Date.now() + 60 * 864e5).toISOString().slice(0, 10)
+  const vistos = new Set<string>()
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-3">
+      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Documentos técnicos</p>
+      {docs === null ? <p className="text-xs text-slate-400">Cargando…</p>
+        : !docs.length ? <p className="text-xs text-slate-500">Este producto todavía no tiene documentos técnicos (se suben en Marketing › Multimedia).</p>
+        : <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{docs.map((d) => {
+            // De un mismo documento con varias versiones, la más reciente es la vigente; las demás quedan como anteriores.
+            const clave = d.tipo + '|' + d.nombre.toLowerCase(), anterior = vistos.has(clave); vistos.add(clave)
+            const venc = d.vence ? (d.vence < hoy ? { t: 'Vencido el ' + fechaCorta(d.vence), c: '#b91c1c' } : d.vence <= en60 ? { t: 'Vence el ' + fechaCorta(d.vence), c: '#b45309' } : { t: 'Vigente hasta ' + fechaCorta(d.vence), c: '#047857' }) : null
+            const cuerpo = <>
+              <FileText className="w-4 h-4 shrink-0" style={{ color: anterior ? '#94a3b8' : 'var(--primary)', marginTop: 1 }} />
+              <span className="min-w-0 flex-1">
+                <span className="block text-xs font-semibold leading-snug" style={{ color: anterior ? '#94a3b8' : '#0f172a', overflowWrap: 'anywhere' }}>{d.nombre}</span>
+                <span className="block text-[10.5px] text-slate-500">{d.tipo}{d.version ? ' · v' + d.version : ''}{anterior ? ' · versión anterior' : ''}{venc && !anterior ? <> · <b style={{ color: venc.c }}>{venc.t}</b></> : null}</span>
+              </span>
+            </>
+            return d.url
+              ? <a key={d.id} href={d.url} target="_blank" rel="noopener noreferrer" className="flex items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-slate-50" style={{ textDecoration: 'none' }}>{cuerpo}</a>
+              : <div key={d.id} className="flex items-start gap-2 rounded-lg px-2 py-1.5">{cuerpo}</div>
+          })}</div>}
+    </div>
+  )
+}
+
+function DetalleProducto({ p, editar, eliminar, verMovimientos, irAMovimientos, cerrar, abrirEditar, eliminado, car, editarMultimedia, verDocs }: {
   p: Fila; editar: boolean; eliminar: boolean; verMovimientos?: boolean; irAMovimientos?: (codigo: string) => void
-  cerrar: () => void; abrirEditar: (id: string) => void; eliminado: () => void; car: Carrito | null; editarMultimedia?: () => void
+  cerrar: () => void; abrirEditar: (id: string) => void; eliminado: () => void; car: Carrito | null; editarMultimedia?: () => void; verDocs?: boolean
 }) {
   const ofP = useOferta(p.id), ofD = useOfertaDis(p.id), bp = ofertaCopiaPvp(ofP, p), bd = ofertaCopiaDis(ofD, p)
   const nCot = car?.cant(p.id) ?? 0
@@ -1401,6 +1439,7 @@ function DetalleProducto({ p, editar, eliminar, verMovimientos, irAMovimientos, 
                 <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-line">{v}</p>
               </div>
             ))}
+            {verDocs && <DocumentosTecnicos productoId={p.id} />}
           </div>
         </div>
 
