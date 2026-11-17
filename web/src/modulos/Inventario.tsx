@@ -234,6 +234,17 @@ function Obs({ texto }: { texto: string }) {
   )
 }
 
+/* Observaciones de stock en la ventana del producto: el texto completo en rojo (como en la app original),
+   sin depender de pasar el cursor, para que se lea también en el teléfono. */
+function AvisoObs({ texto, className = '' }: { texto: string; className?: string }) {
+  return (
+    <div className={'items-start gap-2 text-xs font-bold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2 ' + (className || 'flex')}>
+      <TriangleAlert className="w-4 h-4 shrink-0 mt-0.5" />
+      <span className="min-w-0 whitespace-pre-line" style={{ overflowWrap: 'anywhere' }}><span className="block text-[10px] uppercase tracking-wider text-red-500">Observaciones</span>{texto}</span>
+    </div>
+  )
+}
+
 /* ---------- Tarjeta ---------- */
 type Orden_ = { arrastrar: (id: string) => void; soltar: (id: string) => void }
 function Tarjeta({ p, abrir, car, alternar, reordenar }: { p: Fila; abrir: (id: string) => void; car: Carrito | null; alternar?: (p: Fila) => void; reordenar?: Orden_ }) {
@@ -424,9 +435,7 @@ function Panel({ p, editar, abrirEditar, car }: { p: Fila; editar: boolean; abri
         {dis > 0 && <button type="button" className={'inv-act' + (bd ? ' black' : '')} onClick={(e) => copiar(p, 'dis', e.currentTarget, bd)} title={bd ? 'Copiar para WhatsApp con la promoción: el descuento (más alto que el de su precio DIS) va sobre el PVP tachado' : 'Copiar nombre, código y precio distribuidor'}><span className="ic" style={{ ['--c' as string]: bd ? '#111827' : '#7c3aed' }}><ClipboardCopy /></span>{bd ? 'Copiar ' + etiquetaOferta(bd.o, true) + ' DIS' : 'Copiar DIS'}</button>}
       </div>
       <div className="px-4 pb-4 space-y-3">
-        {p.reservaciones && (
-          <div title={p.reservaciones} className="flex items-center gap-1.5 text-[11px] font-bold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2 cursor-help"><TriangleAlert className="w-4 h-4 shrink-0" /><span>Observaciones · pasa el cursor para verlas</span></div>
-        )}
+        {p.reservaciones && <AvisoObs texto={p.reservaciones} />}
         <CajaOferta id={p.id} conIva={conIva} />
         <div className="inv-price">
           <div className="grid grid-cols-2 gap-3 items-stretch">
@@ -1351,11 +1360,7 @@ function DetalleProducto({ p, editar, eliminar, verMovimientos, irAMovimientos, 
 
             {/* Debajo de la galería: precio, stock y acciones del producto */}
             <div className="order-2 sm:order-none p-3 space-y-2.5">
-              {p.reservaciones && (
-                <div title={p.reservaciones} className="flex items-center gap-1.5 text-[11px] font-bold text-red-700 bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5 cursor-help">
-                  <TriangleAlert className="w-3.5 h-3.5 shrink-0" /><span>Observaciones · pasa el cursor para verlas</span>
-                </div>
-              )}
+              {p.reservaciones && <AvisoObs texto={p.reservaciones} className="flex sm:hidden" />}
 
               <CajaOferta id={p.id} conIva={conIva} />
               {/* Precio + DIS oculto */}
@@ -1423,6 +1428,7 @@ function DetalleProducto({ p, editar, eliminar, verMovimientos, irAMovimientos, 
 
           {/* DERECHA — detalles del producto (descripción, especificaciones...) */}
           <div className="order-3 sm:order-none flex-1 p-3 sm:p-3.5 sm:overflow-y-auto space-y-2.5">
+            {p.reservaciones && <AvisoObs texto={p.reservaciones} className="hidden sm:flex" />}
             <div className="bg-white border border-slate-200 rounded-xl p-3">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Descripción</p>
               <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-line">{descripcion === null ? 'Cargando…' : descripcion || '—'}</p>
