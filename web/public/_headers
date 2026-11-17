@@ -7,9 +7,13 @@
   Content-Security-Policy: default-src 'self'; script-src 'self' https://cdn.sheetjs.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://lh3.googleusercontent.com https://drive.google.com https://*.supabase.co; media-src 'self' blob: https://*.supabase.co; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://accounts.google.com; frame-src 'self' https://*.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self' https://accounts.google.com; frame-ancestors 'none'; upgrade-insecure-requests
 
 # Seguimiento del pedido: se muestra dentro de la página del sitio público (vimedic.com.ec/seguimiento/).
+# Se quita la CSP general (frame-ancestors none) y se pone la misma con frame-ancestors del sitio público:
+# dos CSP se suman y gana la más estricta, por eso no basta con agregar otra.
 /seguimiento
   ! X-Frame-Options
-  Content-Security-Policy: frame-ancestors 'self' https://vimedic.com.ec https://www.vimedic.com.ec
+  ! Content-Security-Policy
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://cdn.sheetjs.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://lh3.googleusercontent.com https://drive.google.com https://*.supabase.co; media-src 'self' blob: https://*.supabase.co; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://accounts.google.com; frame-src 'self' https://*.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self' https://accounts.google.com; frame-ancestors 'self' https://vimedic.com.ec https://www.vimedic.com.ec; upgrade-insecure-requests
 /seguimiento/*
   ! X-Frame-Options
-  Content-Security-Policy: frame-ancestors 'self' https://vimedic.com.ec https://www.vimedic.com.ec
+  ! Content-Security-Policy
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://cdn.sheetjs.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://lh3.googleusercontent.com https://drive.google.com https://*.supabase.co; media-src 'self' blob: https://*.supabase.co; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://accounts.google.com; frame-src 'self' https://*.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self' https://accounts.google.com; frame-ancestors 'self' https://vimedic.com.ec https://www.vimedic.com.ec; upgrade-insecure-requests
