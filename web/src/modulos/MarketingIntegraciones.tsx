@@ -63,7 +63,7 @@ export function Configuracion({ aviso, alCambiar }: { aviso: (t: string) => void
           ayuda="En el panel de Zernio crea una clave de API (API Keys) y pégala aquí. Es la misma que usaba la app anterior." />
         <Tarjeta proveedor="gemini" titulo="Gemini · inteligencia artificial" sub="Redacta publicaciones y descripciones de producto." est={ver('gemini')} aviso={aviso} cambio={() => { cargar(); alCambiar() }}
           ayuda="Crea una clave en Google AI Studio (aistudio.google.com/apikey) y pégala aquí." conModelo />
-        <TarjetaDrive est={ver('drive')} aviso={aviso} cambio={() => { cargar(); alCambiar() }} />
+        <TarjetaDrive est={ver('drive')} estApp={ver('google_app')} aviso={aviso} cambio={() => { cargar(); alCambiar() }} />
         <TarjetaPixel proveedor="meta_pixel" titulo="Meta Conversions API" color="#1877f2" est={ver('meta_pixel')} aviso={aviso} cambio={() => { cargar(); alCambiar() }} />
         <TarjetaPixel proveedor="tiktok_pixel" titulo="TikTok Events API" color="#000000" est={ver('tiktok_pixel')} aviso={aviso} cambio={() => { cargar(); alCambiar() }} />
       </div>
@@ -1022,25 +1022,130 @@ function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso }: { p
 /* ============================ Revisión (aprobaciones) ============================ */
 /* La Revisión del equipo está en MarketingRevision.tsx. */
 
-/* ============================ Google Drive (cuenta de servicio) ============================ */
+/* ============================ Google Drive ============================ */
+/* Formas de conectar (supabase/functions/drive y google-oauth):
+   · «Conectar con Google» (recomendada): autorización OAuth; se elige la cuenta, se da «Permitir» y queda conectado.
+   · «Con mi cuenta de Google»: un script de Apps Script de la cuenta de la empresa (como la app original) entrega a la app un
+     permiso temporal de Drive. Sirve cuando Google no deja descargar la clave JSON de la cuenta de servicio (política de Workspace).
+   · «Cuenta de servicio»: la clave JSON, como antes. */
 const idUnidad = (v: string) => { const m = v.match(/folders\/([\w-]+)/) || v.match(/[?&]id=([\w-]+)/); return (m ? m[1] : v).trim() }
-function TarjetaDrive({ est, aviso, cambio }: { est: Estado; aviso: (t: string) => void; cambio: () => void }) {
-  const cfg = est.config as { driveId?: string }
+const URL_PUENTE = /^https:\/\/script\.google\.com\/(a\/macros\/[^/\s]+|macros)\/s\/[\w-]+\/exec$/
+const claveNueva = () => { const b = crypto.getRandomValues(new Uint8Array(18)); return btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') }
+const codigoPuente = (clave: string) => `/** Puente VIMEDIC ↔ Google Drive.
+ *  Entrega a la app web de VIMEDIC un permiso temporal (1 hora) de esta cuenta para usar Google Drive,
+ *  igual que hacía la app original. Solo responde a quien conoce la clave. */
+var CLAVE = '${clave}';
+
+function doPost(e) {
+  var datos = {};
+  try { datos = JSON.parse((e && e.postData && e.postData.contents) || '{}'); } catch (err) {}
+  if (datos.clave !== CLAVE) return responder_({ error: 'Clave incorrecta.' });
+  return responder_({ token: ScriptApp.getOAuthToken(), cuenta: Session.getEffectiveUser().getEmail() });
+}
+
+/** Ejecútala una vez desde el editor para conceder el permiso de Drive. */
+function autorizar() {
+  Logger.log('Drive autorizado para ' + Session.getEffectiveUser().getEmail() + ' · espacio usado: ' + DriveApp.getStorageUsed());
+}
+
+/** No se ejecuta: solo declara el permiso completo de Drive (crear y editar archivos). */
+function permisos_() {
+  DriveApp.createFolder('x');
+}
+
+function responder_(o) {
+  return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON);
+}
+`
+/** Cliente de OAuth que ya usa el inicio de sesión con Google (proyecto vimedic-crm, supabase/config.toml): sirve también para Drive. */
+const CLIENTE_GOOGLE_LOGIN = '984059782625-khhkbk6cbig0tfo89vv21i2i3k52c7i5.apps.googleusercontent.com'
+const URI_GOOGLE = String(import.meta.env.VITE_SUPABASE_URL || '').replace(/\/$/, '') + '/functions/v1/google-oauth'
+type Modo = 'oauth' | 'puente' | 'cuenta'
+function TarjetaDrive({ est, estApp, aviso, cambio }: { est: Estado; estApp: Estado; aviso: (t: string) => void; cambio: () => void }) {
+  const cfg = est.config as { driveId?: string; modo?: Modo; cuenta?: string }
+  const cfgApp = estApp.config as { client_id?: string }
+  const [modo, setModo] = useState<Modo>(cfg.modo ?? (est.configurado ? 'cuenta' : 'oauth'))
   const [json, setJson] = useState('')
   const [unidad, setUnidad] = useState(cfg.driveId ?? '')
+  const [urlPuente, setUrlPuente] = useState('')
+  const [clave, setClave] = useState(claveNueva)
+  const [clienteId, setClienteId] = useState(cfgApp.client_id ?? CLIENTE_GOOGLE_LOGIN)
+  const [clienteSecreto, setClienteSecreto] = useState('')
   const [ocupado, setOcupado] = useState('')
   const [cuenta, setCuenta] = useState('')
+  const esperando = useRef(false)
   const prueba = est.estado_prueba ?? '', ok = prueba.startsWith('ok')
+  const guardadoComoPuente = est.configurado && cfg.modo === 'puente'
+  const conectadoOAuth = est.configurado && cfg.modo === 'oauth'
+
+  /* La ventana de Google termina en /conexion-lista.html, que avisa aquí (mensaje o, si Google cortó el vínculo, almacenamiento local). */
+  const probarRef = useRef<() => void>(() => undefined)
+  useEffect(() => {
+    const terminar = (d: { fuente?: string; proveedor?: string; ok?: boolean; texto?: string } | null) => {
+      if (!d || d.fuente !== 'vimedic-oauth' || d.proveedor !== 'drive' || !esperando.current) return
+      esperando.current = false; setOcupado('')
+      aviso(d.ok ? 'Google Drive autorizado. Probando la conexión…' : 'No se pudo conectar: ' + (d.texto || 'sin detalle'))
+      cambio()
+      if (d.ok) probarRef.current()
+    }
+    const alMensaje = (e: MessageEvent) => { if (e.origin === window.location.origin) terminar(e.data) }
+    const alGuardar = (e: StorageEvent) => { if (e.key === 'vm_oauth_resultado' && e.newValue) { try { terminar(JSON.parse(e.newValue)) } catch { /* inválido */ } } }
+    window.addEventListener('message', alMensaje); window.addEventListener('storage', alGuardar)
+    return () => { window.removeEventListener('message', alMensaje); window.removeEventListener('storage', alGuardar) }
+  }, [aviso, cambio])
+
   function leerArchivo(f: File | undefined) { if (!f) return; const r = new FileReader(); r.onload = () => setJson(String(r.result)); r.readAsText(f) }
-  async function guardar() {
-    if (json.trim()) { try { const j = JSON.parse(json); if (!j.client_email || !j.private_key) throw new Error('x') } catch { aviso('Ese archivo no parece el JSON de una cuenta de servicio de Google.'); return } }
-    if (!est.configurado && !json.trim()) { aviso('Pega o sube el archivo JSON de la cuenta de servicio.'); return }
-    if (!idUnidad(unidad)) { aviso('Falta el ID de la unidad compartida.'); return }
-    setOcupado('guardar')
-    const { error } = await supabase.rpc('integracion_guardar', { p_proveedor: 'drive', p_secreto: json.trim() || null, p_config: { driveId: idUnidad(unidad) } })
+  async function copiar(texto: string, msg: string) {
+    try { await navigator.clipboard.writeText(texto); aviso(msg) } catch { aviso('No se pudo copiar: selecciónalo y cópialo a mano.') }
+  }
+  async function guardarApp() {
+    const id = clienteId.trim(), sec = clienteSecreto.trim()
+    if (!/^[\w-]+\.apps\.googleusercontent\.com$/.test(id)) { aviso('El ID de cliente termina en .apps.googleusercontent.com.'); return }
+    if (!sec && !estApp.configurado) { aviso('Pega el secreto del cliente de OAuth.'); return }
+    setOcupado('app')
+    const { error } = await supabase.rpc('integracion_guardar', { p_proveedor: 'google_app', p_secreto: sec ? JSON.stringify({ client_id: id, client_secret: sec }) : null, p_config: { client_id: id } })
     setOcupado('')
     if (error) { aviso('No se pudo guardar: ' + error.message); return }
-    setJson(''); aviso('Drive guardado. Probando…'); cambio(); probar()
+    if (!sec && cfgApp.client_id && cfgApp.client_id !== id) aviso('Cambiaste el ID de cliente: pega también su secreto.')
+    else aviso('App de Google guardada. Ahora pulsa «Conectar con Google».')
+    setClienteSecreto(''); cambio()
+  }
+  async function conectarGoogle() {
+    if (!idUnidad(unidad)) { aviso('Primero pega el ID de la unidad compartida «VIMEDIC Sistema».'); return }
+    // La ventana se abre en el mismo clic (si no, el navegador la bloquea) y luego se le pone el enlace de Google.
+    const w = window.open('', 'vm_oauth', 'width=520,height=720')
+    setOcupado('conectar')
+    try {
+      if (cfg.driveId !== idUnidad(unidad) || cfg.modo !== 'oauth') {
+        const { error } = await supabase.rpc('integracion_guardar', { p_proveedor: 'drive', p_secreto: null, p_config: { ...cfg, driveId: idUnidad(unidad), modo: 'oauth' } })
+        if (error) throw new Error(error.message)
+      }
+      const r = await llamar<{ enlace: string }>('iniciar', { origen: window.location.origin }, 'google-oauth')
+      esperando.current = true
+      if (w) w.location.href = r.enlace
+      else window.location.href = r.enlace   // ventanas emergentes bloqueadas: se autoriza en esta misma pestaña
+    } catch (e) { w?.close(); setOcupado(''); aviso((e as Error).message) }
+  }
+  async function guardar() {
+    let secreto: string | null = null
+    if (modo === 'puente') {
+      const u = urlPuente.trim(), c = clave.trim()
+      if (u || !guardadoComoPuente) {
+        if (!URL_PUENTE.test(u)) { aviso('Pega la «URL de la aplicación web» del script: empieza con https://script.google.com/ y termina en /exec.'); return }
+        if (c.length < 16) { aviso('La clave del puente debe tener al menos 16 caracteres (la misma que está en el código del script).'); return }
+        secreto = JSON.stringify({ tipo: 'puente', url: u, clave: c })
+      }
+    } else if (modo === 'cuenta') {
+      if (json.trim()) { try { const j = JSON.parse(json); if (!j.client_email || !j.private_key) throw new Error('x') } catch { aviso('Ese archivo no parece el JSON de una cuenta de servicio de Google.'); return } secreto = json.trim() }
+      else if (!est.configurado || cfg.modo === 'puente' || cfg.modo === 'oauth') { aviso('Pega o sube el archivo JSON de la cuenta de servicio.'); return }
+    }
+    if (!idUnidad(unidad)) { aviso('Falta el ID de la unidad compartida.'); return }
+    setOcupado('guardar')
+    const { error } = await supabase.rpc('integracion_guardar', { p_proveedor: 'drive', p_secreto: secreto, p_config: { ...cfg, driveId: idUnidad(unidad), modo: modo === 'oauth' ? (cfg.modo ?? 'oauth') : modo } })
+    setOcupado('')
+    if (error) { aviso('No se pudo guardar: ' + error.message); return }
+    setJson(''); setUrlPuente(''); cambio()
+    if (secreto || est.configurado) { aviso('Drive guardado. Probando…'); probar() } else aviso('Unidad guardada. Ahora pulsa «Conectar con Google».')
   }
   async function probar() {
     setOcupado('probar')
@@ -1048,31 +1153,99 @@ function TarjetaDrive({ est, aviso, cambio }: { est: Estado; aviso: (t: string) 
     catch (e) { aviso((e as Error).message) }
     setOcupado(''); cambio()
   }
+  probarRef.current = probar
   async function quitar() {
     if (!confirm('¿Desconectar Google Drive?')) return
     const { error } = await supabase.rpc('integracion_quitar', { p_proveedor: 'drive' })
     if (error) aviso('No se pudo quitar: ' + error.message); else { setCuenta(''); aviso('Drive desconectado.'); cambio() }
   }
+  const pestaña = (m: Modo, t: string) => (
+    <button type="button" className="btn !py-1.5" onClick={() => setModo(m)}
+      style={modo === m ? { background: '#0f9d58', borderColor: '#0f9d58', color: '#fff' } : undefined}>{t}</button>
+  )
   return (
     <article className="card p-5 xl:col-span-2">
       <div className="flex items-start gap-3">
         <span className="w-10 h-10 rounded-xl grid place-items-center shrink-0" style={{ background: '#0f9d581A', color: '#0f9d58' }}><Plug className="w-5 h-5" /></span>
-        <div className="min-w-0 flex-1"><h3 className="font-display font-bold text-sm text-slate-800">Google Drive · documentos del sistema</h3><p className="text-[11px] text-slate-500">Guarda PDF, facturas, evidencias y contratos en una unidad compartida o en una carpeta de Drive.</p></div>
+        <div className="min-w-0 flex-1"><h3 className="font-display font-bold text-sm text-slate-800">Google Drive · documentos y multimedia</h3><p className="text-[11px] text-slate-500">Guarda PDF, facturas, evidencias, fotos y videos en la unidad compartida «VIMEDIC Sistema» o en una carpeta de Drive.</p></div>
         <span className="pill shrink-0" style={est.configurado ? (prueba && !ok ? { background: '#fdecea', color: '#c0392b' } : { background: '#ecfaf5', color: '#04896f' }) : { background: '#f1f5f9', color: '#64748b' }}>{est.configurado ? (prueba ? (ok ? 'Conectado' : 'Con error') : 'Sin probar') : 'No conectado'}</span>
       </div>
-      <ol className="text-[11px] text-slate-500 mt-3 list-decimal pl-4 space-y-0.5">
-        <li>En Google Cloud crea un proyecto, activa «Google Drive API» y crea una <b>cuenta de servicio</b>; descarga su clave en formato <b>JSON</b>.</li>
-        <li>En Google Drive abre la unidad compartida «VIMEDIC Sistema» › Administrar miembros y agrega el correo de la cuenta de servicio como <b>Gestor de contenido</b>.</li>
-        <li>Copia el ID de la unidad (el final del enlace al abrirla: …/folders/<b>ID</b>) y pégalo abajo junto con el JSON.</li>
-      </ol>
-      <label className="block text-[11px] font-bold text-slate-500 mt-3">ID o enlace de la unidad compartida o de una carpeta<input className="inp w-full mt-1" value={unidad} onChange={(e) => setUnidad(e.target.value)} placeholder="Ej. 0AB1cD2eF3gH4iUk9PVA" /></label>
-      <label className="block text-[11px] font-bold text-slate-500 mt-3">Clave de la cuenta de servicio (JSON){est.configurado && <span className="font-normal text-slate-400"> · ya hay una guardada; pega otra solo para reemplazarla</span>}
-        <textarea className="inp w-full mt-1 font-mono-spec" rows={4} value={json} onChange={(e) => setJson(e.target.value)} placeholder='{ "type": "service_account", "client_email": "…", "private_key": "…" }' /></label>
-      <input type="file" accept="application/json,.json" className="block mt-1 text-xs" onChange={(e) => leerArchivo(e.target.files?.[0])} />
+
+      <label className="block text-[11px] font-bold text-slate-500 mt-3">ID o enlace de la unidad compartida o de una carpeta<input className="inp w-full mt-1" value={unidad} onChange={(e) => setUnidad(e.target.value)} placeholder="Ej. 0AB1cD2eF3gH4iUk9PVA (el final del enlace …/folders/ID)" /></label>
+
+      <div className="flex gap-2 flex-wrap mt-3">
+        {pestaña('oauth', 'Conectar con Google (recomendado)')}
+        {pestaña('puente', 'Con un script de Apps Script')}
+        {pestaña('cuenta', 'Cuenta de servicio (clave JSON)')}
+      </div>
+
+      {modo === 'oauth' && (
+        <>
+          <p className="text-[11px] text-slate-500 mt-3">Pulsas <b>Conectar con Google</b>, eliges la cuenta de la empresa (la que tiene la unidad «VIMEDIC Sistema»), das <b>Permitir</b> y queda conectado. Sin clave JSON.</p>
+          <div className="flex items-center gap-2 flex-wrap mt-3">
+            <button type="button" className="btn btn-primary" onClick={conectarGoogle} disabled={!!ocupado || !estApp.configurado}><Plug />{ocupado === 'conectar' ? 'Esperando la autorización…' : conectadoOAuth ? 'Volver a conectar con Google' : 'Conectar con Google'}</button>
+            {conectadoOAuth && cfg.cuenta && <span className="text-[11px] text-slate-500">Conectado con <b>{cfg.cuenta}</b></span>}
+            {!estApp.configurado && <span className="text-[11px] font-semibold" style={{ color: '#b45309' }}>Primero completa «App de Google (una sola vez)».</span>}
+          </div>
+          <details className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3" open={!estApp.configurado}>
+            <summary className="text-[11px] font-bold text-slate-600 cursor-pointer">App de Google (una sola vez){estApp.configurado ? ' · guardada' : ' · pendiente'}</summary>
+            <ol className="text-[11px] text-slate-600 mt-2 list-decimal pl-4 space-y-1">
+              <li>Entra a <a className="underline font-semibold" href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noopener noreferrer">Google Cloud › Google Drive API</a> con la cuenta de la empresa, en el proyecto <b>vimedic-crm</b> (el del inicio de sesión con Google), y pulsa <b>Habilitar</b>.</li>
+              <li>En <a className="underline font-semibold" href="https://console.cloud.google.com/auth/scopes" target="_blank" rel="noopener noreferrer">Google Auth Platform › Acceso a los datos</a> › <b>Agregar o quitar permisos</b> › marca <b>…/auth/drive</b> (Google Drive API) › Actualizar › Guardar. Si el público es <b>Interno</b>, Google no pide verificación.</li>
+              <li>En <a className="underline font-semibold" href="https://console.cloud.google.com/auth/clients" target="_blank" rel="noopener noreferrer">Clientes</a> abre el cliente web de VIMEDIC (el ID de abajo) › <b>URI de redireccionamiento autorizados</b> › Agregar URI › pega la de abajo › Guardar.</li>
+              <li>En ese mismo cliente pulsa <b>Agregar secreto</b> (o copia el que ya tiene) y pégalo abajo › <b>Guardar app de Google</b>.</li>
+            </ol>
+            <label className="block text-[11px] font-bold text-slate-500 mt-3">URI de redireccionamiento (cópiala en Google)
+              <div className="flex gap-2 mt-1"><input readOnly className="inp flex-1 font-mono-spec text-[11px]" value={URI_GOOGLE} onFocus={(e) => e.currentTarget.select()} /><button type="button" className="btn" onClick={() => copiar(URI_GOOGLE, 'URI copiada.')}><Copy />Copiar</button></div></label>
+            <label className="block text-[11px] font-bold text-slate-500 mt-3">ID de cliente
+              <input className="inp w-full mt-1 font-mono-spec text-[11px]" value={clienteId} onChange={(e) => setClienteId(e.target.value.trim())} /></label>
+            <label className="block text-[11px] font-bold text-slate-500 mt-3">Secreto del cliente{estApp.configurado && <span className="font-normal text-slate-400"> · ya hay uno guardado; pega otro solo para reemplazarlo</span>}
+              <input type="password" autoComplete="off" className="inp w-full mt-1 font-mono-spec" value={clienteSecreto} onChange={(e) => setClienteSecreto(e.target.value.trim())} placeholder="GOCSPX-…" /></label>
+            <button type="button" className="btn btn-primary mt-3" onClick={guardarApp} disabled={!!ocupado}><Check />{ocupado === 'app' ? 'Guardando…' : 'Guardar app de Google'}</button>
+          </details>
+        </>
+      )}
+
+      {modo === 'puente' && (
+        <>
+          <p className="text-[11px] text-slate-500 mt-3">Alternativa sin Google Cloud: como la app original, un pequeño script de la cuenta de la empresa le da a la app el permiso de Drive.</p>
+          <ol className="text-[11px] text-slate-600 mt-2 list-decimal pl-4 space-y-1">
+            <li>Entra a <a className="underline font-semibold" href="https://script.google.com/home/projects/create" target="_blank" rel="noopener noreferrer">script.google.com › Nuevo proyecto</a> con la cuenta que tiene acceso a la unidad «VIMEDIC Sistema». Ponle de nombre «Puente Drive VIMEDIC».</li>
+            <li>Borra lo que trae el editor, pega el código (botón <b>Copiar código</b>) y guarda con Ctrl+S.</li>
+            <li>Arriba elige la función <b>autorizar</b> › <b>Ejecutar</b> › Revisar permisos › tu cuenta › <b>Permitir</b>. Si aparece «Google no verificó esta app»: Configuración avanzada › Ir a Puente Drive VIMEDIC.</li>
+            <li><b>Implementar › Nueva implementación</b> › tipo <b>Aplicación web</b> · Ejecutar como: <b>Yo</b> · Quién tiene acceso: <b>Cualquier usuario</b> › Implementar. Copia la <b>URL de la aplicación web</b> (termina en /exec), pégala abajo y pulsa <b>Guardar</b>.</li>
+          </ol>
+          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="flex items-end gap-2 flex-wrap">
+              <label className="text-[11px] font-bold text-slate-500 flex-1 min-w-[220px]">Clave del puente (va dentro del código)
+                <input className="inp w-full mt-1 font-mono-spec" value={clave} onChange={(e) => setClave(e.target.value.replace(/['"\\\s]/g, ''))} /></label>
+              <button type="button" className="btn" onClick={() => setClave(claveNueva())} title="Generar otra clave"><RefreshCw />Otra</button>
+              <button type="button" className="btn btn-primary" onClick={() => copiar(codigoPuente(clave), 'Código copiado. Pégalo en un proyecto nuevo de script.google.com.')}><Copy />Copiar código</button>
+            </div>
+            <textarea readOnly className="inp w-full mt-2 font-mono-spec text-[10.5px]" rows={6} value={codigoPuente(clave)} onFocus={(e) => e.currentTarget.select()} />
+            {guardadoComoPuente && <p className="text-[10.5px] text-slate-400 mt-1">Ya hay un puente guardado. Para cambiarlo, pega la nueva URL y deja aquí la misma clave que tiene el script.</p>}
+          </div>
+          <label className="block text-[11px] font-bold text-slate-500 mt-3">URL de la aplicación web del script
+            <input className="inp w-full mt-1" value={urlPuente} onChange={(e) => setUrlPuente(e.target.value.trim())} placeholder="https://script.google.com/macros/s/…/exec" /></label>
+        </>
+      )}
+
+      {modo === 'cuenta' && (
+        <>
+          <ol className="text-[11px] text-slate-500 mt-3 list-decimal pl-4 space-y-0.5">
+            <li>En Google Cloud crea una <b>cuenta de servicio</b> y descarga su clave en formato <b>JSON</b>. (Si Google no deja crear la clave, usa «Conectar con Google».)</li>
+            <li>En la unidad compartida «VIMEDIC Sistema» › Administrar miembros agrega el correo de la cuenta de servicio como <b>Gestor de contenido</b>.</li>
+          </ol>
+          <label className="block text-[11px] font-bold text-slate-500 mt-3">Clave de la cuenta de servicio (JSON){est.configurado && cfg.modo !== 'puente' && cfg.modo !== 'oauth' && <span className="font-normal text-slate-400"> · ya hay una guardada; pega otra solo para reemplazarla</span>}
+            <textarea className="inp w-full mt-1 font-mono-spec" rows={4} value={json} onChange={(e) => setJson(e.target.value)} placeholder='{ "type": "service_account", "client_email": "…", "private_key": "…" }' /></label>
+          <input type="file" accept="application/json,.json" className="block mt-1 text-xs" onChange={(e) => leerArchivo(e.target.files?.[0])} />
+        </>
+      )}
+
       {prueba && <p className="text-[11px] mt-3 rounded-lg px-3 py-2" style={ok ? { background: '#ecfaf5', color: '#04896f' } : { background: '#fdecea', color: '#a3341f' }}>{prueba.replace(/^(ok|error): /, '')}{est.probado_en ? ' · ' + new Date(est.probado_en).toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' }) : ''}</p>}
-      {cuenta && <p className="text-[11px] text-slate-500 mt-2">Cuenta de servicio: <b>{cuenta}</b></p>}
+      {cuenta && <p className="text-[11px] text-slate-500 mt-2">Cuenta con la que se usa Drive: <b>{cuenta}</b></p>}
       <div className="flex gap-2 flex-wrap mt-4">
-        <button type="button" className="btn btn-primary" onClick={guardar} disabled={!!ocupado}><Check />{ocupado === 'guardar' ? 'Guardando…' : 'Guardar'}</button>
+        <button type="button" className="btn btn-primary" onClick={guardar} disabled={!!ocupado}><Check />{ocupado === 'guardar' ? 'Guardando…' : modo === 'oauth' ? 'Guardar unidad' : 'Guardar'}</button>
         <button type="button" className="btn" onClick={probar} disabled={!!ocupado || !est.configurado}><Plug />{ocupado === 'probar' ? 'Probando…' : 'Probar (crea un archivo de prueba)'}</button>
         {est.configurado && <button type="button" className="btn ml-auto" style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={quitar}><Trash2 />Desconectar</button>}
       </div>

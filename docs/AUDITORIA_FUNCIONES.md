@@ -697,3 +697,15 @@ Pedido: el logo de la empresa (SVG enviado, el mismo de `LOGO_COLOR` / `public/l
 | PDF de ofertas para clientes | Franja navy con logo blanco | Portada y cabecera blancas con logo a color, título azul y línea azul | `ofertasPdf.ts` |
 
 Fuente única: `web/src/documentoMarca.ts` (`encabezadoDocHtml`, `pieDocHtml`, `encabezadoPdf`, `logoDocDataUrl`). FEMEDICS: sin logo propio, sale el nombre en azul como en la proforma. El catálogo y las piezas de Marketing (diseños) no se tocaron.
+
+## Google Drive sin clave JSON: «Conectar con Google» (17-nov-2026)
+
+Problema: Google Workspace bloquea descargar la clave JSON de la cuenta de servicio (política iam.disableServiceAccountKeyCreation), así que Marketing no podía subir nada a Drive. La app original no la necesitaba porque Apps Script usaba la cuenta de la empresa.
+
+| Forma | Cómo | Dónde |
+|---|---|---|
+| Conectar con Google (recomendada) | Botón › elegir la cuenta › Permitir; se guarda un permiso permanente (refresh token) cifrado en Vault. Requiere una sola vez el ID y el secreto del cliente de OAuth (el mismo del inicio de sesión con Google, proyecto vimedic-crm) y agregar la URI de redirección | `supabase/functions/google-oauth`, `drive` (tokenOAuth), `TarjetaDrive`, `public/conexion-lista.html` |
+| Script de Apps Script | Un script de la cuenta de la empresa entrega un permiso temporal (ScriptApp.getOAuthToken), como la app original | `drive` (tokenPuente), código en la tarjeta |
+| Cuenta de servicio | Clave JSON, como antes | `drive` (tokenGoogle) |
+
+Migración 20261117090000: proveedor google_app, función integracion_guardar_servicio (solo service_role) y arreglo de la restricción que no dejaba guardar meta_pixel / tiktok_pixel. Pruebas: supabase/tests/google_oauth_drive.sql (9/9).

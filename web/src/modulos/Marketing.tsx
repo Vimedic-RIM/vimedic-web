@@ -55,7 +55,7 @@ const TITLES: Record<string, [string, string]> = {
   audiovisual: ['Audiovisual', 'Espacio de la productora: fotos y videos del día, ideas y estado de cada pieza.'], anuncios: ['Rendimiento publicitario', 'Inversión en anuncios frente a leads y ventas del CRM.'],
   biblioteca: ['Biblioteca de productos', 'Imágenes, fichas técnicas y álbumes de cada equipo.'], material: ['Material de proveedores', 'Fichas técnicas, manuales, certificaciones y videos que suben los proveedores.'],
   revision: ['Revisión del equipo', 'Aprobaciones, cambios aplicados y trabajo de cada persona.'], promociones: ['Promociones', 'Campañas de descuento: Black Friday, liquidaciones y ofertas.'],
-  configuracion: ['Configuración', 'Conecta Zernio (redes sociales) y Gemini (inteligencia artificial).'],
+  configuracion: ['Configuración', 'Conecta Google Drive, Zernio (redes sociales), Gemini (inteligencia artificial) y los píxeles.'],
 }
 const NAV: [string, string, typeof LayoutDashboard][] = [
   ['resumen', 'Resumen', LayoutDashboard], ['planificador', 'Planificador', CalendarDays], ['audiovisual', 'Audiovisual', Clapperboard], ['anuncios', 'Anuncios', Megaphone],

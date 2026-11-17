@@ -27,3 +27,8 @@ verify_jwt = false
 
 [functions.crm-mensajes]
 verify_jwt = false
+
+# «Conectar con Google» (Drive): Google vuelve a esta función sin sesión de Supabase; la autorización
+# se valida con el «state» firmado (HMAC) que la misma función emitió para quien administra Marketing.
+[functions.google-oauth]
+verify_jwt = false

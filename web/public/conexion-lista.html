@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>VIMEDIC · Conexión</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; background: #f6f9fc; color: #0b2545; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 16px; box-sizing: border-box; }
+    .caja { background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 28px 26px; max-width: 420px; width: 100%; text-align: center; box-shadow: 0 10px 30px -18px rgba(11, 37, 69, .5); }
+    .ico { font-size: 40px; }
+    h1 { font-size: 18px; margin: 10px 0 6px; }
+    h1.ok { color: #04896f; } h1.mal { color: #c0392b; }
+    p { font-size: 13px; line-height: 1.5; margin: 0 0 6px; }
+    .cuenta { font-size: 12px; color: #64748b; }
+    .pie { font-size: 11px; color: #94a3b8; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <!-- Página a la que vuelve la ventana de autorización de Google (supabase/functions/google-oauth). -->
+  <div class="caja">
+    <div class="ico" id="ico">⏳</div>
+    <h1 id="titulo">Conectando…</h1>
+    <p id="texto"></p>
+    <p class="cuenta" id="cuenta"></p>
+    <p class="pie">Ya puedes cerrar esta ventana.</p>
+  </div>
+  <script src="/conexion-lista.js"></script>
+</body>
+</html>

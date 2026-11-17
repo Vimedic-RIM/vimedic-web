@@ -1,5 +1,10 @@
-// Edge Function: puente seguro con Google Drive (cuenta de servicio + unidad compartida "VIMEDIC Sistema").
-// El JSON de la cuenta de servicio vive cifrado en Supabase Vault; solo se descifra aquí, con service_role.
+// Edge Function: puente seguro con Google Drive (unidad compartida "VIMEDIC Sistema").
+// Tres formas de conectarse, guardadas cifradas en Supabase Vault (solo se descifran aquí, con service_role):
+//   · «Conectar con Google» (recomendada): {"tipo":"oauth","refresh_token":…} que guarda la función google-oauth.
+//   · Cuenta de servicio: el JSON de su clave (client_email + private_key).
+//   · Puente de Apps Script: {"tipo":"puente","url":".../exec","clave":"…"}. Para cuando Google no deja descargar la clave
+//     JSON (política iam.disableServiceAccountKeyCreation de Workspace): un script de la cuenta de la empresa, como la app
+//     original, entrega un permiso temporal de Drive (ScriptApp.getOAuthToken) y aquí se usa igual que el de la cuenta de servicio.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' }
@@ -31,6 +36,50 @@ async function tokenGoogle(sa: { client_email: string; private_key: string }) {
   return cache.token
 }
 
+type OAuth = { tipo: 'oauth'; refresh_token: string; cuenta?: string }
+/** «Conectar con Google» (supabase/functions/google-oauth): el permiso permanente se cambia por uno de 1 hora. */
+async function tokenOAuth(o: OAuth, app: { client_id: string; client_secret: string }) {
+  if (cache && cache.clave === 'oauth:' + o.refresh_token.slice(-12) && cache.hasta > Date.now() + 60000) return cache.token
+  const r = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: o.refresh_token, client_id: app.client_id, client_secret: app.client_secret }) })
+  const j = await r.json()
+  if (!r.ok) {
+    if (j.error === 'invalid_grant') throw new Falla('La autorización de Google venció o fue retirada. En Marketing › Configuración pulsa otra vez «Conectar con Google».')
+    throw new Falla('Google rechazó la autorización: ' + (j.error_description || j.error || r.status))
+  }
+  cache = { token: j.access_token, hasta: Date.now() + (j.expires_in ?? 3600) * 1000, clave: 'oauth:' + o.refresh_token.slice(-12) }
+  return cache.token
+}
+
+type Puente = { tipo: 'puente'; url: string; clave: string }
+let cuentaPuente = ''
+/** Permiso de Drive de la cuenta de Google dueña del script (como DriveApp en la app original). */
+async function tokenPuente(p: Puente) {
+  if (cache && cache.clave === p.url && cache.hasta > Date.now() + 60000) return cache.token
+  const ayuda = 'Revisa la implementación del script: «Aplicación web», «Ejecutar como: Yo» y «Quién tiene acceso: Cualquier usuario».'
+  let r: Response
+  try {
+    // Apps Script responde con una redirección a script.googleusercontent.com; fetch la sigue y trae el JSON.
+    r = await fetch(p.url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clave: p.clave }), redirect: 'follow' })
+  } catch { throw new Falla('No se pudo llamar al puente de Apps Script. ' + ayuda) }
+  const txt = await r.text()
+  let j: { token?: string; cuenta?: string; error?: string }
+  try { j = JSON.parse(txt) } catch { throw new Falla('El puente de Apps Script no respondió como se esperaba. ' + ayuda) }
+  if (j.error) throw new Falla('Puente de Apps Script: ' + j.error)
+  if (!j.token) throw new Falla('El puente de Apps Script no entregó el permiso de Drive. Ejecuta una vez la función «autorizar» del script.')
+  // Cuánto le queda al permiso (Apps Script puede entregar uno ya usado) y que sea el permiso completo de Drive.
+  let hasta = Date.now() + 5 * 60000
+  try {
+    const i = await (await fetch('https://oauth2.googleapis.com/tokeninfo?access_token=' + encodeURIComponent(j.token))).json()
+    if (i.expires_in) hasta = Date.now() + Math.max(60, Number(i.expires_in) - 120) * 1000
+    if (i.scope && !String(i.scope).split(' ').includes('https://www.googleapis.com/auth/drive')) {
+      throw new Falla('El script no tiene el permiso completo de Google Drive. Copia otra vez el código del puente (incluye la función «permisos_») y vuelve a autorizarlo.')
+    }
+  } catch (e) { if (e instanceof Falla) throw e }
+  cuentaPuente = String(j.cuenta || '')
+  cache = { token: j.token, hasta, clave: p.url }
+  return j.token
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS })
   try {
@@ -53,14 +102,24 @@ Deno.serve(async (req) => {
       admin.rpc('integracion_secreto', { p_proveedor: 'drive' }),
     ])
     if (!secreto) throw new Falla('Google Drive no está conectado. Ve a Marketing › Configuración.')
-    let sa: { client_email: string; private_key: string }
-    try { sa = JSON.parse(secreto as string) } catch { throw new Falla('El JSON de la cuenta de servicio guardado no es válido. Vuelve a pegarlo.') }
+    let cred: { client_email: string; private_key: string } | Puente | OAuth
+    try { cred = JSON.parse(secreto as string) } catch { throw new Falla('La conexión de Drive guardada no es válida. Vuelve a guardarla en Marketing › Configuración.') }
+    const esPuente = (c: typeof cred): c is Puente => (c as Puente).tipo === 'puente'
+    const esOAuth = (c: typeof cred): c is OAuth => (c as OAuth).tipo === 'oauth'
+    const incompleta = esOAuth(cred) ? !cred.refresh_token : esPuente(cred) ? !cred.url || !cred.clave : !cred.client_email || !cred.private_key
+    if (incompleta) throw new Falla('La conexión de Drive guardada está incompleta. Vuelve a guardarla en Marketing › Configuración.')
+    let appGoogle: { client_id: string; client_secret: string } | null = null
+    if (esOAuth(cred)) {
+      const { data: s } = await admin.rpc('integracion_secreto', { p_proveedor: 'google_app' })
+      try { appGoogle = JSON.parse(String(s)) } catch { appGoogle = null }
+      if (!appGoogle?.client_id || !appGoogle?.client_secret) throw new Falla('Faltan los datos de la app de Google en Marketing › Configuración.')
+    }
     const driveId = String((cfg.config as Record<string, unknown>)?.driveId || '').trim()
     if (!driveId) throw new Falla('Falta el ID de la unidad compartida o carpeta en la configuración.')
     // 'unidad' = unidad compartida; 'carpeta' = carpeta de Mi unidad compartida con la cuenta de servicio (se detecta al probar)
     let tipo = String((cfg.config as Record<string, unknown>)?.tipo || 'unidad')
     const alcance = () => (tipo === 'unidad' ? `&corpora=drive&driveId=${driveId}` : '')
-    const tk = await tokenGoogle(sa)
+    const tk = esOAuth(cred) ? await tokenOAuth(cred, appGoogle!) : esPuente(cred) ? await tokenPuente(cred) : await tokenGoogle(cred)
     const g = async (ruta: string, init: RequestInit = {}) => {
       const r = await fetch('https://www.googleapis.com' + ruta, { ...init, headers: { Authorization: 'Bearer ' + tk, ...(init.headers ?? {}) } })
       const j = await r.json().catch(() => ({}))
@@ -98,7 +157,7 @@ Deno.serve(async (req) => {
       }
       const mensaje = `Conexión correcta · ${tipo === 'unidad' ? 'unidad' : 'carpeta'} «${d.name}»${archivoPrueba ? ' · archivo de prueba creado en la carpeta _pruebas' : ''}.`
       await admin.from('integraciones').update({ estado_prueba: 'ok: ' + mensaje, probado_en: new Date().toISOString() }).eq('proveedor', 'drive')
-      return responder({ ok: true, mensaje, cuenta: sa.client_email, archivo: archivoPrueba })
+      return responder({ ok: true, mensaje, cuenta: esOAuth(cred) ? cred.cuenta || 'cuenta de Google autorizada' : esPuente(cred) ? cuentaPuente || 'cuenta de Google del script' : cred.client_email, archivo: archivoPrueba })
     }
 
     const modulo = String(b.modulo || '')

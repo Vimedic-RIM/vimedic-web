@@ -28,3 +28,9 @@ Hoy la app nueva vive en **qa.vimedic.com.ec** (Cloudflare Pages, proyecto `vime
 2. Comprobar que `https://vimedic.com.ec/seguimiento/?c=<código de un pedido>` muestra el seguimiento.
 3. En GitHub › Settings › Secrets and variables › Actions › **Variables**: `VITE_URL_SEGUIMIENTO = https://vimedic.com.ec/seguimiento/`
    y volver a publicar qa. Desde ese momento los enlaces y los QR de las guías salen con vimedic.com.ec.
+
+## Google Drive («Conectar con Google»)
+
+- En el cliente de OAuth de Google agregar la URI de redirección del proyecto de producción: https://<ref-produccion>.supabase.co/functions/v1/google-oauth
+- En la app de producción: Marketing › Configuración › Google Drive › App de Google (una sola vez) › guardar ID y secreto › Conectar con Google.
+- Desplegar las funciones drive y google-oauth (esta última con --no-verify-jwt).
