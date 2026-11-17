@@ -3,6 +3,7 @@ import { AlertTriangle, BadgeCheck, Camera, Check, CheckCircle2, ClipboardList, 
 import { supabase, type Perfil } from '../supabase'
 import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
+import { enlaceSeguimiento } from '../enlacesPublicos'
 import '../estilos/logistica.css'
 
 /* ============================ Tipos y constantes ============================ */
@@ -11,7 +12,6 @@ const MOTIVOS_NO = ['Cliente ausente', 'Dirección errada o incompleta', 'Client
 const TIPOS_INCIDENCIA = ['Daño en tránsito', 'Pérdida', 'Retraso del transportista', 'Dirección incorrecta', 'Otro']
 const VENTANAS = ['Mañana (8:00-12:00)', 'Tarde (13:00-17:00)', 'Todo el día']
 // Seguimiento del pedido: página pública de esta misma app (qa.vimedic.com.ec o app.vimedic.com.ec), con el mismo QR de la guía.
-const PUBLICO = window.location.origin
 type Evento = { fecha: string; por: string; nota: string; publico: boolean; clave?: string }
 type Incidencia = { id: string; tipo: string; detalle: string; foto: string; fecha: string; por: string; resuelta: boolean; resolucion?: string; resueltaPor?: string }
 type Prod = { key: string; id: string; nombre: string; cantidad: number; series?: string[] }
@@ -198,7 +198,7 @@ function Panel({ id, perfil, editar, equipo, aviso, cerrar }: { id: string; perf
   const dir = e.direccionEnvio || e.direccionEntregaLocal || ''
   const tel = c.recibeTelefono || e.telefonoDestinatario || e.telefonoEntregaLocal || o.telefono || ''
   const maps = e.urlGoogleMaps || (dir ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(dir + (e.ciudad ? ', ' + e.ciudad : '') + ', Ecuador') : '')
-  const link = o.token ? `${PUBLICO}/seguimiento/?c=${o.token}` : ''
+  const link = o.token ? enlaceSeguimiento(o.token) : ''
   const kv = (k: string, v: React.ReactNode) => (v ? <><dt>{k}</dt><dd>{v}</dd></> : null)
   const extras = Object.keys(e).filter((k) => e[k] && !ETIQ[k] && typeof e[k] !== 'object')
   const pr = o.prueba

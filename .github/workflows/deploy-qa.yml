@@ -38,6 +38,8 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          # Enlace público del seguimiento (vimedic.com.ec/seguimiento/). Vacío = dominio de la app. Se cambia en GitHub › Settings › Variables.
+          VITE_URL_SEGUIMIENTO: ${{ vars.VITE_URL_SEGUIMIENTO }}
 
       - name: Publicar en Cloudflare Pages
         uses: cloudflare/wrangler-action@v3

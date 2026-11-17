@@ -37,7 +37,7 @@ Primer Contacto JSON, etc.) se agrupan en la columna `atribucion` (jsonb) de cad
 | Clientes_DatosVenta | `clientes.datos_venta` | |
 | Sugerencias Clientes | `sugerencias_clientes` | |
 | Contactos, LeadsWhatsApp, Citas, Clientes Potenciales Meta | `leads` (`origen_tipo`) | Se unen en una sola tabla |
-| Cotizaciones, Cotizaciones Femedics | `cotizaciones` | "Carrito JSON" → `items` |
+| Cotizaciones, Cotizaciones Femedics | `cotizaciones` | "Carrito JSON" → `items`. **"Pago Entrega JSON"** (ventas) → `estado_pago`, `metodo_pago`, `tipo_entrega`, `direccion_entrega`, `fecha_entrega`, `detalle_venta` **y** `facturas.pago_entrega` + `datos_completos = true` (faltó en la primera carga; recuperado en QA el 16-nov-2026: 243 ventas, 239 facturas) |
 | Interacciones | `interacciones` | Se enlaza por RefID a lead / cotización / cliente |
 | EtapasPipeline | `etapas_pipeline` | Ya cargada |
 | Solicitudes Cambio Asesor | `solicitudes_cambio_asesor` | |
@@ -48,7 +48,7 @@ Primer Contacto JSON, etc.) se agrupan en la columna `atribucion` (jsonb) de cad
 ## Facturación
 | Hoja | Tabla | Nota |
 |---|---|---|
-| Facturacion | `facturas` | |
+| Facturacion | `facturas` | "Guía Datos JSON" → `guia_datos`, "Acta Datos JSON" → `acta_datos`. El Pago/Entrega sale de la hoja Cotizaciones (ver arriba) |
 | OPERACIONES | `facturas` / `ingresos_proveedor` | Hoja anterior: migrar solo operaciones que no estén en Facturacion |
 | Ingresos | `ingresos_proveedor` | |
 | Movimientos | `movimientos_inventario` | Kardex → vista `v_kardex` |

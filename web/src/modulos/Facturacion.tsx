@@ -7,6 +7,7 @@ import { supabase, type Perfil } from '../supabase'
 import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
 import { imagen } from './inventarioUtil'
+import { enlaceSeguimiento } from '../enlacesPublicos'
 import '../estilos/facturacion.css'
 
 /* ============================ Tipos y utilidades ============================ */
@@ -1012,7 +1013,7 @@ function ModalGuiaDespacho({ r, cerrar, aviso, guardado }: { r: Fila; cerrar: ()
         if (!activo) return
         if (errDesp || !despRow?.numero_guia || !despRow?.token_seguimiento) { setError(errDesp?.message ?? 'La factura todavía no está Facturada.'); setCargando(false); return }
         setDesp(despRow)
-        const link = window.location.origin + '/seguimiento/?c=' + despRow.token_seguimiento
+        const link = enlaceSeguimiento(despRow.token_seguimiento)
         const qrcode = (await import('qrcode-generator')).default
         const q = qrcode(0, 'M'); q.addData(link); q.make()
         if (!activo) return
@@ -1036,7 +1037,7 @@ function ModalGuiaDespacho({ r, cerrar, aviso, guardado }: { r: Fila; cerrar: ()
     try {
       const esc = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       const marca = r.empresa === 'FEMEDICS' ? 'FEMEDICS' : 'VIMEDIC'
-      const link = window.location.origin + '/seguimiento/?c=' + desp.token_seguimiento
+      const link = enlaceSeguimiento(desp.token_seguimiento)
       const filas = lineas.map((it) => `<tr>
           <td style="padding:6px;border-bottom:1px solid #e2e8f0;font-family:monospace;font-size:10px">${esc(it.codigo)}</td>
           <td style="padding:6px;border-bottom:1px solid #e2e8f0">${esc(it.nombre)}</td>

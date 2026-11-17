@@ -132,6 +132,14 @@ Pedido del usuario: actualizar CRM y Facturación y depurar lo que no exista (pr
   actualización volvieron a su estado real.
 - El stock de los productos se vuelve a tomar del Excel en la vuelta de Inventario.
 
+Corregido el 16-nov-2026: datos de pago/entrega en Facturación, Bodega desde cero y enlace público del seguimiento.
+
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `crearRegistroFacturacion_` ("Datos Completos") | La venta llega a Facturación con su Pago/Entrega; solo si falta se avisa "Faltan datos de pago/entrega" y no se puede subir la factura | ✅ corregido | La primera carga no trajo la columna "Pago Entrega JSON" de la hoja Cotizaciones. Recuperado en QA: 239 facturas (`pago_entrega`, `datos_completos`) y 243 ventas del CRM (pago, método, entrega, dirección, fecha, `detalle_venta`). Quedan 11 facturas sin esos datos tampoco en el Excel. Anotado en `MAPEO_HOJAS.md` para la carga de producción |
+| Bodega (pedido del 16-nov-2026) | Empezar desde cero: solo los pedidos nuevos | ✅ | Los 130 pedidos "Por preparar" / "En preparación" anteriores quedaron archivados (`deleted_at = 2026-11-16 23:00-05`, se pueden recuperar quitando esa fecha) |
+| Enlace de seguimiento del pedido | Que el cliente reciba vimedic.com.ec/seguimiento/ y no el dominio de la app | ⚠️ listo, falta subir la página | `web/src/enlacesPublicos.ts` (`VITE_URL_SEGUIMIENTO`), `hostinger/seguimiento/index.html` (para `public_html/seguimiento/`), `_headers` (se deja mostrar dentro de vimedic.com.ec). Pasos en `docs/PASO_A_APP.md` |
+
 Corregido el 16-nov-2026 (urgente): cuando una oferta termina, todo vuelve a la normalidad.
 
 | Función original | Qué hace | Estado | Dónde quedó |

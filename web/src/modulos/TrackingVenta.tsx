@@ -8,7 +8,8 @@ export const NOMBRE_ETAPA: Record<string, string> = {
   venta: 'Venta confirmada', facturar: 'Enviada a facturar', facturada: 'Facturada', preparacion: 'En preparación', lista: 'Lista para despacho',
   despachada: 'Despachada', en_ruta: 'En camino', entregada: 'Entregada', instalacion: 'Instalación / capacitación',
 }
-export const enlaceSeguimiento = (token: string) => window.location.origin + '/seguimiento/?c=' + token
+export { enlaceSeguimiento } from '../enlacesPublicos'
+import { enlaceSeguimiento } from '../enlacesPublicos'
 /** Mensaje listo para pegar en WhatsApp o correo: dice qué es el enlace y para qué sirve. */
 export function mensajeSeguimiento(cliente: string, codigo: string, token: string, empresa = 'VIMEDIC') {
   const nombre = String(cliente || '').trim().split(/\s+/)[0]

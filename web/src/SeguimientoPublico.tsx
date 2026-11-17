@@ -3,6 +3,11 @@ import { CircleCheckBig, FileCheck2, MapPin, MessageCircle, Navigation, PackageC
 import { supabase } from './supabase'
 import { imagen } from './modulos/inventarioUtil'
 import './estilos/seguimiento.css'
+import { enlaceSeguimiento } from './enlacesPublicos'
+
+// Dentro de la página del sitio vimedic.com.ec la app se ve en un marco: los enlaces abren en la ventana completa y van a la app.
+const MARCO = window.top !== window.self ? '_top' : undefined
+const APP = window.location.origin
 
 /* Seguimiento público del pedido (Issue #38). El cliente lo abre con el QR de la guía o con el enlace que le envía su asesor.
    Los datos llegan de la función "seguimiento", que valida el código y solo entrega lo que el cliente puede ver. */
@@ -46,7 +51,7 @@ export default function SeguimientoPublico() {
   useEffect(() => { const t = window.setInterval(() => { if (document.visibilityState === 'visible') cargar() }, 90000); return () => window.clearInterval(t) }, [cargar])
 
   const compartir = () => {
-    const url = window.location.href
+    const url = enlaceSeguimiento(token)   // el enlace público (vimedic.com.ec), aunque se vea dentro de su página
     if (navigator.share) navigator.share({ title: 'Seguimiento de mi pedido', url }).catch(() => undefined)
     else navigator.clipboard?.writeText(url)
   }
@@ -64,7 +69,7 @@ export default function SeguimientoPublico() {
         {!error && !d && <div className="sg-card prim"><div className="sg-spin" aria-label="Cargando" /></div>}
         {d && 'legado' in d && <Legado d={d} />}
         {d && !('legado' in d) && <Pedido d={d} setZoom={setZoom} compartir={compartir} token={token} />}
-        {equipo && d && !('legado' in d) && <a className="sg-card sg-equipo" href={'/escanear?c=' + encodeURIComponent(token)}><b>Eres del equipo {marca}</b><span>Registrar el avance de este pedido →</span></a>}
+        {equipo && d && !('legado' in d) && <a className="sg-card sg-equipo" href={APP + '/escanear?c=' + encodeURIComponent(token)} target={MARCO}><b>Eres del equipo {marca}</b><span>Registrar el avance de este pedido →</span></a>}
         <p className="sg-pie">{marca} · Equipos médicos · Esta página se actualiza sola</p>
       </main>
       {zoom && <div className="sg-zoom" onClick={() => setZoom('')} role="dialog" aria-label="Foto"><img src={zoom} alt="Foto de la entrega" /></div>}
@@ -128,7 +133,7 @@ function Pedido({ d, setZoom, compartir, token }: { d: Datos; setZoom: (u: strin
         {d.asesor && <div className="sg-asesor"><span className="ava">{d.asesor.foto ? <img src={imagen(d.asesor.foto, 96)} alt="" /> : d.asesor.nombre.slice(0, 1)}</span>
           <div><small style={{ color: 'var(--muted)', fontSize: 12 }}>Tu asesor</small><b style={{ display: 'block' }}>{d.asesor.nombre}</b></div></div>}
         {d.asesor?.whatsapp && <a className="sg-btn wa" href={`https://wa.me/${d.asesor.whatsapp}?text=${encodeURIComponent(`Hola ${d.asesor.nombre.split(' ')[0]}, te escribo por mi pedido ${d.codigo}.`)}`} target="_blank" rel="noopener noreferrer"><MessageCircle size={18} />Escribir por WhatsApp</a>}
-        {d.encuesta && <a className="sg-btn prim" href={`/encuesta/?c=${token}`}><Star size={18} />Califica tu experiencia</a>}
+        {d.encuesta && <a className="sg-btn prim" href={`${APP}/encuesta/?c=${token}`} target={MARCO}><Star size={18} />Califica tu experiencia</a>}
         <button type="button" className="sg-btn sec" onClick={compartir}><Share2 size={17} />Compartir este seguimiento</button>
       </section>
 
