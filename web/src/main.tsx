@@ -1,6 +1,7 @@
 import { StrictMode, Suspense, lazy } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
+import { ErrorPantalla, recargarPorVersionNueva } from './ErrorPantalla'
 import './styles.css'
 
 // Páginas públicas (sin iniciar sesión): encuesta de satisfacción, seguimiento del servicio técnico
@@ -21,12 +22,17 @@ if (/^\/escanear\/?$/.test(ruta)) {
   window.history.replaceState(null, '', '/#escanear' + (c ? '/' + encodeURIComponent(c) : ''))
 }
 
+// Versión nueva publicada mientras se trabajaba: un archivo de la versión anterior ya no existe → se recarga sola una vez.
+window.addEventListener('vite:preloadError', (ev) => { if (recargarPorVersionNueva()) ev.preventDefault() })
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
+    <ErrorPantalla donde="la app">
     {esEncuesta ? <Suspense fallback={null}><EncuestaPublica /></Suspense>
       : esServicio ? <Suspense fallback={null}><ServicioPublico /></Suspense>
       : esMaterial ? <Suspense fallback={null}><MaterialPublico /></Suspense>
       : esSeguimiento ? <Suspense fallback={null}><SeguimientoPublico /></Suspense>
       : <App />}
+    </ErrorPantalla>
   </StrictMode>,
 )
