@@ -775,3 +775,11 @@ Cotizaciones anteriores (sin copia) toman los términos actuales al abrir la pro
 |---|---|---|
 | Ver documentos técnicos en Inventario | La ficha del producto muestra sus documentos técnicos (manual, hoja de datos, certificado, registro sanitario, otro) con tipo, versión y vencimiento (vencido / por vencer); de un mismo documento, la versión más reciente es la vigente | `Inventario.tsx` (DocumentosTecnicos) |
 | Autorización | Empleados › «Ver documentos técnicos» (documentos_tecnicos › ver). La base de datos solo deja leerlos a quien la tiene, a Servicio Técnico y a Marketing (antes los leía cualquier módulo con productos). Se suben en Marketing › Multimedia (crear/editar de Documentos técnicos) | Migración 20261117150000; pruebas supabase/tests/documentos_tecnicos_ver.sql (6/6) |
+
+## Ajustes 17-nov-2026 (tarde)
+
+| Función | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| Observaciones en la ventana del producto | Texto completo en rojo (antes solo «pasa el cursor»): en pantalla grande arriba de los detalles, en el teléfono antes del precio; también en el panel lateral | ✅ | `web/src/modulos/Inventario.tsx` (`AvisoObs`) |
+| Ficha técnica dentro de «Documentos técnicos» | La ficha actual del producto (`ficha_tecnica_url`, 349 productos) y sus versiones generadas (`fichas_tecnicas`, 35) se listan junto a manuales y certificados | ✅ | `Inventario.tsx` (`DocumentosTecnicos`) |
+| Acta de una venta de FEMEDICS | Se cambian en el acta el Nº de factura, la cédula/RUC, «Entregado por» y el nombre y cargo de la firma de la Carta de Garantía; sale con el logo y el pie de FEMEDICS. Se guarda en `acta_datos.femedics`. Las actas de VIMEDIC no cambian | ✅ (nuevo, no estaba en el original) | `Facturacion.tsx` (`ModalActaGarantia`), `documentosFacturacion.ts`, `documentoMarca.ts`, `public/logo-femedics.svg` |

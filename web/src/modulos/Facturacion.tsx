@@ -9,7 +9,7 @@ import { puede } from '../permisos'
 import { imagen } from './inventarioUtil'
 import { enlaceSeguimiento } from '../enlacesPublicos'
 import { logoDocDataUrl } from '../documentoMarca'
-import { cargarPlantillas } from '../plantillas'
+import { cargarPlantillas, plantillaDe } from '../plantillas'
 import { htmlGuiaDespacho } from './documentosEntrega'
 import { fechaDeTexto, fechaLarga, htmlActa, htmlGuia, pdfDeHtml, sumarMeses, tamanoGuia, type DatosGuia } from './documentosFacturacion'
 import { VisorDocumento, cuerpoDe, documentoCompleto, guardarDocumento, leerDocumento, type DocVisor } from './VisorDocumento'
@@ -1150,7 +1150,10 @@ type ActaGuardada = {
   cliente?: Partial<Record<'nombre' | 'ciudad' | 'direccion' | 'telefono' | 'email', string>>
   series?: Record<string, string[]>; sinGarantia?: Record<string, boolean>; extras?: { id?: string; nombre: string; cantidad: number }[]
   equipos?: { codigo: string; nombre: string; cantidad: number; series: string[]; sinGarantia: boolean; extra: boolean }[]
+  /** Ventas de FEMEDICS: datos de la factura y de la firma que se cambiaron en el acta. */
+  femedics?: Partial<DatosFm>
 }
+type DatosFm = { factura: string; identificacion: string; entrega: string; firmaNombre: string; firmaCargo: string }
 /** Equipos de la venta con la clave del original: código|ocurrencia (el mismo producto dos veces son dos renglones). */
 function equiposDeItems(items: Linea[]): EquipoActa[] {
   const vistos: Record<string, number> = {}
@@ -1183,6 +1186,10 @@ function ModalActaGarantia({ r, perfil, mostrar, cerrar, aviso, guardado }: { r:
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState('')
   const [guardando, setGuardando] = useState(false)
+  /* Cliente FEMEDICS: en el acta se pueden cambiar los datos de la factura (número, cédula/RUC), quién entrega y la firma. */
+  const esFm = r.empresa === 'FEMEDICS'
+  const [fm, setFm] = useState<DatosFm>({ factura: r.numeroFactura || '', identificacion: r.identificacion || '', entrega: 'FEMEDICS', firmaNombre: '', firmaCargo: '' })
+  const numeroActa = (esFm ? fm.factura : r.numeroFactura).trim()
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') cerrar() }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [cerrar])
 
   /* Al abrir: lo que se guardó la vez anterior (editar el acta) y, si no hay, las series que registró Bodega al despachar. */
@@ -1196,6 +1203,12 @@ function ModalActaGarantia({ r, perfil, mostrar, cerrar, aviso, guardado }: { r:
       if (!vivo) return
       setCotizacionId((f?.cotizacion_id as string | null) ?? null)
       const g = ((f?.acta_datos ?? {}) as ActaGuardada)
+      if (r.empresa === 'FEMEDICS') {
+        // La firma de la plantilla «Carta de garantía» como punto de partida; si ya se cambió en el acta, la guardada.
+        await cargarPlantillas().catch(() => undefined)
+        const fb = plantillaDe('carta_garantia').bloques.find((b) => b.tipo === 'firma')
+        if (vivo) setFm((x) => ({ ...x, firmaNombre: fb?.nombre ?? '', firmaCargo: fb?.cargo ?? '', ...Object.fromEntries(Object.entries(g.femedics ?? {}).filter(([, v]) => v != null)) }))
+      }
       const deBodega = ((desp?.series ?? {}) as Record<string, string[]>)
       const tieneGuardado = !!(g && (g.series || g.equipos || g.cliente))
       setEquipos((base) => {
@@ -1296,7 +1309,7 @@ function ModalActaGarantia({ r, perfil, mostrar, cerrar, aviso, guardado }: { r:
 
   async function generar() {
     setError('')
-    if (!r.numeroFactura) { setError('Primero sube la factura — el acta necesita su número.'); return }
+    if (!numeroActa) { setError(esFm ? 'Escribe el número de factura que sale en el acta.' : 'Primero sube la factura — el acta necesita su número.'); return }
     if (!cliente.nombre.trim()) { setError('Indica el nombre del cliente en el acta.'); return }
     if (!equipos.length) { setError('Todos los productos fueron acreditados o no hay equipos: añade al menos uno al acta.'); return }
     if (!Number.isInteger(cantNum) || cantNum < 0 || (garantiaUnidad === 'anios' && cantNum > 10) || (garantiaUnidad === 'meses' && cantNum > 120)) {
@@ -1310,24 +1323,27 @@ function ModalActaGarantia({ r, perfil, mostrar, cerrar, aviso, guardado }: { r:
       const series: Record<string, string[]> = {}, sinGarantia: Record<string, boolean> = {}
       lista.forEach((e) => { const s = e.series.map((x) => x.trim().slice(0, 80)); while (s.length && !s[s.length - 1]) s.pop(); series[e.key] = s; if (e.sinGarantia) sinGarantia[e.key] = true })
       await cargarPlantillas()   // textos y orden de las plantillas «Acta de entrega», «Carta de garantía» y «Anexo»
+      const datosFm = { factura: numeroActa, identificacion: fm.identificacion.trim(), entrega: fm.entrega.trim(), firmaNombre: fm.firmaNombre.trim(), firmaCargo: fm.firmaCargo.trim() }
       const doc = htmlActa({
-        numeroFactura: r.numeroFactura, fecha: fechaDeTexto(fecha),
-        cliente: { nombre: cliente.nombre.trim(), identificacion: r.identificacion, ciudad: cliente.ciudad.trim(), direccion: cliente.direccion.trim(), telefono: cliente.telefono.trim(), email: cliente.email.trim() },
+        numeroFactura: numeroActa, fecha: fechaDeTexto(fecha),
+        ...(esFm ? { empresa: 'FEMEDICS', entrega: datosFm.entrega || 'FEMEDICS', firma: { nombre: datosFm.firmaNombre, cargo: datosFm.firmaCargo } } : {}),
+        cliente: { nombre: cliente.nombre.trim(), identificacion: esFm ? datosFm.identificacion : r.identificacion, ciudad: cliente.ciudad.trim(), direccion: cliente.direccion.trim(), telefono: cliente.telefono.trim(), email: cliente.email.trim() },
         equipos: lista.map((e) => ({ id: e.codigo || '—', nombre: e.nombre, cantidad: e.cantidad, series: series[e.key].filter(Boolean), garantia: e.sinGarantia || meses === 0 ? '' : duracionTxt })),
         garantiaTxt: duracionTxt, nMant, observaciones: mantObs.map((x) => x.slice(0, 300)), anexo,
       })
-      const nombre = 'Acta_' + r.numeroFactura.replace(/[^\w.-]+/g, '_') + '.pdf'
+      const nombre = 'Acta_' + numeroActa.replace(/[^\w.-]+/g, '_') + '.pdf'
       // Se guarda el HTML (al instante) y se muestra en el visor; el PDF se arma solo si se pide.
-      const html = documentoCompleto(doc, 'Acta ' + r.numeroFactura), ruta = 'actas/' + r.uuid + '.html'
+      const html = documentoCompleto(doc, 'Acta ' + numeroActa), ruta = 'actas/' + r.uuid + '.html'
       await guardarDocumento(ruta, html)
       const acta_datos = {
         anios: garantiaUnidad === 'anios' ? cantNum : Math.floor(cantNum / 12), garantiaCant: cantNum, garantiaUnidad,
         observaciones: mantObs.slice(0, nMant), cliente: { nombre: cliente.nombre.trim(), ciudad: cliente.ciudad.trim(), direccion: cliente.direccion.trim(), telefono: cliente.telefono.trim(), email: cliente.email.trim() },
         fecha, series, sinGarantia, anexo, extras: lista.filter((e) => e.extra).map((e) => ({ id: e.codigo, nombre: e.nombre, cantidad: e.cantidad })),
+        ...(esFm ? { femedics: datosFm } : {}),
       }
       const { error: errUpd } = await supabase.from('facturas').update({ acta_garantia_url: ruta, acta_datos }).eq('id', r.uuid)
       if (errUpd) { setError('El acta se guardó, pero no se pudo enlazar a la venta: ' + errUpd.message); setGuardando(false); return }
-      mostrar({ titulo: 'Acta de entrega · Factura ' + r.numeroFactura, html, archivo: nombre, pdf: () => pdfDeHtml(doc) })
+      mostrar({ titulo: 'Acta de entrega · Factura ' + numeroActa, html, archivo: nombre, pdf: () => pdfDeHtml(doc) })
       const nSeries = Object.values(series).reduce((a, s) => a + s.filter(Boolean).length, 0)
       const texto = 'Acta de entera satisfacción generada por ' + perfil.nombre + ' · garantía: ' + (duracionTxt || 'sin garantía') + ' · ' + nSeries + ' número(s) de serie.'
       await supabase.rpc('registrar_bitacora', { p_modulo: 'facturacion', p_accion: 'generar_acta', p_factura: r.uuid, p_comentario: texto })
@@ -1350,11 +1366,24 @@ function ModalActaGarantia({ r, perfil, mostrar, cerrar, aviso, guardado }: { r:
             <button type="button" onClick={cerrar} className="w-8 h-8 rounded-xl bg-white/15 hover:bg-white/25 flex items-center justify-center" aria-label="Cerrar"><X className="w-4 h-4" /></button>
           </div>
           <h3 className="font-display font-bold text-lg leading-snug mt-1.5">{r.cliente || 'Venta'}</h3>
-          <p className="text-[11px] text-white/75">Equipos con números de serie + carta de garantía · una sola firma del cliente · Factura {r.numeroFactura || '(sin subir)'}</p>
+          <p className="text-[11px] text-white/75">Equipos con números de serie + carta de garantía · una sola firma del cliente · Factura {numeroActa || '(sin subir)'}</p>
           {r.actaUrl && <p className="text-[11px] text-white font-semibold mt-1">Editando el acta ya generada: al guardar se vuelve a generar el acta con los cambios.</p>}
         </div>
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3">
-          {!r.numeroFactura && <p className="fi-err">Primero sube la factura — el acta necesita su número.</p>}
+          {!numeroActa && <p className="fi-err">{esFm ? 'Escribe abajo el número de factura que sale en el acta.' : 'Primero sube la factura — el acta necesita su número.'}</p>}
+          {esFm && (
+            <div className="fi-sec" style={{ borderColor: '#0cc4cf' }}>
+              <div className="fi-sec-h"><span className="fi-num" style={{ background: '#0cc4cf' }}><Building2 className="w-3.5 h-3.5" /></span><div className="flex-1"><b>Venta de FEMEDICS</b><small>Estos datos salen en el acta en lugar de los de la factura de VIMEDIC</small></div></div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <label className="fi-lab">Nº de factura *<input type="text" value={fm.factura} maxLength={60} onChange={(e) => setFm((x) => ({ ...x, factura: e.target.value }))} className="fi-in" /></label>
+                <label className="fi-lab">Cédula / RUC del cliente<input type="text" value={fm.identificacion} maxLength={20} onChange={(e) => setFm((x) => ({ ...x, identificacion: e.target.value }))} className="fi-in" /></label>
+                <label className="fi-lab sm:col-span-2">Entregado por (empresa)<input type="text" value={fm.entrega} maxLength={80} onChange={(e) => setFm((x) => ({ ...x, entrega: e.target.value }))} className="fi-in" /></label>
+                <label className="fi-lab">Nombre de la firma<input type="text" value={fm.firmaNombre} maxLength={120} onChange={(e) => setFm((x) => ({ ...x, firmaNombre: e.target.value }))} className="fi-in" /></label>
+                <label className="fi-lab">Cargo de la firma<input type="text" value={fm.firmaCargo} maxLength={120} onChange={(e) => setFm((x) => ({ ...x, firmaCargo: e.target.value }))} className="fi-in" /></label>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-2">La firma es la de la Carta de Garantía. Solo cambia este documento; la plantilla y la factura de la venta quedan igual.</p>
+            </div>
+          )}
           {cargando && <p className="text-[11px] text-slate-400">Cargando lo guardado…</p>}
           <div className="fi-sec">
             <div className="fi-sec-h"><span className="fi-num" style={{ background: 'var(--teal)' }}>1</span><div className="flex-1"><b>Cliente y fecha</b><small>Datos que salen en el acta</small></div></div>
@@ -1363,7 +1392,7 @@ function ModalActaGarantia({ r, perfil, mostrar, cerrar, aviso, guardado }: { r:
               <label className="fi-lab">Fecha del acta<input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className="fi-in" /></label>
               <label className="fi-lab">Ciudad<input type="text" value={cliente.ciudad} onChange={(e) => setCliente((c) => ({ ...c, ciudad: e.target.value }))} className="fi-in" /></label>
               <label className="fi-lab">Teléfono<input type="text" value={cliente.telefono} onChange={(e) => setCliente((c) => ({ ...c, telefono: e.target.value }))} className="fi-in" /></label>
-              <label className="fi-lab">Cédula / RUC<input type="text" value={r.identificacion} readOnly className="fi-in bg-slate-50" /></label>
+              {!esFm && <label className="fi-lab">Cédula / RUC<input type="text" value={r.identificacion} readOnly className="fi-in bg-slate-50" /></label>}
               <label className="fi-lab sm:col-span-2">Dirección de entrega<input type="text" value={cliente.direccion} onChange={(e) => setCliente((c) => ({ ...c, direccion: e.target.value }))} className="fi-in" /></label>
               <label className="fi-lab sm:col-span-2">Correo electrónico<input type="email" value={cliente.email} onChange={(e) => setCliente((c) => ({ ...c, email: e.target.value }))} className="fi-in" /></label>
             </div>
@@ -1452,7 +1481,7 @@ function ModalActaGarantia({ r, perfil, mostrar, cerrar, aviso, guardado }: { r:
         </div>
         <div className="shrink-0 border-t border-slate-200 bg-white p-4 flex items-center gap-2">
           <button type="button" onClick={cerrar} className="h-11 px-4 rounded-2xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50">Cancelar</button>
-          <button type="button" onClick={generar} disabled={guardando || cargando || !r.numeroFactura} className="flex-1 h-11 rounded-2xl text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: '#04896f' }}><Printer className="w-4 h-4" />{guardando ? 'Generando…' : r.actaUrl ? 'Volver a generar el acta' : 'Generar acta'}</button>
+          <button type="button" onClick={generar} disabled={guardando || cargando || !numeroActa} className="flex-1 h-11 rounded-2xl text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: '#04896f' }}><Printer className="w-4 h-4" />{guardando ? 'Generando…' : r.actaUrl ? 'Volver a generar el acta' : 'Generar acta'}</button>
         </div>
       </div>
     </div>

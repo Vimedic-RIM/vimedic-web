@@ -30,6 +30,10 @@ export type DatosActaDoc = {
   numeroFactura: string; fecha: Date
   cliente: { nombre: string; identificacion: string; ciudad: string; direccion: string; telefono: string; email: string }
   equipos: EquipoActaDoc[]; garantiaTxt: string; nMant: number; observaciones: string[]; anexo: boolean
+  /** Ventas de FEMEDICS: quién entrega (recuadro de firmas del acta) y nombre y cargo de la firma de la Carta de Garantía. */
+  entrega?: string; firma?: { nombre: string; cargo: string }
+  /** 'FEMEDICS': el acta sale con el logo y el pie de FEMEDICS. */
+  empresa?: string
 }
 
 function estiloActa(): string {
@@ -48,9 +52,9 @@ function estiloActa(): string {
 }
 
 /** Encabezado de la proforma con el título y el lugar de la plantilla; debajo el número de factura y el lugar y la fecha. */
-function encabezado(codigo: string, fechaLetra: string, numero: string): string {
+function encabezado(codigo: string, fechaLetra: string, numero: string, empresa?: string): string {
   const p = plantillaDe(codigo)
-  return encabezadoDocHtml({ titulo: p.titulo, titulo2: p.titulo2, lugarFecha: (p.lugar ? p.lugar + ', ' : '') + fechaLetra, etiqueta: 'Nº FACTURA', numero })
+  return encabezadoDocHtml({ titulo: p.titulo, titulo2: p.titulo2, lugarFecha: (p.lugar ? p.lugar + ', ' : '') + fechaLetra, etiqueta: 'Nº FACTURA', numero, empresa, conLogoFemedics: true })
 }
 
 /** seccionTitulo_: barra lateral del color de la marca, texto en mayúsculas y una línea hasta el margen. `html` ya viene escapado. */
@@ -106,8 +110,13 @@ export function htmlActa(d: DatosActaDoc): string {
       : 'Para hacer válida la garantía, el equipo deberá ser revisado por nuestro departamento técnico.',
   }
   const comun = { vars, tituloSeccion: seccion }
+  // FEMEDICS: la firma de la plantilla se reemplaza por la que se escribió en el acta (solo en este documento).
+  const conFirma = (codigo: string) => {
+    const p = plantillaDe(codigo), f = d.firma
+    return f && (f.nombre || f.cargo) ? { ...p, bloques: p.bloques.map((b) => (b.tipo === 'firma' ? { ...b, nombre: f.nombre, cargo: f.cargo } : b)) } : p
+  }
 
-  const acta = encabezado('acta_entrega', fechaLetra, d.numeroFactura) + armarBloques(plantillaDe('acta_entrega'), {
+  const acta = encabezado('acta_entrega', fechaLetra, d.numeroFactura, d.empresa) + armarBloques(conFirma('acta_entrega'), {
     ...comun,
     secciones: {
       cliente: (t) => titulo(t) + `<div class="info-box"><table style="width:100%"><tr>
@@ -121,13 +130,13 @@ export function htmlActa(d: DatosActaDoc): string {
 <div class="info-field"><strong>Email:</strong> ${esc(c.email || '—')}</div></td></tr></table></div>`,
       equipos: (t) => titulo(t) + `<table class="doc-table"><thead><tr><th style="text-align:center">Cant.</th><th>Código</th><th>Equipo</th><th>N° de serie</th><th style="text-align:center">Garantía</th></tr></thead><tbody>${filasEntrega}</tbody></table>`,
       firmas: (t) => titulo(t) + `<table style="width:100%;margin-top:22px"><tr>
-<td style="width:50%;padding-right:10px;vertical-align:top"><div class="info-box"><strong style="color:${NAVY()}">Entregado por (VIMEDIC)</strong><br><br>Firma: ____________________<br>Nombre: ____________________<br>C.I.: ____________________<br>Cargo: ____________________</div></td>
+<td style="width:50%;padding-right:10px;vertical-align:top"><div class="info-box"><strong style="color:${NAVY()}">Entregado por (${esc(d.entrega || 'VIMEDIC')})</strong><br><br>Firma: ____________________<br>Nombre: ____________________<br>C.I.: ____________________<br>Cargo: ____________________</div></td>
 <td style="width:50%;padding-left:10px;vertical-align:top"><div class="info-box"><strong style="color:${NAVY()}">Recibido a entera satisfacción por</strong><br><br>Firma: ____________________<br>Nombre: ____________________<br>C.I.: ____________________<br>Cargo: ____________________</div></td></tr></table>`,
     },
-  }) + pieDocHtml()
+  }) + pieDocHtml(d.empresa)
 
   const carta = !conGarantia.length ? '' : '<div class="pagebreak"></div>'
-    + encabezado('carta_garantia', fechaLetra, d.numeroFactura) + armarBloques(plantillaDe('carta_garantia'), {
+    + encabezado('carta_garantia', fechaLetra, d.numeroFactura, d.empresa) + armarBloques(conFirma('carta_garantia'), {
       ...comun,
       secciones: {
         equipos_garantia: (t) => titulo(t) + `<table class="doc-table"><thead><tr><th>Código</th><th>Equipo</th><th style="text-align:center">Cant.</th><th>N° de serie</th><th style="text-align:center">Garantía</th></tr></thead><tbody>${filasGarantia}</tbody></table>`,
@@ -136,15 +145,15 @@ export function htmlActa(d: DatosActaDoc): string {
 <th style="background:${NAVY()};color:#fff;padding:8px 9px;font-size:9.5px;text-transform:uppercase;text-align:center">Fecha de Mantenimiento</th>
 <th style="background:${NAVY()};color:#fff;padding:8px 9px;font-size:9.5px;text-transform:uppercase;text-align:center">Observación</th></tr></thead><tbody>${filasMant}</tbody></table></div>`,
       },
-    }) + pieDocHtml()
+    }) + pieDocHtml(d.empresa)
 
   const anexo = !d.anexo ? '' : '<div class="pagebreak"></div>'
-    + encabezado('anexo_series', fechaLetra, d.numeroFactura) + armarBloques(plantillaDe('anexo_series'), {
+    + encabezado('anexo_series', fechaLetra, d.numeroFactura, d.empresa) + armarBloques(plantillaDe('anexo_series'), {
       ...comun,
       secciones: {
         series: (t) => titulo(t) + `<table style="width:100%;border:1px solid #dde6f0"><thead><tr>${th('Código', 'width:60px')}${th('Equipo', 'width:160px')}${th('Cant.', 'text-align:center;width:45px')}${th('Espacio para sticker de serie')}</tr></thead><tbody>${filasAnexo}</tbody></table>`,
       },
-    }) + pieDocHtml()
+    }) + pieDocHtml(d.empresa)
 
   return `<style>${estiloActa()}</style><div class="vd">${acta}${carta}${anexo}</div>`
 }

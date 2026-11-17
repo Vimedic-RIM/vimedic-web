@@ -1217,17 +1217,29 @@ function urlVideoEmbed(url: string): string | null {
   return null
 }
 
-/* Documentos técnicos del producto (manuales, hojas de datos, certificados, registros): solo con la autorización
-   «Documentos técnicos» en Empleados. Se suben en Marketing › Multimedia. */
+/* Documentos técnicos del producto: la ficha técnica (la actual y sus versiones anteriores generadas en Marketing)
+   y los manuales, hojas de datos, certificados y registros. Solo con la autorización «Documentos técnicos» en
+   Empleados. Se suben en Marketing › Multimedia. */
 type DocTec = { id: string; tipo: string; nombre: string; url: string | null; version: string | null; vence: string | null; created_at: string }
-function DocumentosTecnicos({ productoId }: { productoId: string }) {
+const idDrive = (u: string | null) => (u || '').match(/\/d\/([-\w]{20,})/)?.[1] || (u || '').match(/[?&]id=([-\w]{20,})/)?.[1] || (u || '').trim()
+function DocumentosTecnicos({ productoId, fichaUrl }: { productoId: string; fichaUrl: string | null }) {
   const [docs, setDocs] = useState<DocTec[] | null>(null)
   useEffect(() => {
     setDocs(null)
-    supabase.from('documentos_tecnicos').select('id,tipo,nombre,url,version,vence,created_at').eq('producto_id', productoId).is('deleted_at', null)
-      .order('tipo').order('created_at', { ascending: false })
-      .then(({ data }) => setDocs((data as DocTec[] | null) ?? []))
-  }, [productoId])
+    Promise.all([
+      supabase.from('documentos_tecnicos').select('id,tipo,nombre,url,version,vence,created_at').eq('producto_id', productoId).is('deleted_at', null)
+        .order('tipo').order('created_at', { ascending: false }),
+      supabase.from('fichas_tecnicas').select('id,version,url,fecha').eq('producto_id', productoId).is('deleted_at', null).order('version', { ascending: false }).limit(20),
+    ]).then(([d, f]) => {
+      // Ficha técnica: la actual del producto primero; las generadas que no son la actual quedan como versiones anteriores.
+      const fichas = ((f.data ?? []) as { id: string; version: number; url: string | null; fecha: string }[]).filter((x) => x.url)
+      const actual = fichaUrl ? fichas.find((x) => idDrive(x.url) === idDrive(fichaUrl)) : undefined
+      const lista: DocTec[] = []
+      if (fichaUrl) lista.push({ id: 'ficha', tipo: 'Ficha técnica', nombre: 'Ficha técnica', url: fichaUrl, version: actual ? String(actual.version) : null, vence: null, created_at: actual?.fecha ?? '' })
+      for (const x of fichas) if (x !== actual) lista.push({ id: x.id, tipo: 'Ficha técnica', nombre: 'Ficha técnica', url: x.url, version: String(x.version), vence: null, created_at: x.fecha })
+      setDocs([...lista, ...((d.data as DocTec[] | null) ?? [])])
+    })
+  }, [productoId, fichaUrl])
   const hoy = new Date().toISOString().slice(0, 10), en60 = new Date(Date.now() + 60 * 864e5).toISOString().slice(0, 10)
   const vistos = new Set<string>()
   return (
@@ -1445,7 +1457,7 @@ function DetalleProducto({ p, editar, eliminar, verMovimientos, irAMovimientos, 
                 <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-line">{v}</p>
               </div>
             ))}
-            {verDocs && <DocumentosTecnicos productoId={p.id} />}
+            {verDocs && <DocumentosTecnicos productoId={p.id} fichaUrl={p.ficha_tecnica_url} />}
           </div>
         </div>
 

@@ -10,6 +10,8 @@ export const AZUL_DOC = '#055c9d'
 export const TEAL_DOC = '#2ab9c7'
 export const PIE_VIMEDIC = 'Quito, Ecuador — Agende su visita a nuestras salas de exhibición'
 export const PIE_FEMEDICS = 'FEMEDICS IMPORTACIONES · Distribuidor autorizado de la marca VIMEDIC'
+/** Logo de FEMEDICS (public/logo-femedics.svg). */
+export const logoFemedicsUrl = (): string => window.location.origin + '/logo-femedics.svg'
 
 /** Lo que se edita en Plantillas › Marca y pie. `logo` vacío = logo oficial. */
 export type MarcaDoc = { logo: string; color: string; acento: string; leyenda: string; mostrarLeyenda: boolean; pie: string }
@@ -60,6 +62,8 @@ export type EncabezadoDoc = {
   /** «Fecha: 17/11/2026» a la derecha; `lugarFecha` se imprime tal cual («Quito, 17 de noviembre de 2026»). */
   fecha?: string; lugarFecha?: string
   empresa?: string | null
+  /** FEMEDICS: muestra su logo en lugar del nombre en texto. */
+  conLogoFemedics?: boolean
   /** Logo como data URL cuando el documento se abre fuera de la app; si no, la dirección del logo. */
   logo?: string | null
   /** Algo más a la derecha de la fila del número (p. ej. un QR). */
@@ -69,7 +73,9 @@ export type EncabezadoDoc = {
 /** El encabezado de la proforma (proforma.tsx), con estilos en línea para que sirva en cualquier documento. */
 export function encabezadoDocHtml(o: EncabezadoDoc): string {
   const fem = esFemedics(o.empresa), m = marcaDoc()
-  const marca = fem
+  const marca = fem && o.conLogoFemedics
+    ? `<img src="${esc(logoFemedicsUrl())}" alt="FEMEDICS" style="display:block;width:170px;height:auto;max-height:70px;object-fit:contain">`
+    : fem
     ? `<div style="font-size:20px;font-weight:bold;color:${m.color}">FEMEDICS</div>`
     : `<img src="${esc(m.logo || o.logo || logoDocUrl())}" alt="VIMEDIC" style="display:block;width:160px;height:auto;max-height:60px;object-fit:contain">`
   const titulo = `<div style="font-size:18px;color:${m.color};font-weight:bold;text-transform:uppercase;margin-bottom:2px;line-height:1.25">${esc(o.titulo)}${o.titulo2 ? '<br>' + esc(o.titulo2) : ''}</div>`
