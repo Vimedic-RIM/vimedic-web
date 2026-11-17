@@ -287,6 +287,8 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   if (esAsistente && !deGerencia(asesorId)) faltan.push('a nombre de quién se crea (' + asesores.filter((a) => deGerencia(a.id)).map((a) => a.nombre).join(' o ') + ')')
   if (!carrito.length) faltan.push('productos')
   if (esVenta) {
+    // Como el original: una venta necesita un cliente existente (el lead solo sirve para cotizar); se crea con «Nuevo cliente».
+    if (!cliente) faltan.push('cliente existente (selecciónalo o créalo con «Nuevo cliente»)')
     if (!pago) faltan.push('pago')
     if (pago === 'Pagado' && !tipoPago) faltan.push('tipo de pago')
     if (pago === 'Crédito' && !plazo) faltan.push('plazo de crédito')
