@@ -24,7 +24,7 @@ type Prod = { id: string; codigo: string | null; nombre: string; pvp: number | n
 type Linea = { pvp?: number; dis?: number; base?: number; obj?: number; id: string; codigo: string; nombre: string; imagen: string; precio: number; cantidad: number; descuento: number; iva: boolean; observacion: string; categoria?: string; descripcion?: string; ficha?: string; carpeta?: string
   /** Oferta vigente con la que se agregó (Issue #41); la proforma la nombra mientras la línea lleve su descuento. */
   oferta?: OfertaLinea }
-type Cli ={ ciudad?: string | null; asesor_id?: string | null; datos_venta?: Record<string, string> | null; id: string; nombre: string; identificacion: string | null; email: string | null; telefono: string | null; direccion: string | null; tipo_cliente: string | null; descuento_fijo: string | null }
+type Cli ={ propio?: boolean; ciudad?: string | null; asesor_id?: string | null; datos_venta?: Record<string, string> | null; id: string; nombre: string; identificacion: string | null; email: string | null; telefono: string | null; direccion: string | null; tipo_cliente: string | null; descuento_fijo: string | null }
 
 const MEDIOS: [string, string[]][] = [
   ['Web y catálogo VIMEDIC', ['🤖 Chat bot web', '📝 Cotización web', '📅 Visita web', '🔓 Desbloqueo precios y stock web', '🛒 Catálogo web', '🌐 Página web']],
@@ -89,7 +89,8 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   const veTodos = puede(perfil, 'crm', 'ver_todos') || puede(perfil, 'femedics', 'ver_todos')
   // Asistente Comercial Gerencia: los clientes, leads y proformas de la Alta Dirección también son suyos de gestionar (asiste_a viene de mi_perfil).
   const deGerencia = (id?: string | null) => !!id && !!perfil.asiste_a?.includes(id)
-  const ajeno = (c: Cli) => !veTodos && !!c.asesor_id && c.asesor_id !== perfil.id && !deGerencia(c.asesor_id)
+  // El buscador (crm_buscar_clientes) ya dice si el cliente es propio; si no viene de ahí, se decide aquí igual que el original.
+  const ajeno = (c: Cli) => (c.propio != null ? !c.propio : !veTodos && !!c.asesor_id && c.asesor_id !== perfil.id && !deGerencia(c.asesor_id))
   const [leadCiudad, setLeadCiudad] = useState<string>(ed?.ciudad ?? '')
   const [leadAbierto, setLeadAbierto] = useState(false)
   const [leadListo, setLeadListo] = useState(!!(ed?.nombre ?? origen?.nombre))
@@ -101,7 +102,9 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   const medioLead = ed?.medio_captacion_lead || origen?.medio || ''
   const [nota, setNota] = useState<string>(ed?.nota_cotizacion ?? '')
   // El documento queda a nombre del asesor elegido: si la asistente parte de un lead/gestión de un jefe, sale a nombre del jefe.
-  const [asesorId, setAsesorId] = useState<string>(ed?.asesor_id ?? (deGerencia(origen?.asesorId) ? origen!.asesorId! : perfil.id))
+  // Asistente Comercial Gerencia (Leads.gs del original): todo lo que crea queda a nombre de uno de los jefes, nunca a su nombre; se elige.
+  const esAsistente = !!perfil.asiste_a?.length
+  const [asesorId, setAsesorId] = useState<string>(ed?.asesor_id ?? (deGerencia(origen?.asesorId) ? origen!.asesorId! : esAsistente ? '' : perfil.id))
 
   /* productos */
   const [qp, setQp] = useState('')
@@ -217,9 +220,9 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
     const q = limpiar(busca)
     if (q.length < 2) { setRes([]); return }
     const t = setTimeout(() => {
-      let c = supabase.from('clientes').select('id,nombre,identificacion,email,telefono,direccion,ciudad,asesor_id,tipo_cliente,descuento_fijo,datos_venta').is('deleted_at', null).eq('empresa', empresa)
-      for (const w of palabras(q)) c = c.ilike('busqueda', `%${w}%`)   // sin tildes ni mayúsculas: "jose" encuentra a "José"
-      c.order('nombre').limit(15).then(({ data }) => setRes(((data as Cli[]) ?? []).sort((a, b) => Number(ajeno(a)) - Number(ajeno(b)))))
+      // Como el original: busca entre TODOS los clientes (sin tildes ni mayúsculas, cédula y teléfono por dígitos); los de otro asesor
+      // salen bloqueados, solo con el nombre y a quién están asignados, para no duplicarlos.
+      supabase.rpc('crm_buscar_clientes', { p_q: q, p_empresa: empresa, p_limite: 30 }).then(({ data }) => setRes((data as Cli[]) ?? []))
     }, 250)
     return () => clearTimeout(t)
   }, [busca])
@@ -281,6 +284,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   const faltan: string[] = []
   if (!nombre) faltan.push('cliente')
   if (!medio) faltan.push('medio de captación')
+  if (esAsistente && !deGerencia(asesorId)) faltan.push('a nombre de quién se crea (' + asesores.filter((a) => deGerencia(a.id)).map((a) => a.nombre).join(' o ') + ')')
   if (!carrito.length) faltan.push('productos')
   if (esVenta) {
     if (!pago) faltan.push('pago')
@@ -691,12 +695,12 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
       <section className="ns-sec">
         <header><span className="ns-num"><StickyNote className="w-3 h-3" /></span><h4>{esVenta ? 'Nota importante para esta venta' : 'Nota importante para esta proforma'}</h4><span className="ml-auto text-[10px] text-slate-400">{esVenta ? 'interna' : 'aparece en el PDF'}</span></header>
         <textarea rows={4} value={nota} onChange={(e) => setNota(e.target.value)} placeholder={esVenta ? 'Independiente de la cotización; no aparece en el PDF de proforma...' : 'Condiciones, tiempos de entrega, garantía...'} className="ns-input" />
-        <label className="block mt-2"><span className="ns-label">{perfil.asiste_a?.length ? 'Asesor (a su nombre queda la ' + (esVenta ? 'venta' : 'proforma') + ')' : 'Asesor'}</span>
+        <label className="block mt-2"><span className="ns-label">{perfil.asiste_a?.length ? 'A nombre de quién se crea la ' + (esVenta ? 'venta' : 'proforma') + ' *' : 'Asesor'}</span>
           <select className="ns-input" value={asesorId} onChange={(e) => setAsesorId(e.target.value)}>
             {perfil.asiste_a?.length
               ? <>
-                  <optgroup label="Alta Dirección">{asesores.filter((a) => deGerencia(a.id)).map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}</optgroup>
-                  <optgroup label="Equipo">{asesores.filter((a) => !deGerencia(a.id)).map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}</optgroup>
+                  <option value="">— Elige a nombre de quién —</option>
+                  {asesores.filter((a) => deGerencia(a.id)).map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
                 </>
               : asesores.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
           </select></label>

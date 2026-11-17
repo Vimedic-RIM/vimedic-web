@@ -1073,7 +1073,7 @@ const MEDIOS: [string, string[]][] = [
 const CANALES = ['WhatsApp', 'Instagram', 'Facebook', 'Llamada', 'Referido', 'Feria/Evento', 'Otro']
 const SEGUIMIENTOS: [string, string, number][] = [['2h', '2 horas', 2 * 3600000], ['12h', '12 horas', 12 * 3600000], ['1d', '1 día', 86400000], ['2d', '2 días', 2 * 86400000], ['3d', '3 días', 3 * 86400000], ['1s', '1 semana', 7 * 86400000], ['custom', 'Otra fecha', 0]]
 
-type ClienteRes = { id: string; nombre: string; identificacion: string | null; email: string | null; telefono: string | null }
+type ClienteRes = { id: string; nombre: string; identificacion?: string | null; email?: string | null; telefono?: string | null; asesor_id?: string | null; propio?: boolean }
 
 function NuevaGestion({ perfil, asesores, cerrar, guardado, empresa }: { empresa: 'VIMEDIC' | 'FEMEDICS'; perfil: Perfil; asesores: Asesor[]; cerrar: () => void; guardado: () => void }) {
   const [busca, setBusca] = useState('')
@@ -1115,9 +1115,8 @@ function NuevaGestion({ perfil, asesores, cerrar, guardado, empresa }: { empresa
     const ws = palabras(busca)
     if (ws.join('').length < 2) { setResultados([]); return }
     const t = setTimeout(() => {
-      let c = supabase.from('clientes').select('id,nombre,identificacion,email,telefono').is('deleted_at', null).eq('empresa', empresa)
-      for (const w of ws) c = c.ilike('busqueda', `%${w}%`)   // sin tildes ni mayúsculas
-      c.limit(8).then(({ data }) => setResultados((data as ClienteRes[]) ?? []))
+      // Entre TODOS los clientes, como el original: los de otro asesor salen bloqueados.
+      supabase.rpc('crm_buscar_clientes', { p_q: busca, p_empresa: empresa, p_limite: 15 }).then(({ data }) => setResultados((data as ClienteRes[]) ?? []))
     }, 250)
     return () => clearTimeout(t)
   }, [busca])
@@ -1186,9 +1185,11 @@ function NuevaGestion({ perfil, asesores, cerrar, guardado, empresa }: { empresa
               {resultados.length > 0 && !cliente && (
                 <div className="border border-slate-200 rounded-xl max-h-40 overflow-y-auto mb-2 divide-y divide-slate-100 bg-white shadow-sm">
                   {resultados.map((c) => (
-                    <button key={c.id} type="button" className="w-full text-left px-3 py-2 hover:bg-slate-50" onClick={() => { setCliente(c); setBusca(''); setResultados([]) }}>
+                    <button key={c.id} type="button" className={'w-full text-left px-3 py-2 hover:bg-slate-50' + (c.propio === false ? ' opacity-60' : '')} onClick={() => { if (c.propio === false) { alert('"' + c.nombre + '" ya está asignado a ' + (asesores.find((a) => a.id === c.asesor_id)?.nombre || 'otro asesor') + '.\n\nNo puedes registrar una gestión para este cliente.'); return } setCliente(c); setBusca(''); setResultados([]) }}>
                       <p className="text-xs font-bold text-slate-800 truncate">{c.nombre}</p>
-                      <p className="text-[10px] text-slate-500 truncate">{[c.identificacion, c.telefono, c.email].filter(Boolean).join(' · ')}</p>
+                      {c.propio === false
+                        ? <p className="text-[10px] font-bold truncate" style={{ color: 'var(--red)' }}>Asignado a: {asesores.find((a) => a.id === c.asesor_id)?.nombre || 'otro asesor'} — no editable</p>
+                        : <p className="text-[10px] text-slate-500 truncate">{[c.identificacion, c.telefono, c.email].filter(Boolean).join(' · ')}</p>}
                     </button>
                   ))}
                 </div>

@@ -132,6 +132,17 @@ Pedido del usuario: actualizar CRM y Facturación y depurar lo que no exista (pr
   actualización volvieron a su estado real.
 - El stock de los productos se vuelve a tomar del Excel en la vuelta de Inventario.
 
+Corregido el 16-nov-2026: buscador de clientes del CRM y restricción "cliente de otro asesor" como el original.
+
+| Función original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `getClientsList` (esPropio), `filaResultadoCliente_`, `clienteCoincideBusqueda_` | El buscador cruza TODOS los clientes: los propios primero; los de otro asesor salen en rojo con candado, solo con el nombre y "Asignado a: X — no editable" (sin cédula, ciudad, correo ni teléfono). Sin tildes ni mayúsculas; cédula y teléfono también por dígitos | ✅ corregido | `crm_buscar_clientes` (migración `20261116100000`) en el formulario de cotización/venta, la lista de Clientes del CRM y Nueva gestión. Antes un asesor solo encontraba sus propios clientes (y podía duplicar uno ajeno) |
+| esPropio = sin asesor | Un cliente sin asesor lo puede ver y usar cualquier asesor | ✅ corregido | Políticas `clientes_ver_sin_asesor` / `clientes_editar_sin_asesor` (antes los asesores no los veían) |
+| `verificarClienteNoAjeno_` | Bloqueo real: no se crea cotización/venta para la cédula/RUC de un cliente de otro asesor (quien ve todo queda exento); el Asistente de Gerencia con un cliente de un jefe la deja a nombre de ese jefe | ✅ corregido | Disparador `tg_cotizacion_cliente_no_ajeno`. Cliente con cédula repetida: mensaje claro (`tg_cliente_no_duplicado`) |
+| Asistente Ventas Gerencia (`Leads.gs`) | Todo lo que crea queda a nombre de un jefe (se elige "A nombre de"), nunca a su nombre | ✅ | `CrmDocumento.tsx`: el selector solo muestra a la Alta Dirección y es obligatorio |
+
+Pruebas: `supabase/tests/crm_clientes_buscador.sql` (14 casos).
+
 Corregido el 16-nov-2026: actas y guía de envío iguales al original.
 
 | Función original | Qué hace | Estado | Dónde quedó |

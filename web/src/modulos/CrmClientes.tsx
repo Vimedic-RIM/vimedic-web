@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Copy, MessageCircle, Phone, Search, Trash2, UserPlus, UserRoundPlus, X } from 'lucide-react'
+import { Copy, Lock, MessageCircle, Phone, Search, Trash2, UserPlus, UserRoundPlus, X } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { palabras } from '../busqueda'
 import { puede } from '../permisos'
@@ -7,6 +7,8 @@ import { conservarCursor, nombrePropio, nombrePropioFinal } from '../formatoNomb
 
 type Asesor = { id: string; nombre: string }
 export type Cliente = {
+  /** Cliente de otro asesor en una búsqueda: solo se ve el nombre y a quién está asignado. */
+  bloqueado?: boolean
   id: string; codigo: string | null; identificacion: string | null; nombre: string; telefono: string | null; telefono2: string | null
   email: string | null; ciudad: string | null; direccion: string | null; tipo_cliente: string | null; descuento_fijo: string | null
   institucion: string | null; url_maps: string | null; asesor_id: string | null; persona_contacto: string | null; cargo_contacto: string | null
@@ -109,10 +111,21 @@ export function ClientesLista({ perfil, asesores, cerrar, aviso, empresa, abrirN
   const asistidos = perfil.asiste_a ?? []
   const buscar = useCallback(() => {
     const t = q.trim().replace(/[,()%*\\]/g, ' ')
-    let consulta = supabase.from('clientes').select(COLS, { count: 'exact' }).is('deleted_at', null).eq('empresa', empresa)
     if (t) {
-      for (const p of palabras(t)) consulta = consulta.ilike('busqueda', `%${p}%`)   // sin tildes ni mayúsculas
-    } else consulta = consulta.in('asesor_id', [perfil.id, ...asistidos])   // los míos y, si soy asistente de gerencia, los de la Alta Dirección
+      // Como el original: al escribir se busca entre TODOS los clientes; los de otro asesor salen bloqueados (nombre y asesor).
+      supabase.rpc('crm_buscar_clientes', { p_q: t, p_empresa: empresa, p_limite: 50 }).then(async ({ data }) => {
+        const res = (data as { id: string; nombre: string; asesor_id: string | null; propio: boolean }[] | null) ?? []
+        const ids = res.filter((x) => x.propio).map((x) => x.id)
+        const { data: filas } = ids.length ? await supabase.from('clientes').select(COLS).in('id', ids) : { data: [] }
+        const porId = new Map(((filas as Cliente[] | null) ?? []).map((f) => [f.id, f]))
+        const vacio = { codigo: null, identificacion: null, telefono: null, telefono2: null, email: null, ciudad: null, direccion: null, tipo_cliente: null, descuento_fijo: null, institucion: null, url_maps: null, persona_contacto: null, cargo_contacto: null } as unknown as Cliente
+        const lista = res.map((x) => porId.get(x.id) ?? ({ ...vacio, id: x.id, nombre: x.nombre, asesor_id: x.asesor_id, bloqueado: true } as Cliente))
+        setLista(lista); setTotal(lista.length)
+      })
+      return
+    }
+    let consulta = supabase.from('clientes').select(COLS, { count: 'exact' }).is('deleted_at', null).eq('empresa', empresa)
+    consulta = consulta.in('asesor_id', [perfil.id, ...asistidos])   // los míos y, si soy asistente de gerencia, los de la Alta Dirección
     consulta.order('nombre').range(0, t ? 49 : 19).then(({ data, count }) => { setLista((data as Cliente[]) ?? []); setTotal(count ?? 0) })
   }, [q, perfil.id, asistidos.join(',')])   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { const t = setTimeout(buscar, 250); return () => clearTimeout(t) }, [buscar])
@@ -137,7 +150,15 @@ export function ClientesLista({ perfil, asesores, cerrar, aviso, empresa, abrirN
           <div className="flex-grow overflow-y-auto px-5 pb-5 space-y-1.5">
             {lista === null && <p className="text-xs text-slate-400 text-center py-6">Cargando clientes...</p>}
             {lista?.length === 0 && <p className="text-xs text-slate-400 text-center py-6">{q ? 'Sin clientes que coincidan.' : 'Todavía no tienes clientes propios. Escribe arriba para buscar entre todos.'}</p>}
-            {lista?.map((c) => (
+            {lista?.map((c) => c.bloqueado ? (
+              <div key={c.id} className="flex items-center gap-2 border border-red-100 rounded-lg px-3 py-2.5 bg-red-50/40 opacity-75" title="Cliente de otro asesor: no se puede editar ni cotizar">
+                <Lock className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--red)' }} />
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-slate-800 truncate">{c.nombre}</p>
+                  <p className="text-[11px] font-bold truncate" style={{ color: 'var(--red)' }}>Asignado a: {asesores.find((a) => a.id === c.asesor_id)?.nombre || 'otro asesor'} — no editable</p>
+                </div>
+              </div>
+            ) : (
               <div key={c.id} className="flex items-center justify-between gap-3 border border-slate-200 rounded-lg px-3 py-2.5 hover:bg-slate-50 cursor-pointer" onClick={() => setEditar(c)}>
                 <div className="min-w-0">
                   <p className="text-xs font-bold text-slate-800 truncate">{c.nombre}</p>
