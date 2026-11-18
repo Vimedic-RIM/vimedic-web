@@ -33,3 +33,9 @@ Copiar estos programas a `$T` y trabajar ahí.
 - Movimientos: «disponible» vacío queda vacío (no «falso»); un traslado guardado como `SALIDA` con cantidad positiva en
   «Principal» o «Por reparar» es un `INGRESO`. Proveedor de importación abreviado y la importación (PI-…) como factura
   (la migración `20261118120000_bodegas_comercial_tecnica.sql` lo aplica a lo que ya esté cargado).
+
+## Documentos técnicos (18-nov)
+`datos_origen/Documentos_Tecnicos_Drive.xlsx` (hoja «Listado único», 288 archivos de Drive de 121 productos) →
+`documentos_tecnicos`. Volcar el Excel en `$T/dt` y correr `node $T/x3_documentos_tecnicos.cjs`: deja `dt_ensayo.sql`
+(se deshace) y `dt_aplicar.sql`. Tipos: Certificado; Manual → Manual de usuario (o de servicio si el nombre lo dice);
+Ficha técnica → Hoja de datos del fabricante; Video → Otro. No repite archivos (por id de Drive).
