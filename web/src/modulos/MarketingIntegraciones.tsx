@@ -651,7 +651,8 @@ export function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso
     setSubiendoImg(false)
   }
   async function galQuitar(id: string) {
-    const { error } = await supabase.from('producto_galeria').update({ deleted_at: new Date().toISOString() }).eq('id', id)
+    // Con la función de la base: quien edita la multimedia (sin "eliminar") puede quitar fotos; queda como borrado lógico.
+    const { error } = await supabase.rpc('galeria_quitar', { p_id: id })
     if (error) { aviso('No se pudo quitar: ' + error.message); return }
     registrarGaleria(galeria, galeria.filter((g) => g.id !== id))
     cargarGaleria()
