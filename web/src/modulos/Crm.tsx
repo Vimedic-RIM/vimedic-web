@@ -344,7 +344,16 @@ export default function Crm({ perfil, aviso, empresa = 'VIMEDIC', accion, limpia
     aviso(items.length + ' producto(s) cargados en una cotización nueva. Elige el cliente para continuar.')
   }
 
-  function abrirVenta(g: Gestion) { setAbierta(null); setDocumento({ modo: 'Venta', origen: { tabla: g.tabla, id: g.id, codigo: g.codigo, nombre: g.nombre, telefono: g.telefono, email: g.email, identificacion: g.identificacion, medio: g.medio, medioVenta: g.medioVenta, clienteId: g.clienteId, asesorId: g.asesorId } }) }
+  async function abrirVenta(g: Gestion) {
+    setAbierta(null)
+    // Desde una cotización: la venta parte con sus productos (precio, descuento y oferta tal como se cotizaron)
+    let items: Record<string, any>[] | undefined // eslint-disable-line @typescript-eslint/no-explicit-any
+    if (g.tabla === 'cotizaciones') {
+      const { data } = await supabase.from('cotizaciones').select('items').eq('id', g.id).single()
+      const it = ((data as { items?: Record<string, any>[] } | null)?.items ?? []) // eslint-disable-line @typescript-eslint/no-explicit-any
+      if (it.length) items = await enriquecerItems(it as never) as never
+    }
+    setDocumento({ modo: 'Venta', items: items as never, origen: { tabla: g.tabla, id: g.id, codigo: g.codigo, nombre: g.nombre, telefono: g.telefono, email: g.email, identificacion: g.identificacion, medio: g.medio, medioVenta: g.medioVenta, clienteId: g.clienteId, asesorId: g.asesorId } }) }
   function cotizarDesde(g: Gestion) { setAbierta(null); setDocumento({ modo: 'Cotización', origen: { tabla: g.tabla, id: g.id, codigo: g.codigo, nombre: g.nombre, telefono: g.telefono, email: g.email, identificacion: g.identificacion, medio: g.medio, medioVenta: g.medioVenta, clienteId: g.clienteId, asesorId: g.asesorId } }) }
 
   const columnaActiva = typeof window !== 'undefined' && window.innerWidth < 640

@@ -168,7 +168,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   // Productos que llegan ya elegidos desde el cotizador de Inventario (documento nuevo): se les aplica la oferta una vez cargadas.
   const ofertaInicial = useRef(false)
   useEffect(() => {
-    if (ofertaInicial.current || ed || !itemsIniciales?.length || !Object.keys(ofertas).length) return
+    if (ofertaInicial.current || ed || origen?.tabla === 'cotizaciones' || !itemsIniciales?.length || !Object.keys(ofertas).length) return
     ofertaInicial.current = true
     setCarrito((a) => a.map((l) => {
       if (l.oferta) return l
