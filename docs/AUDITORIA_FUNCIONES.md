@@ -792,3 +792,37 @@ Cotizaciones anteriores (sin copia) toman los términos actuales al abrir la pro
 | Clic en el día de cada persona | Abre un formulario: Asistente → «Producto» (la app muestra lo que le falta y marca completar ficha / ficha técnica / documentos del proveedor; también fotos y publicación). Audiovisual → «Video»: producción (guion, preparación, grabación, respaldo) y edición (tomas, edición, revisión, subida), cada una en su día. «Otra tarea» para lo libre | ✅ | `MarketingPlan.tsx` (`FormularioDia`), `mkt_plan_estado_producto` |
 | Trabajos nuevos | «Producción de video» y «Edición de video»; se cierran solas cuando aparece el video nuevo (del tipo pedido) en la galería | ✅ | `actividades.mkt_trabajo` (`produccion`, `edicion`), `app.mkt_trabajo_cumplido` |
 | Revisión | La pestaña solo la ve quien coordina Marketing | ✅ | `Marketing.tsx` |
+
+## Datos (17-nov-2026, noche): base de pruebas al día con `Web App Vimedic (3).xlsx`
+
+Método: insertar lo que falta y actualizar solo lo que cambió en la app original, comparando por código (o por clave
+natural en las tablas sin código). El mapeo se dedujo de lo ya cargado y se validó columna por columna antes de cada
+carga; cada tabla se ensayó dentro de una transacción que se deshace. **No se borró nada creado en qa.**
+Programas: `herramientas/excel_a_supabase/`.
+
+| Tabla | Nuevos | Actualizados | Nota |
+|---|---|---|---|
+| `clientes` | 9 (7 VIMEDIC, 2 FEMEDICS) | 4 + 2 datos de venta | Asesor reasignado, teléfono, datos completados |
+| `leads` | 3 (WhatsApp) | 25 | Contactos que la app original pasó a «Perdido» |
+| `cotizaciones` | 47 (36 VIMEDIC, 11 FEMEDICS) | 9 | Seguimientos, estados, 1 cotización convertida en venta, 2 carritos |
+| `interacciones` | 104 | — | Enlazadas a su cotización o lead y a su usuario |
+| `facturas` | 11 (9 facturadas, 2 pendientes) | 5 | Actas, guías e historial generados en la app original. Sin crear pedidos de Bodega ni seguimientos |
+| `movimientos_inventario` | 9 | — | Salidas de esas ventas (total = 7 050, igual que el Excel) |
+| `productos` | — | 38 | Stock de 9 productos, 24 observaciones de Bodega, datos que estaban vacíos |
+| `nota_credito_detalle` | 10 | — | |
+| `marketing_cambios` | 51 (34 pendientes de revisión) | — | |
+| `imp_unidades` / `imp_items` | 2 | 31 nombres | |
+| `producto_galeria` / `fichas_tecnicas` | 26 / 4 | — | 4 productos tenían la galería vacía |
+| `bitacora` / `catalogo_actividad` | 224 / 45 | — | |
+
+No se cargó a propósito:
+- 23 leads de «Clientes Potenciales Meta»: ya están en el CRM como contactos (su «ID CRM» es un `CON-…` existente).
+- 8 despachos: Bodega empezó desde cero el 16-nov.
+- 1 cliente (RUC 1791705726001): ya existe con otro código.
+- 1 detalle de nota de crédito cuya nota no está en el Excel.
+- 3 categorías del catálogo público (`iluminacion`, `hospitalario`, `rescate`): son agrupaciones de la web, distintas de las
+  categorías de producto; crearlas o renombrar es decisión de negocio.
+- «Marketing Enlaces» (2 580 enlaces de un solo uso de la app vieja; 924 sin vencer, ninguno usado).
+- Empleados: sin empleados nuevos (Issue #24).
+- No se pisaron: revisiones de Marketing hechas en qa, textos de productos editados en qa, leads con actividad más
+  reciente en qa, fecha de envío de promociones (qa tiene su propio flujo de aprobación).
