@@ -40,6 +40,10 @@ const PLAZOS = ['5 DIAS', '15 DIAS', '30 DIAS', '45 DIAS', '60 DIAS', '90 DIAS',
 const TRANSPORTES = ['Empresa', 'Tramaco', 'Enetsa', 'Jhetro', 'Esmeraldeño', 'Terminal Terrestre', 'Servientrega']
 const dinero = (n: number) => '$' + n.toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const LOTE_PRODS = 24
+/** Oferta elegida en la cotización/venta: todas las vigentes, una campaña (por su nombre), las ofertas sin campaña o ninguna. */
+const OF_TODAS = '*', OF_NINGUNA = '-', OF_SUELTAS = '~'
+const grupoOferta = (campana: string | null | undefined) => campana || OF_SUELTAS
+
 /** Chip naranja de oferta, igual que el de la app original (selector de productos y carrito). */
 const ChipOferta = ({ texto, enCarrito }: { texto: string; enCarrito?: boolean }) => (
   <p className={'text-[9px] font-extrabold px-1.5 py-0.5 rounded text-white leading-tight' + (enCarrito ? ' mt-0.5 inline-block' : '')} style={{ background: '#c2410c' }}>{texto}</p>
@@ -133,7 +137,27 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
      Solo VIMEDIC: el CRM de FEMEDICS original no usaba ofertas y su precio se arma con otro plan. */
   // Las ofertas se dan por tipo de cliente (PVP, DIS o ambos): se ve y se aplica solo la que le toca al cliente elegido (sin cliente = PVP).
   const [listaOfertas, setListaOfertas] = useState<OfertaInv[]>([])
-  const mapas = useMemo(() => ({ PVP: mapaOfertas(listaOfertas, 'PVP'), DIS: mapaOfertas(listaOfertas, 'DIS') }), [listaOfertas])
+  // Oferta del documento (debajo del medio de captación): la campaña vigente que se aplica o «Sin oferta». Uno nuevo parte con la vigente;
+  // al abrir uno guardado (o la venta de una proforma) se toma la que llevan sus productos y, si no llevan ninguna, queda sin oferta.
+  const [ofertaSel, setOfertaSel] = useState<string>(() => {
+    if (aplicarPromo || !(ed || origen?.tabla === 'cotizaciones')) return OF_TODAS
+    const g = new Set(((ed?.items ?? itemsIniciales ?? []) as Record<string, any>[]) // eslint-disable-line @typescript-eslint/no-explicit-any
+      .filter((i) => i.oferta && Number(i.oferta.pct) > 0 && Number(i.descuento) > 0).map((i) => grupoOferta(i.oferta.campana)))
+    return g.size === 0 ? OF_NINGUNA : g.size === 1 ? [...g][0] : OF_TODAS
+  })
+  const filtrarOfertas = (l: OfertaInv[], sel: string) => (sel === OF_NINGUNA ? [] : sel === OF_TODAS ? l : l.filter((o) => grupoOferta(o.campana) === sel))
+  const mapas = useMemo(() => { const l = filtrarOfertas(listaOfertas, ofertaSel); return { PVP: mapaOfertas(l, 'PVP'), DIS: mapaOfertas(l, 'DIS') } }, [listaOfertas, ofertaSel])
+  /** Campañas con ofertas que se pueden aplicar hoy, para el selector. */
+  const gruposOferta = useMemo(() => {
+    const m = new Map<string, { clave: string; nombre: string; prods: Set<string>; fin: string | null }>()
+    for (const o of listaOfertas) {
+      if (!ofertaDeLinea(o)) continue
+      const k = grupoOferta(o.campana), g = m.get(k) ?? { clave: k, nombre: o.campana || 'Ofertas sin campaña', prods: new Set<string>(), fin: null }
+      g.prods.add(o.productoId); if (o.fin && (!g.fin || o.fin > g.fin)) g.fin = o.fin
+      m.set(k, g)
+    }
+    return [...m.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
+  }, [listaOfertas])
   const tipoDe = (c: Cli | null): TipoCli => (!esFm && esDis(c) ? 'DIS' : 'PVP')
   const ofertas = mapas[tipoDe(cliente)]
   const carritoRef = useRef(carrito); carritoRef.current = carrito
@@ -447,15 +471,19 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   function quitarCliente() { setCliente(null); setFichaOculta(false) }
   /** Al elegir o cambiar el cliente: precio y descuento de cada línea. Las líneas que no traen el precio DIS (proformas guardadas o duplicadas) lo piden
    *  a Inventario, solo si el cliente lo necesita. Una línea con el precio cambiado a mano (lejos del de lista) no se toca. */
-  async function aplicarClienteALineas(c: Cli) {
+  async function disFaltantes(c: Cli | null) {
     const extra: Record<string, { pvp: number; dis: number }> = {}
-    if (!esFm && usaPrecioDis(c)) {
+    if (c && !esFm && usaPrecioDis(c)) {
       const ids = carritoRef.current.filter((l) => l.dis === undefined).map((l) => l.id)
       if (ids.length) {
         const { data } = await supabase.from('productos').select('id,pvp,precio_dis').in('id', ids)
         for (const x of (data ?? []) as { id: string; pvp: number | null; precio_dis: number | null }[]) extra[x.id] = { pvp: Number(x.pvp) || 0, dis: Number(x.precio_dis) || 0 }
       }
     }
+    return extra
+  }
+  async function aplicarClienteALineas(c: Cli) {
+    const extra = await disFaltantes(c)
     setCarrito((a) => a.map((l) => {
       const pvp = l.pvp ?? extra[l.id]?.pvp, dis = l.dis ?? extra[l.id]?.dis, lista = pvp ?? l.precio
       if (pvp !== undefined && Math.abs(l.precio - pvp) >= 0.11) return { ...l, pvp, dis }   // precio cambiado a mano o ya ajustado: no se toca
@@ -465,6 +493,26 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
       const tipo = tipoDe(c), l0 = ofertaValidaPara(l.oferta, tipo) ? l : { ...l, oferta: undefined }
       const r = descuentoConCliente(l0, l0.oferta || ed || esFm ? null : ofertaDeLinea(mapasRef.current[tipo][l.id]), cl.descuento)
       return { ...l, pvp, dis, descuento: r.descuento, oferta: r.oferta, precio: pvp !== undefined ? (r.oferta ? lista : cl.precio) : l.precio }
+    }))
+  }
+  /** Cambia la oferta del documento. Las líneas con una oferta que no es la elegida vuelven al precio y descuento del cliente (o al PVP sin
+   *  descuento); las que no llevan oferta toman la elegida si el producto la tiene y el cliente no tiene algo mejor (mejorDeLosDos). */
+  async function elegirOferta(v: string) {
+    setOfertaSel(v)
+    const mapa = mapaOfertas(filtrarOfertas(listaOfertas, v), tipoDe(cliente))
+    const extra = await disFaltantes(cliente)
+    setCarrito((a) => a.map((l) => {
+      if (l.oferta && v !== OF_NINGUNA && (v === OF_TODAS || grupoOferta(l.oferta.campana) === v)) return l
+      const o = ofertaDeLinea(mapa[l.id])
+      const pvp = l.pvp ?? extra[l.id]?.pvp, dis = l.dis ?? extra[l.id]?.dis, lista = pvp ?? l.precio
+      if (l.oferta) {
+        const cl = cliente ? delCliente(lista, dis ?? 0, cliente) : { precio: lista, descuento: 0 }
+        const m = mejorDeLosDos(cl.precio, cl.descuento, lista, o)
+        return { ...l, pvp, dis, precio: m.precio, descuento: m.descuento, oferta: m.oferta }
+      }
+      if (!o) return l
+      const m = mejorDeLosDos(l.precio, l.descuento, lista, o)
+      return m.oferta ? { ...l, pvp, dis, precio: m.precio, descuento: m.descuento, oferta: m.oferta } : l
     }))
   }
   function usarLead() {
@@ -628,6 +676,25 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
         </select>
         <p className="text-[10px] text-slate-400 mt-1">{esVenta ? <>Medio por el que se <b>cerró esta venta</b>.</> : <>Elige por dónde llegó <b>esta vez</b>, aunque ya sea cliente.</>}</p>
         {esVenta && medioLead && medio !== medioLead && <p className="text-[10px] mt-1" style={{ color: '#7b5a1e' }}>El lead llegó por <b>{medioLead}</b>; se conserva en la gestión.</p>}
+        {!esFm && (gruposOferta.length > 0 || carrito.some((l) => l.oferta)) && (() => {
+          const valor = ofertaSel === OF_TODAS && gruposOferta.length === 1 ? gruposOferta[0].clave : ofertaSel
+          const terminada = valor !== OF_TODAS && valor !== OF_NINGUNA && !gruposOferta.some((g) => g.clave === valor)
+          const sin = valor === OF_NINGUNA
+          return (
+            <div className="mt-3">
+              <label className="ns-label" htmlFor="ns-oferta">Oferta</label>
+              <select id="ns-oferta" value={valor} onChange={(e) => elegirOferta(e.target.value)} className="ns-input" style={sin ? undefined : { borderColor: '#fdba74', background: '#fff7ed', color: '#9a3412', fontWeight: 700 }}>
+                {(gruposOferta.length > 1 || valor === OF_TODAS) && <option value={OF_TODAS}>Todas las ofertas vigentes</option>}
+                {gruposOferta.map((g) => <option key={g.clave} value={g.clave}>{g.nombre} · {g.prods.size} {g.prods.size === 1 ? 'producto' : 'productos'}{g.fin ? ' · hasta ' + g.fin.slice(8, 10) + '/' + g.fin.slice(5, 7) : ''}</option>)}
+                {terminada && <option value={valor}>{valor === OF_SUELTAS ? 'Ofertas sin campaña' : valor} (ya terminó)</option>}
+                <option value={OF_NINGUNA}>Sin oferta</option>
+              </select>
+              <p className="text-[10px] text-slate-400 mt-1">{sin
+                ? <>Los productos van <b>sin descuento de oferta</b>; el cliente conserva su descuento propio.</>
+                : <>Se aplica sola a los productos que la tienen (si el cliente no tiene un descuento mejor). El % de cada producto se puede cambiar.</>}</p>
+            </div>
+          )
+        })()}
       </section>
 
       {esVenta && (
