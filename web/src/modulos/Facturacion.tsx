@@ -1163,6 +1163,10 @@ function equiposDeItems(items: Linea[]): EquipoActa[] {
     return { key: cod + '|' + n, codigo: cod, nombre: it.nombre, cantidad: cant, series: Array(cant).fill(''), sinGarantia: false, extra: false }
   })
 }
+/** Venta cuyo cliente es FEMEDICS (el distribuidor): el acta lleva la factura de FEMEDICS a su cliente, su logo y su firma.
+ *  En la base las facturas quedan con empresa VIMEDIC; se reconoce por el RUC o el nombre del cliente. */
+const RUC_FEMEDICS = '1793217617001'
+const esClienteFemedics = (r: Fila) => r.empresa === 'FEMEDICS' || String(r.identificacion || '').trim() === RUC_FEMEDICS || /\bfemedics\b/i.test(r.cliente || '')
 const ajustarSeries = (s: string[] | undefined, n: number) => Array.from({ length: n }, (_, i) => String((s ?? [])[i] ?? '').trim())
 
 function ModalActaGarantia({ r, perfil, mostrar, cerrar, aviso, guardado }: { r: Fila; perfil: Perfil; mostrar: (d: DocVisor) => void; cerrar: () => void; aviso: (t: string) => void; guardado: () => void }) {
@@ -1187,7 +1191,7 @@ function ModalActaGarantia({ r, perfil, mostrar, cerrar, aviso, guardado }: { r:
   const [error, setError] = useState('')
   const [guardando, setGuardando] = useState(false)
   /* Cliente FEMEDICS: en el acta se pueden cambiar los datos de la factura (número, cédula/RUC), quién entrega y la firma. */
-  const esFm = r.empresa === 'FEMEDICS'
+  const esFm = esClienteFemedics(r)
   const [fm, setFm] = useState<DatosFm>({ factura: r.numeroFactura || '', identificacion: r.identificacion || '', entrega: 'FEMEDICS', firmaNombre: '', firmaCargo: '' })
   const numeroActa = (esFm ? fm.factura : r.numeroFactura).trim()
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') cerrar() }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [cerrar])
@@ -1203,7 +1207,7 @@ function ModalActaGarantia({ r, perfil, mostrar, cerrar, aviso, guardado }: { r:
       if (!vivo) return
       setCotizacionId((f?.cotizacion_id as string | null) ?? null)
       const g = ((f?.acta_datos ?? {}) as ActaGuardada)
-      if (r.empresa === 'FEMEDICS') {
+      if (esFm) {
         // La firma de la plantilla «Carta de garantía» como punto de partida; si ya se cambió en el acta, la guardada.
         await cargarPlantillas().catch(() => undefined)
         const fb = plantillaDe('carta_garantia').bloques.find((b) => b.tipo === 'firma')
