@@ -849,3 +849,12 @@ Tabla por producto (imagen, nombre, código y código interno) con ficha técnic
 videos/otros; avance de 4 requisitos; prioritarios primero (visibles en catálogo o importados); panel con todos los
 documentos, acceso a cada uno y edición de tipo, nombre y observaciones. Permiso: «Documentos técnicos › ver» (editar
 para cambiar). Base: `dt_avance` (migración `20261118150000_documentos_tecnicos_modulo.sql`).
+
+## Módulo Ventas y metas (18-nov)
+Cada asesor ve sus ventas del mes (facturas, base sin IVA menos notas de crédito), se pone su meta (USD, nº de ventas,
+proformas, gestiones y estrategia) y ve: medidor de la meta con proyección, carrera hacia la meta (acumulado vs ritmo
+ideal por días hábiles), 12 meses vs meta, embudo de 90 días, canales, mapa de actividad (día × hora), mejores días,
+productos y categorías, oportunidades abiertas que cubren la meta y recomendaciones automáticas; su puesto en el equipo
+(sin ver montos de otros). Coordinación (CRM ver todos, Dashboard o jefe con equipo) ve el equipo: ranking con barra de
+meta, metas editables por asesor (quedan como mínimo; el asesor puede subirla, no bajarla) y el panel de cada uno.
+Base: `metas_ventas`, `ven_panel`, `ven_meta_guardar` (migración `20261118180000_ventas_metas.sql`, 9/9 pruebas en ensayo).

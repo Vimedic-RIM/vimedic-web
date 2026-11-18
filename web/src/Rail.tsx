@@ -14,7 +14,7 @@ import './estilos/rail.css'
 // Barra lateral de acceso rápido: aparece dentro de los módulos (no en Mi Espacio), igual que en la app original.
 
 const GRUPOS: [string, string[]][] = [
-  ['Comercial', ['crm', 'clientes', 'femedics', 'marketing', 'catalogos', 'ofertas', 'agenda', 'dashboard']],
+  ['Comercial', ['crm', 'ventas', 'clientes', 'femedics', 'marketing', 'catalogos', 'ofertas', 'agenda', 'dashboard']],
   ['Operaciones', ['inventario', 'documentostecnicos', 'movimientos', 'adquisiciones', 'bodega', 'logistica', 'tracking', 'serviciotecnico', 'importaciones', 'articulos']],
   ['Administración', ['facturacion', 'financiero', 'empleados', 'talentohumano', 'solicitudes', 'seguridad', 'plantillas', 'basedatos']],
   ['Personal', ['miperfil']],
