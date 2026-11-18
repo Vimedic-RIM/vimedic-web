@@ -311,3 +311,11 @@ body.vm-con-rail .vm-of .planbar{left:var(--vr-w);z-index:130}
 .vm-of .pa-stats small{display:block;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
 .vm-of .pa-stats b{font-family:"Space Grotesk",sans-serif;font-size:17px;color:var(--navy)}
 .vm-of .pa-stats em{font-style:normal;font-size:11px;color:#64748b;margin-left:6px}
+/* Agregar producto de todo el inventario */
+.vm-of .sheet.agp{max-width:600px}
+.vm-of .agp-lista{margin-top:10px;max-height:55vh;overflow:auto;border:1px solid var(--line);border-radius:14px}
+.vm-of .agp-row{display:flex;align-items:center;gap:10px;width:100%;padding:8px 10px;border:0;border-bottom:1px solid var(--line);background:#fff;cursor:pointer}
+.vm-of .agp-row:last-child{border-bottom:0}
+.vm-of .agp-row:hover{background:#f8fafc}
+.vm-of .agp-row:disabled{cursor:wait;opacity:.7}
+.vm-of .of-desc-n{display:inline-block;width:86px;margin-left:8px;padding:4px 8px;font-size:13px;vertical-align:middle}

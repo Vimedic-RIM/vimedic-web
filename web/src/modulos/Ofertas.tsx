@@ -24,7 +24,7 @@ export type Prod = {
 }
 type Oferta = {
   id: string; codigo: string; productoId: string; producto: string; tipo: string; descuento: number; precio: number; pvp: number; costo: number; margen: number; inicio: string; fin: string; estadoManual: string; texto: string; comboCon: string; regalo: string; grupo: string
-  aplicaA: Publico; stockInicial: number; objetivo: number; creado: string; creadoPor: string; actualizado: string; estado: string; historial: { f: string; por: string; n: string }[]; vendidas: number; recuperado: number; diasActiva: number
+  aplicaA: Publico; img: string; categoria: string; stockInicial: number; objetivo: number; creado: string; creadoPor: string; actualizado: string; estado: string; historial: { f: string; por: string; n: string }[]; vendidas: number; recuperado: number; diasActiva: number
 }
 const R2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
 const money = (n: number) => '$' + (Number(n) || 0).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -32,6 +32,8 @@ const money0 = (n: number) => { n = Number(n) || 0; return n >= 10000 ? '$' + (n
 const fechaC = (s: string) => (s ? String(s).slice(8, 10) + '/' + String(s).slice(5, 7) + '/' + String(s).slice(0, 4) : '')
 export const meses = (d: number) => (d >= 60 ? Math.round(d / 30) + ' meses' : d + ' días')
 const ymd = (d: number | Date) => { const x = new Date(d); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0') }
+/** Solo Alejandra Hidalgo puede poner cualquier descuento (sin el tope de 35 % sin costo ni el piso de margen), al crear o al editar. */
+const descuentoLibre = (nombre: string) => /^alejandra\s+hidalgo\b/.test(norm(nombre).trim())
 const norm = (v: unknown) => String(v ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 const DIA = 864e5
 const imgUrl = (u: string, w = 300) => { const m = String(u || '').match(/\/d\/([-\w]{20,})/) || String(u || '').match(/[?&]id=([-\w]{20,})/); return m ? `https://lh3.googleusercontent.com/d/${m[1]}=w${w}` : String(u || '').split(/[\s,;|]+/)[0] }
@@ -144,14 +146,17 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
   const [abierto, setAbierto] = useState<{ p: Prod; o: Oferta | null } | null>(null)
   const [hoja, setHoja] = useState<'ajustes' | 'plan' | 'pdf' | 'papelera' | null>(null)
   const [cargando, setCargando] = useState(false)
+  const [agregar, setAgregar] = useState(false)
+  const estrellasRef = useRef<{ id: string; codigo: string; nombre: string; categoria: string }[]>([])
   const est = useEstadoStock()
   const puedeEditar = puede(perfil, 'ofertas', 'editar'), puedeCrear = puede(perfil, 'ofertas', 'crear'), puedeEliminar = puede(perfil, 'ofertas', 'eliminar')
+  const libre = descuentoLibre(perfil.nombre)
 
   const cargar = useCallback(async () => {
     setCargando(true)
     const [a, o, r, c, pc] = await Promise.all([
       supabase.rpc('of_analisis'),
-      supabase.from('ofertas').select('id,codigo,producto_id,tipo,descuento_pct,precio_oferta,pvp_base,costo,margen_pct,inicio,fin,estado,texto_cliente,combo_con,regalo,grupo,aplica_a,stock_inicial,unidades_objetivo,historial,created_at,updated_at,creador:empleados!ofertas_creado_por_fkey(nombre),producto:productos!ofertas_producto_id_fkey(nombre)').is('deleted_at', null).order('created_at', { ascending: false }).limit(1000),
+      supabase.from('ofertas').select('id,codigo,producto_id,tipo,descuento_pct,precio_oferta,pvp_base,costo,margen_pct,inicio,fin,estado,texto_cliente,combo_con,regalo,grupo,aplica_a,stock_inicial,unidades_objetivo,historial,created_at,updated_at,creador:empleados!ofertas_creado_por_fkey(nombre),producto:productos!ofertas_producto_id_fkey(nombre,imagen_url,categoria:categorias(nombre))').is('deleted_at', null).order('created_at', { ascending: false }).limit(1000),
       supabase.from('v_ofertas_resultados').select('oferta_id,vendidas,recuperado,dias'),
       supabase.from('ofertas_config').select('id,valor').is('deleted_at', null).limit(1),
       supabase.from('promo_campanas').select('id,codigo,nombre,inicio,fin,descripcion,items').eq('estado', 'En aprobación').is('deleted_at', null).limit(200),
@@ -165,13 +170,14 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
     const lista: Oferta[] = ((o.data ?? []) as unknown as Record<string, any>[]).map((x) => { // eslint-disable-line @typescript-eslint/no-explicit-any
       const rr = res.get(x.id)
       const of: Oferta = { id: x.id, codigo: x.codigo ?? '', productoId: x.producto_id, producto: x.producto?.nombre ?? '', tipo: x.tipo ?? '', descuento: Number(x.descuento_pct) || 0, precio: Number(x.precio_oferta) || 0, pvp: Number(x.pvp_base) || 0, costo: Number(x.costo) || 0, margen: Number(x.margen_pct) || 0,
-        inicio: x.inicio ?? '', fin: x.fin ?? '', estadoManual: x.estado ?? '', texto: x.texto_cliente ?? '', comboCon: x.combo_con ?? '', regalo: x.regalo ?? '', grupo: x.grupo ?? '', aplicaA: x.aplica_a === 'PVP' || x.aplica_a === 'DIS' ? x.aplica_a : 'AMBOS', stockInicial: x.stock_inicial ?? 0, objetivo: x.unidades_objetivo ?? 0,
+        inicio: x.inicio ?? '', fin: x.fin ?? '', estadoManual: x.estado ?? '', texto: x.texto_cliente ?? '', comboCon: x.combo_con ?? '', regalo: x.regalo ?? '', grupo: x.grupo ?? '', aplicaA: x.aplica_a === 'PVP' || x.aplica_a === 'DIS' ? x.aplica_a : 'AMBOS', img: x.producto?.imagen_url ?? '', categoria: x.producto?.categoria?.nombre ?? '', stockInicial: x.stock_inicial ?? 0, objetivo: x.unidades_objetivo ?? 0,
         creado: x.created_at, creadoPor: x.creador?.nombre ?? '', actualizado: x.updated_at, estado: '', historial: Array.isArray(x.historial) ? x.historial : [], vendidas: rr?.vendidas ?? 0, recuperado: Number(rr?.recuperado) || 0, diasActiva: rr?.dias ?? 0 }
       of.estado = estadoDe(of); return of
     })
     setOfertas(lista)
     const vig: Record<string, string> = {}; lista.forEach((x) => { if (x.estado === 'Activa' || x.estado === 'Programada') vig[x.productoId] = x.id })
     const an = (a.data ?? { productos: [], estrellas: [] }) as { productos: unknown[]; estrellas: unknown[] }
+    estrellasRef.current = an.estrellas as { id: string; codigo: string; nombre: string; categoria: string }[]
     setProds(armarProductos(an.productos as never[], an.estrellas as never[], conf, vig)); setError('')
   }, [])
   useEffect(() => { cargar() }, [cargar])
@@ -179,7 +185,7 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
   const P = prods ?? []
   const categorias = useMemo(() => [...new Set([...P.map((p) => p.categoria)].filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es')), [P])
   const acepta = (c: string) => !cats.size || cats.has(c)
-  const catOferta = (o: Oferta) => P.find((p) => p.id === o.productoId)?.categoria ?? ''
+  const catOferta = (o: Oferta) => P.find((p) => p.id === o.productoId)?.categoria ?? o.categoria
   const ofertasVis = ofertas.filter((o) => acepta(catOferta(o)))
   const filtrados = useMemo(() => {
     const w = norm(q).trim().split(/\s+/).filter(Boolean)
@@ -202,9 +208,9 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
     if (!(p.pvp > 0)) throw new Error('El producto no tiene PVP: ponle precio en Inventario antes de crear la oferta.')
     const tipo = TIPOS.includes(d.tipo) ? d.tipo : 'Precio especial'
     const desc = Math.round(Number(d.desc) * 10) / 10
-    if (desc < 0 || desc > 90) throw new Error('El descuento debe estar entre 0 y 90 %.')
+    if (desc < 0 || desc > (libre ? 100 : 90)) throw new Error(libre ? 'El descuento debe estar entre 0 y 100 %.' : 'El descuento debe estar entre 0 y 90 %.')
     const precio = R2(p.pvp * (1 - desc / 100))
-    if (p.costo > 0) {
+    if (libre) { /* sin tope: autorizada */ } else if (p.costo > 0) {
       const piso = R2(p.costo * (1 + cfg.margenMinimo / 100))
       if (precio < piso) throw new Error(`Con ${desc} % el precio ($${precio.toFixed(2)}) queda debajo del piso: costo $${p.costo.toFixed(2)} + ${cfg.margenMinimo} % = $${piso.toFixed(2)}. Máximo permitido: ${Math.floor((1 - piso / p.pvp) * 100)} %.`)
     } else if (desc > 35) throw new Error('Este producto no tiene "Costo Importación": sin costo no se permite más de 35 % de descuento.')
@@ -216,7 +222,7 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
     if (new Date(fin).getTime() - new Date(ini).getTime() > 366 * DIA) throw new Error('Una oferta puede durar máximo un año.')
     const choca = ofertas.find((o) => o.id !== d.id && o.productoId === p.id && (o.aplicaA === 'AMBOS' || d.publico === 'AMBOS' || o.aplicaA === d.publico) && (o.estado === 'Activa' || o.estado === 'Programada') && o.inicio <= fin && (!o.fin || o.fin >= ini))
     if (choca) throw new Error(`Este producto ya tiene la oferta ${choca.codigo} (${choca.estado.toLowerCase()}) en esas fechas. Edítala o finalízala primero.`)
-    const margen = p.costo > 0 ? Math.round((precio - p.costo) / precio * 1000) / 10 : null
+    const margen = p.costo > 0 && precio > 0 ? Math.round((precio - p.costo) / precio * 1000) / 10 : null
     const campos = { producto_id: p.id, tipo, descuento_pct: desc, precio_oferta: precio, pvp_base: p.pvp, costo: p.costo || null, margen_pct: margen, inicio: ini, fin, texto_cliente: d.texto.replace(/[<>]/g, '').slice(0, 400) || null,
       combo_con: tipo === 'Combo' ? d.comboCon.slice(0, 40) : null, regalo: tipo === 'Regalo' ? d.regalo.slice(0, 160) : null, unidades_objetivo: Math.max(0, Math.round(Number(d.objetivo))) || null, aplica_a: d.publico, actualizado_por: perfil.id }
     const ahora = new Date().toISOString()
@@ -245,7 +251,25 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
   }
 
   const abrirProd = (p: Prod, o?: Oferta | null) => setAbierto({ p, o: o === undefined ? ofertaDe(p) : o })
-  const productoDesdeOferta = (o: Oferta): Prod => ({ id: o.productoId, codigo: o.comboCon, nombre: o.producto, categoria: '', marca: '', img: '', stock: 0, pvp: o.pvp, dis: 0, costo: o.costo, obs: '', nc: 0, rep: 0, noRep: 0, motivosObs: [], conObs: false, oculto: false, dias: 0, grupo: 'nuevo', lotes: [], ultVenta: '', diasSinVenta: null, v90: 0, v365: 0, nuncaVendido: false,
+  /* Cualquier producto del inventario (no solo el stock dormido), para crearle su oferta aquí mismo. */
+  async function productoDelInventario(id: string, porque: string): Promise<Prod | null> {
+    const ya = P.find((x) => x.id === id); if (ya) return ya
+    const [{ data: r }, { data: c }] = await Promise.all([
+      supabase.from('productos').select('id,codigo,nombre,marca,imagen_url,stock,pvp,precio_dis,reservaciones,stock_no_disponible_nc,stock_por_reparar,oculto,categoria:categorias(nombre)').eq('id', id).is('deleted_at', null).maybeSingle(),
+      supabase.from('productos_costos').select('costo_importacion').eq('producto_id', id).is('deleted_at', null).maybeSingle(),
+    ])
+    if (!r) return null
+    const x = r as unknown as { id: string; codigo: string | null; nombre: string | null; marca: string | null; imagen_url: string | null; stock: number | null; pvp: number | null; precio_dis: number | null; reservaciones: string | null; stock_no_disponible_nc: number | null; stock_por_reparar: number | null; oculto: boolean | null; categoria: { nombre: string } | null }
+    const stock = Number(x.stock) || 0, pvp = Number(x.pvp) || 0, costo = Number((c as { costo_importacion?: number } | null)?.costo_importacion) || 0
+    const vig = ofertas.find((o) => o.productoId === id && (o.estado === 'Activa' || o.estado === 'Programada'))
+    const base: Omit<Prod, 'estrategia' | 'urgencia'> = { id: x.id, codigo: x.codigo ?? '', nombre: x.nombre ?? '', categoria: x.categoria?.nombre ?? '', marca: x.marca ?? '', img: imgUrl(x.imagen_url ?? ''), stock, pvp, dis: Number(x.precio_dis) || 0, costo,
+      obs: x.reservaciones ?? '', nc: Number(x.stock_no_disponible_nc) || 0, rep: Number(x.stock_por_reparar) || 0, noRep: 0, motivosObs: [], conObs: false, oculto: !!x.oculto, dias: 0, grupo: 'nuevo', lotes: stock > 0 ? [[null, stock]] : [],
+      ultVenta: '', diasSinVenta: null, v90: 0, v365: 0, nuncaVendido: false, interes: 0, capitalCosto: R2(costo * Math.max(0, stock)), capitalPvp: R2(pvp * Math.max(0, stock)), ofertaId: vig?.id ?? '' }
+    const estrellas: Record<string, { codigo: string; nombre: string; id: string }[]> = {}
+    estrellasRef.current.forEach((e) => { (estrellas[e.categoria] = estrellas[e.categoria] || []).push(e) })
+    return { ...base, urgencia: 0, estrategia: { ...estrategiaDe(base, cfg, estrellas), porque } }
+  }
+  const productoDesdeOferta = (o: Oferta): Prod => ({ id: o.productoId, codigo: o.comboCon, nombre: o.producto, categoria: o.categoria, marca: '', img: imgUrl(o.img), stock: 0, pvp: o.pvp, dis: 0, costo: o.costo, obs: '', nc: 0, rep: 0, noRep: 0, motivosObs: [], conObs: false, oculto: false, dias: 0, grupo: 'nuevo', lotes: [], ultVenta: '', diasSinVenta: null, v90: 0, v365: 0, nuncaVendido: false,
     interes: 0, capitalCosto: 0, capitalPvp: 0, ofertaId: o.id, urgencia: 0, estrategia: { tipo: o.tipo, descuento: o.descuento, precio: o.precio, porque: 'Este producto ya no está en la lista de stock dormido.', limitadoPorCosto: false, maxDesc: 90, piso: 0, margen: null, recupera: 0, dias: 30, comboCon: '', comboNombre: '', regalo: '' } })
 
   return (
@@ -255,6 +279,7 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
           <div className="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center shrink-0"><Tag style={{ width: 20, height: 20 }} /></div>
           <div className="min-w-0"><h1 className="font-display font-bold text-lg leading-tight">Ofertas y Liquidación</h1><p className="text-[11px] text-white/70">Stock dormido, estrategias y resultados · {perfil.nombre}</p></div>
           <div className="ml-auto flex gap-2 flex-wrap">
+            {puedeCrear && <button className="btn btn-sm btn-p" title="Crear una oferta para cualquier producto del inventario" onClick={() => setAgregar(true)}><PackagePlus /><span>Agregar producto</span></button>}
             <button className="btn btn-sm btn-g" title="Filtrar productos y descargar PDF con fotos" onClick={() => setHoja('pdf')}><FileDown /><span>PDF con fotos</span></button>
             <button className="btn btn-sm btn-g" title="Descargar la lista actual en Excel" onClick={() => descargarExcel(tab, filtrados, ofertasVis, aviso, est)}><Download /><span>Descargar Excel</span></button>
             {puedeEliminar && <button className="btn btn-sm btn-g" title="Ofertas eliminadas" onClick={() => setHoja('papelera')}><Trash2 /></button>}
@@ -306,7 +331,7 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
             <div className="text-center mt-4">{filtrados.length > mostrar ? <button className="btn" onClick={() => setMostrar(mostrar + 24)}>Ver más ({filtrados.length - mostrar})</button> : <p className="text-xs text-slate-400">{filtrados.length} producto(s)</p>}</div>
           </section>
         )}
-        {tab === 'ofertas' && <ListaOfertas ofertas={ofertasVis} prods={P} abrir={(o) => abrirProd(P.find((p) => p.id === o.productoId) ?? productoDesdeOferta(o), o)} />}
+        {tab === 'ofertas' && <ListaOfertas ofertas={ofertasVis} prods={P} abrir={(o) => { const p = P.find((x) => x.id === o.productoId); if (p) { abrirProd(p, o); return } productoDelInventario(o.productoId, 'Este producto no está en la lista de stock dormido.').then((x) => abrirProd(x ?? productoDesdeOferta(o), o), () => abrirProd(productoDesdeOferta(o), o)) }} />}
         {tab === 'aprobar' && <PorAprobar campanas={campanasPendientes} prods={P} est={est} margenMinimo={cfg.margenMinimo} aviso={aviso} recargar={cargar} />}
         {tab === 'terminos' && <TerminosOfertas puedeEditar={puedeEditar} aviso={aviso} />}
         {tab === 'res' && <Resultados ofertas={ofertasVis.filter((o) => o.estado !== 'Programada')} />}
@@ -320,7 +345,7 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
           <button className="btn btn-sm btn-p" disabled={!sel.size} onClick={() => setHoja('plan')}>Crear ofertas</button>
         </div>
       )}
-      {abierto && <Drawer key={abierto.p.id + (abierto.o?.id ?? '')} p={abierto.p} o={abierto.o} cfg={cfg} puedeEditar={puedeEditar} puedeCrear={puedeCrear} puedeEliminar={puedeEliminar} aviso={aviso} cerrar={() => setAbierto(null)}
+      {abierto && <Drawer key={abierto.p.id + (abierto.o?.id ?? '')} p={abierto.p} o={abierto.o} cfg={cfg} libre={libre} puedeEditar={puedeEditar} puedeCrear={puedeCrear} puedeEliminar={puedeEliminar} aviso={aviso} cerrar={() => setAbierto(null)}
         guardar={async (d) => { const id = await guardarOferta({ ...d, p: abierto.p }); await cargar(); aviso(abierto.o ? 'Oferta actualizada' : 'Oferta publicada: queda lista para verse en el CRM, Inventario y catálogos'); return id }}
         estado={async (o, a, m) => { await estadoOferta(o, a, m); await cargar(); aviso('Listo') }} refrescar={cargar} />}
       {hoja === 'ajustes' && <Ajustes cfg={cfg} cerrar={() => setHoja(null)} guardar={async (v) => { const { error } = cfgId ? await supabase.from('ofertas_config').update({ valor: v }).eq('id', cfgId) : await supabase.from('ofertas_config').insert({ id: crypto.randomUUID(), valor: v }); if (error) { aviso(error.message); return } setHoja(null); aviso('Ajustes guardados'); cargar() }} />}
@@ -333,6 +358,8 @@ export default function Ofertas({ perfil, aviso }: { perfil: Perfil; aviso: (t: 
         setHoja(null); setPlan(false); setSel(new Set()); aviso(`${creadas} oferta(s) creadas${errores.length ? ` · ${errores.length} no se pudieron` : ''}`); if (errores.length) setTimeout(() => aviso(errores[0]), 2900); cargar() }} />}
       {hoja === 'pdf' && <PdfHoja productos={tab === 'opor' ? filtrados : ofertasVis.filter((o) => tab !== 'res' || o.estado !== 'Programada').map((o) => ({ ...(P.find((p) => p.id === o.productoId) ?? productoDesdeOferta(o)), pdfOferta: o } as Prod & { pdfOferta: Oferta }))} ofertas={ofertas} cerrar={() => setHoja(null)} />}
       {hoja === 'papelera' && <Papelera cerrar={() => setHoja(null)} aviso={aviso} restaurado={cargar} />}
+      {agregar && <AgregarProducto conOferta={new Set(ofertas.filter((o) => o.estado === 'Activa' || o.estado === 'Programada').map((o) => o.productoId))} cerrar={() => setAgregar(false)}
+        elegir={async (id) => { const p = await productoDelInventario(id, 'Agregado desde el inventario: elige el tipo de oferta, el descuento y las fechas.'); if (!p) { aviso('No se encontró el producto.'); return } setAgregar(false); abrirProd(p) }} />}
     </div>
   )
 }
@@ -632,7 +659,7 @@ function ListaOfertas({ ofertas, prods, abrir }: { ofertas: Oferta[]; prods: Pro
       const ini = new Date(o.inicio + 'T00:00:00').getTime(), fin = new Date(o.fin + 'T00:00:00').getTime() + DIA, tPct = Math.max(0, Math.min(100, (Date.now() - ini) / (fin - ini) * 100))
       return (
         <div key={o.id} className="of-row" onClick={() => abrir(o)} style={{ cursor: 'pointer' }}>
-          <div className="ph" style={{ width: 56, height: 56 }}>{p?.img ? <img loading="lazy" src={p.img} alt="" /> : <Package />}</div>
+          <div className="ph" style={{ width: 56, height: 56 }}>{p?.img || o.img ? <img loading="lazy" src={p?.img || imgUrl(o.img, 120)} alt="" /> : <Package />}</div>
           <div className="min-w-0"><div className="flex gap-1.5 flex-wrap items-center"><span className={'pill e-' + o.estado}>{o.estado}</span><span className="pill" style={{ background: '#fff7ed', color: '#c2410c' }}>{o.tipo} -{o.descuento}%</span>{o.aplicaA !== 'AMBOS' && <span className="pill" style={{ background: o.aplicaA === 'DIS' ? '#f5f3ff' : '#ecfeff', color: o.aplicaA === 'DIS' ? '#6d28d9' : '#0e7490' }}>{o.aplicaA === 'DIS' ? 'Solo DIS' : 'Solo PVP'}</span>}<span className="text-[10.5px] text-slate-400 mono">{o.codigo}</span></div>
             <p className="font-bold text-[13.5px] text-slate-800 truncate mt-1">{o.producto}</p><p className="text-[11.5px] text-slate-500">{money(o.precio)} <s>{money(o.pvp)}</s> · {fechaC(o.inicio)} → {fechaC(o.fin)} · {o.creadoPor}</p></div>
           <div className="col-span-2 md:col-span-1"><p className="text-[11px] text-slate-500 mb-1">Vendidas <b className="text-slate-800">{o.vendidas} de {meta}</b></p><div className="prog"><i style={{ width: pct + '%' }} /></div></div>
@@ -668,7 +695,7 @@ function Resultados({ ofertas: O }: { ofertas: Oferta[] }) {
 
 /* ============================ Panel del producto ============================ */
 type FormO = { tipo: string; desc: number; ini: string; fin: string; texto: string; combo: string; regalo: string; obj: string; publico: Publico }
-function Drawer({ p, o, cfg, puedeEditar, puedeCrear, puedeEliminar, aviso, cerrar, guardar, estado, refrescar }: { p: Prod; o: Oferta | null; cfg: Cfg; puedeEditar: boolean; puedeCrear: boolean; puedeEliminar: boolean; aviso: (t: string) => void; cerrar: () => void
+function Drawer({ p, o, cfg, libre = false, puedeEditar, puedeCrear, puedeEliminar, aviso, cerrar, guardar, estado, refrescar }: { p: Prod; o: Oferta | null; cfg: Cfg; libre?: boolean; puedeEditar: boolean; puedeCrear: boolean; puedeEliminar: boolean; aviso: (t: string) => void; cerrar: () => void
   guardar: (d: { id?: string; tipo: string; desc: number; ini: string; fin: string; texto: string; comboCon: string; regalo: string; objetivo: string; publico: Publico }) => Promise<string>; estado: (o: Oferta, a: 'pausar' | 'reanudar' | 'finalizar' | 'cancelar' | 'eliminar', m?: string) => Promise<void>; refrescar: () => Promise<void> }) {
   const e = p.estrategia
   const [on, setOn] = useState(false)
@@ -677,9 +704,10 @@ function Drawer({ p, o, cfg, puedeEditar, puedeCrear, puedeEliminar, aviso, cerr
   const [f, setF] = useState<FormO>(() => (o ? { tipo: o.tipo, desc: o.descuento, ini: o.inicio, fin: o.fin, texto: o.texto, combo: o.comboCon, regalo: o.regalo, obj: o.objetivo ? String(o.objetivo) : '', publico: o.aplicaA } : { tipo: e.tipo, desc: e.descuento, ini: ymd(Date.now()), fin: ymd(Date.now() + e.dias * DIA), texto: textoBase(p, e), combo: e.comboCon, regalo: e.regalo, obj: '', publico: 'AMBOS' }))
   const [ocupado, setOcupado] = useState(false)
   const [confirma, setConfirma] = useState<'pausar' | 'reanudar' | 'finalizar' | 'cancelar' | 'eliminar' | null>(null)
-  const maxDesc = p.pvp > 0 && p.costo > 0 ? Math.max(0, Math.floor((1 - p.costo * (1 + cfg.margenMinimo / 100) / p.pvp) * 100)) : 35
+  const maxDesc = libre ? 100 : p.pvp > 0 && p.costo > 0 ? Math.max(0, Math.floor((1 - p.costo * (1 + cfg.margenMinimo / 100) / p.pvp) * 100)) : 35
   const precio = R2(p.pvp * (1 - f.desc / 100)), margen = p.costo > 0 && precio > 0 ? Math.round((precio - p.costo) / precio * 1000) / 10 : null
-  const sem: [string, string] = !p.costo ? ['am', 'Sin "Costo Importación": se permite hasta 35%. Cárgalo en Inventario para ver el margen real.'] : margen! < cfg.margenMinimo ? ['rj', `Debajo del piso (costo + ${cfg.margenMinimo}%). Máximo ${maxDesc}%.`] : margen! < cfg.margenMinimo + 10 ? ['am', `Margen ajustado: ${margen}%.`] : ['ok', `Margen sano: ${margen}%.`]
+  const sem: [string, string] = libre ? (!p.costo ? ['am', 'Sin "Costo Importación": no se ve el margen real. Tienes autorización para poner cualquier descuento.'] : margen == null || margen < cfg.margenMinimo ? ['rj', 'Debajo del piso (costo + ' + cfg.margenMinimo + '%)' + (margen == null ? '' : ': margen ' + margen + '%') + '. Tienes autorización para guardarlo.'] : margen < cfg.margenMinimo + 10 ? ['am', 'Margen ajustado: ' + margen + '%.'] : ['ok', 'Margen sano: ' + margen + '%.'])
+    : !p.costo ? ['am', 'Sin "Costo Importación": se permite hasta 35%. Cárgalo en Inventario para ver el margen real.'] : margen! < cfg.margenMinimo ? ['rj', `Debajo del piso (costo + ${cfg.margenMinimo}%). Máximo ${maxDesc}%.`] : margen! < cfg.margenMinimo + 10 ? ['am', `Margen ajustado: ${margen}%.`] : ['ok', `Margen sano: ${margen}%.`]
   const maxLote = Math.max(1, ...p.lotes.map((l) => l[1]))
   const set = (k: keyof FormO) => (x: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setF((v) => ({ ...v, [k]: x.target.value }))
   const puedeGuardar = o ? puedeEditar : puedeCrear
@@ -711,7 +739,8 @@ function Drawer({ p, o, cfg, puedeEditar, puedeCrear, puedeEliminar, aviso, cerr
                 <label className="lbl">Se da a</label>
                 <div className="seg mb-1">{([['AMBOS', 'PVP y DIS'], ['PVP', 'Solo clientes PVP'], ['DIS', 'Solo distribuidores DIS']] as const).map(([k, t]) => <button key={k} className={k === f.publico ? 'on' : ''} onClick={() => setF((v) => ({ ...v, publico: k }))}>{t}</button>)}</div>
                 <p className="text-[11.5px] text-slate-500 mb-3">Al cotizar o vender, el sistema la pone sola solo a los clientes de este tipo: un cliente PVP recibe las de PVP o ambos; un distribuidor DIS, las de DIS o ambos (y se queda con lo mejor entre su precio DIS y la oferta).</p>
-                <label className="lbl">Descuento: <b>{f.desc}%</b> <span className="font-normal text-slate-400">(máx. {maxDesc}%)</span></label>
+                <label className="lbl">Descuento: <b>{f.desc}%</b> <span className="font-normal text-slate-400">{libre ? '(sin tope)' : '(máx. ' + maxDesc + '%)'}</span>
+                  {libre && <input type="number" className="inp of-desc-n" aria-label="Descuento en porcentaje" min={0} max={100} step={0.5} inputMode="decimal" value={f.desc} onChange={(x) => setF((v) => ({ ...v, desc: Math.max(0, Math.min(100, Number(x.target.value) || 0)) }))} />}</label>
                 <input type="range" min={0} max={Math.max(1, maxDesc)} step={1} value={Math.min(f.desc, Math.max(1, maxDesc))} onChange={(x) => setF((v) => ({ ...v, desc: +x.target.value }))} />
                 <div className="flex items-end justify-between mt-2"><div><span className="precio-n">{money(precio)}</span> <span className="precio-a">{money(p.pvp)}</span><p className="text-[11px] text-slate-500">+ IVA · ahorro {money(p.pvp - precio)} por unidad</p></div><div className="text-right text-[12px]"><b>Recupera {money0(precio * p.stock)}</b><br /><span className="text-slate-500">{p.stock} u.</span></div></div>
                 <div className={'aviso mt-2 ' + sem[0]}>{sem[1]}</div>
@@ -855,6 +884,47 @@ function Interesados({ p, o }: { p: Prod; o: Oferta | null }) {
 }
 
 /* ============================ Hojas ============================ */
+/* Buscador de todo el inventario: el producto elegido se abre en el panel de oferta para crearla aquí mismo.
+   Los visibles al público van primero; 30 resultados por búsqueda. */
+type ProdBus = { id: string; codigo: string | null; nombre: string; imagen_url: string | null; stock: number | null; pvp: number | null; en_catalogo: boolean | null; categoria: { nombre: string } | null }
+function AgregarProducto({ conOferta, cerrar, elegir }: { conOferta: Set<string>; cerrar: () => void; elegir: (id: string) => Promise<void> }) {
+  const [q, setQ] = useState('')
+  const [lista, setLista] = useState<ProdBus[] | null>(null)
+  const [abriendo, setAbriendo] = useState('')
+  useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') cerrar() }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [cerrar])
+  useEffect(() => {
+    let vivo = true
+    const t = setTimeout(async () => {
+      let c = supabase.from('productos').select('id,codigo,nombre,imagen_url,stock,pvp,en_catalogo,categoria:categorias(nombre)').is('deleted_at', null)
+      for (const w of q.replace(/[,()%*\\]/g, ' ').split(/\s+/).filter(Boolean).slice(0, 5)) c = c.or(`nombre.ilike.%${w}%,codigo.ilike.%${w}%`)
+      const { data } = await c.order('en_catalogo', { ascending: false }).order('stock', { ascending: false }).order('nombre').range(0, 29)
+      if (vivo) setLista((data as unknown as ProdBus[]) ?? [])
+    }, 250)
+    return () => { vivo = false; clearTimeout(t) }
+  }, [q])
+  return (
+    <div className="ovl" onClick={cerrar}><div className="sheet agp" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center gap-2 mb-1"><h3 className="font-display font-bold text-lg text-[var(--navy)] flex-1">Agregar producto a ofertas</h3><button className="btn btn-sm" onClick={cerrar} aria-label="Cerrar"><X /></button></div>
+      <p className="text-sm text-slate-600 mb-3">Busca en todo el inventario. Al elegirlo se abre su oferta para poner el tipo, el descuento y las fechas.</p>
+      <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input className="inp" style={{ paddingLeft: 36 }} autoFocus placeholder="Nombre o código del producto…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+      <div className="agp-lista">
+        {lista === null ? <p className="text-sm text-slate-500 p-3"><span className="spin" /> Buscando…</p> : !lista.length ? <p className="text-sm text-slate-500 p-3">Ningún producto coincide.</p> : lista.map((p) => {
+          const tiene = conOferta.has(p.id), sinPvp = !(Number(p.pvp) > 0)
+          return (
+            <button key={p.id} type="button" className="agp-row" disabled={!!abriendo} onClick={async () => { setAbriendo(p.id); try { await elegir(p.id) } finally { setAbriendo('') } }}>
+              <span className="ph" style={{ width: 44, height: 44, borderRadius: 10 }}>{p.imagen_url ? <img loading="lazy" src={imgUrl(p.imagen_url, 120)} alt="" /> : <Package />}</span>
+              <span className="min-w-0 flex-1 text-left">
+                <b className="block truncate text-[13px] text-slate-800">{p.nombre}</b>
+                <small className="block truncate text-[11px] text-slate-500"><span className="mono">{p.codigo}</span>{p.categoria?.nombre ? ' · ' + p.categoria.nombre : ''} · Stock {Number(p.stock) || 0} · {sinPvp ? 'sin PVP' : money(Number(p.pvp))}</small>
+              </span>
+              {abriendo === p.id ? <span className="spin" /> : tiene ? <span className="pill" style={{ background: '#ecfdf5', color: '#047857' }}>Con oferta</span> : p.en_catalogo ? <span className="pill" style={{ background: '#eff6ff', color: '#1d4ed8' }}>Público</span> : null}
+            </button>
+          )
+        })}
+      </div>
+    </div></div>
+  )
+}
 function Ajustes({ cfg, cerrar, guardar }: { cfg: Cfg; cerrar: () => void; guardar: (v: Cfg) => Promise<void> }) {
   const [v, setV] = useState<Cfg>(cfg)
   const [ocupado, setOcupado] = useState(false)
