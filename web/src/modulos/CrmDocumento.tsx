@@ -180,7 +180,7 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   }, [ofertas])
   useEffect(() => {
     if (!ed?.cliente_id) return
-    supabase.from('clientes').select('id,nombre,identificacion,email,telefono,direccion,tipo_cliente,descuento_fijo,datos_venta').eq('id', ed.cliente_id).single().then(({ data }) => { if (data) setCliente(data as Cli) })
+    supabase.from('clientes').select('id,nombre,identificacion,email,telefono,direccion,ciudad,tipo_cliente,descuento_fijo,datos_venta').eq('id', ed.cliente_id).single().then(({ data }) => { if (data) setCliente(data as Cli) })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   const [pct, setPct] = useState('')
@@ -410,7 +410,26 @@ export default function CrmDocumento({ modo, perfil, asesores, origen, cerrar, g
   )
 
   const soloDig = (s: string) => String(s || '').replace(/\D/g, '')
-  const waLink = (s: string) => { const d = soloDig(s); return d ? 'https://wa.me/' + (d.startsWith('0') ? '593' + d.slice(1) : d) : '' }
+  /* Envío: destinatario (nombre, teléfono, cédula, email), dirección y ciudad se llenan con los datos que ya tenemos del cliente
+     (o del contacto si aún no es cliente). Solo se llenan los campos vacíos o los que se llenaron solos antes: lo que el asesor
+     escribe a mano no se pisa. */
+  const autoDest = useRef({ nombre: '', telefono: '', cedula: '', email: '', dir: '', ciudad: '' })
+  useEffect(() => {
+    if (entrega !== 'Envío') return
+    const c = cliente
+    const v = {
+      nombre: (c?.nombre || lead.nombre || '').trim(), telefono: soloDig(c?.telefono || lead.telefono || ''), cedula: soloDig(c?.identificacion || lead.identificacion || ''),
+      email: (c?.email || lead.email || '').trim(), dir: (c?.direccion || '').trim(), ciudad: (c?.ciudad || leadCiudad || '').trim(),
+    }
+    const a = autoDest.current
+    const toma = (actual: string, k: keyof typeof v) => (!actual.trim() || actual === a[k] ? v[k] || actual : actual)
+    setDest((d) => ({ nombre: toma(d.nombre, 'nombre'), telefono: toma(d.telefono, 'telefono'), cedula: toma(d.cedula, 'cedula'), email: toma(d.email, 'email') }))
+    setDirEnvio((x) => toma(x, 'dir'))
+    setCiudadDestino((x) => toma(x, 'ciudad'))
+    autoDest.current = v
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entrega, cliente, lead.nombre, lead.telefono, lead.identificacion, lead.email, leadCiudad])
+  const waLink =(s: string) => { const d = soloDig(s); return d ? 'https://wa.me/' + (d.startsWith('0') ? '593' + d.slice(1) : d) : '' }
   const titulo1 = nombrePropio   // Primera Mayúscula y el resto en minúscula, como la app original (formatoNombres.ts)
   const nombreAsesor = (id?: string | null) => asesores.find((x) => x.id === id)?.nombre ?? ''
   const etiquetaDis = (c: Cli) => { const n = String(c.descuento_fijo || '').trim().toUpperCase(); return n === '5' || n === '10' || n === '15' ? 'DIS:' + n + '%' : n === 'VIP' ? 'DIS VIP' : 'DIS' }
