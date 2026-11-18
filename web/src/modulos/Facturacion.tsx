@@ -724,8 +724,8 @@ function ModalNotasCredito({ r, cerrar, aviso }: { r: Fila; cerrar: () => void; 
     catch (e) { setSubiendoNc(''); setMsg((e as Error).message) }
   }
   const [msg, setMsg] = useState(''); const [guardando, setGuardando] = useState(false)
-  const [recepcion, setRecepcion] = useState<{ id: string; cantidad: string; destino: string; fecha: string; observacion: string } | null>(null)
-  const [recGuardando, setRecGuardando] = useState(false)
+  /* Devolución de unidades: ¿el producto ya se había despachado? (no → vuelve directo a la Bodega Comercial; sí → Bodega lo verifica) */
+  const [despachado, setDespachado] = useState<'' | 'si' | 'no'>('')
 
   const cargar = useCallback(() => {
     Promise.all([
@@ -752,6 +752,8 @@ function ModalNotasCredito({ r, cerrar, aviso }: { r: Fila; cerrar: () => void; 
     if (!/^https:\/\//i.test(pdfUrl.trim())) { setMsg('El enlace al PDF de la nota debe empezar con https://'); return }
     const elegidas = Object.entries(sel).filter(([, v]) => v.on)
     if (!elegidas.length) { setMsg('Marca al menos un producto a acreditar.'); return }
+    const devuelve = elegidas.some(([, v]) => v.tipo === 'CANTIDAD')
+    if (devuelve && !despachado) { setMsg('Indica si el producto ya se había despachado al cliente.'); return }
     const p_lineas = elegidas.map(([movimiento_id, v]) => {
       const l = lineas!.find((x) => x.movimiento_id === movimiento_id)!
       const monto = Math.max(0, Number(v.monto) || 0)
@@ -761,23 +763,11 @@ function ModalNotasCredito({ r, cerrar, aviso }: { r: Fila; cerrar: () => void; 
       return { movimiento_id, tipo: v.tipo, cantidad: v.tipo === 'CANTIDAD' ? Number(v.cantidad) || 0 : 0, base, iva }
     })
     setGuardando(true)
-    const { error } = await supabase.rpc('nc_registrar', { p_factura: r.uuid, p_numero: numero.trim(), p_fecha: fecha, p_motivo: motivo.trim(), p_pdf_url: pdfUrl.trim(), p_lineas })
+    const { error } = await supabase.rpc('nc_registrar', { p_factura: r.uuid, p_numero: numero.trim(), p_fecha: fecha, p_motivo: motivo.trim(), p_pdf_url: pdfUrl.trim(), p_lineas, p_despachado: devuelve ? despachado === 'si' : null })
     setGuardando(false)
     if (error) { setMsg(error.message); return }
-    aviso('Nota de crédito ' + numero.trim() + ' registrada.')
-    setNumero(''); setMotivo(''); setPdfUrl(''); setSel({}); cargar()
-  }
-
-  async function guardarRecepcion() {
-    if (!recepcion) return
-    if (!recepcion.observacion.trim()) { aviso('Indica una observación de la recepción.'); return }
-    setRecGuardando(true)
-    const { error } = await supabase.rpc('nc_registrar_recepcion', {
-      p_devolucion_id: recepcion.id, p_cantidad: Number(recepcion.cantidad) || 0, p_destino: recepcion.destino, p_fecha: recepcion.fecha, p_observacion: recepcion.observacion.trim(),
-    })
-    setRecGuardando(false)
-    if (error) { aviso(error.message); return }
-    aviso('Recepción registrada.'); setRecepcion(null); cargar()
+    aviso('Nota de crédito ' + numero.trim() + ' registrada.' + (devuelve ? (despachado === 'si' ? ' Bodega verificará lo devuelto.' : ' Las unidades volvieron a la Bodega Comercial.') : ''))
+    setNumero(''); setMotivo(''); setPdfUrl(''); setSel({}); setDespachado(''); cargar()
   }
 
   const totalSel = Object.entries(sel).filter(([, v]) => v.on).reduce((t, [, v]) => t + (Number(v.monto) || 0), 0)
@@ -809,40 +799,11 @@ function ModalNotasCredito({ r, cerrar, aviso }: { r: Fila; cerrar: () => void; 
 
           {resumen && resumen.devoluciones_pendientes.length > 0 && (
             <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3">
-              <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wider mb-1.5">Devoluciones pendientes de recepción</p>
-              {resumen.devoluciones_pendientes.map((d) => {
-                const pendiente = d.cantidad - d.recibido
-                return (
-                  <div key={d.id} className="py-1.5 border-t border-amber-200 first:border-0">
-                    <div className="flex items-center justify-between gap-2 text-[11.5px]">
-                      <span className="min-w-0 truncate"><b className="text-slate-700">{pendiente}</b> de {d.cantidad} u. · {d.nombre}</span>
-                      {recepcion?.id !== d.id && <button type="button" onClick={() => setRecepcion({ id: d.id, cantidad: String(pendiente), destino: 'DISPONIBLE', fecha: new Date().toISOString().slice(0, 10), observacion: '' })} className="text-[10.5px] font-bold px-2 py-1 rounded-lg border bg-white" style={{ borderColor: '#f1dfbf', color: '#a86d10' }}>Registrar recepción</button>}
-                    </div>
-                    {recepcion?.id === d.id && (
-                      <div className="mt-2 bg-white rounded-xl border border-amber-200 p-2.5 space-y-2">
-                        <div className="grid grid-cols-2 gap-2">
-                          <label className="block"><span className="block text-[9.5px] font-bold text-slate-400 uppercase">Cantidad recibida</span>
-                            <input type="number" min="0.001" max={pendiente} step="0.001" value={recepcion.cantidad} onChange={(e) => setRecepcion({ ...recepcion, cantidad: e.target.value })} className="fi-in" /></label>
-                          <label className="block"><span className="block text-[9.5px] font-bold text-slate-400 uppercase">Fecha</span>
-                            <input type="date" value={recepcion.fecha} onChange={(e) => setRecepcion({ ...recepcion, fecha: e.target.value })} className="fi-in" /></label>
-                        </div>
-                        <label className="block"><span className="block text-[9.5px] font-bold text-slate-400 uppercase">Destino</span>
-                          <select value={recepcion.destino} onChange={(e) => setRecepcion({ ...recepcion, destino: e.target.value })} className="fi-in bg-white">
-                            <option value="DISPONIBLE">Recibido y apto para venta</option>
-                            <option value="NO_DISPONIBLE">Recibido dañado / no disponible</option>
-                            <option value="NO_ENTREGADO">Nunca entregado: restituir salida</option>
-                          </select></label>
-                        <label className="block"><span className="block text-[9.5px] font-bold text-slate-400 uppercase">Observación / evidencia</span>
-                          <textarea rows={2} value={recepcion.observacion} onChange={(e) => setRecepcion({ ...recepcion, observacion: e.target.value })} className="fi-in" /></label>
-                        <div className="flex gap-2">
-                          <button type="button" onClick={() => setRecepcion(null)} className="text-[11px] font-bold px-3 py-1.5 rounded-lg border border-slate-200">Cancelar</button>
-                          <button type="button" onClick={guardarRecepcion} disabled={recGuardando} className="flex-1 text-[11px] font-bold px-3 py-1.5 rounded-lg text-white disabled:opacity-60" style={{ background: '#c98a1f' }}>{recGuardando ? 'Guardando…' : 'Confirmar recepción'}</button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
+              <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wider mb-1">Devoluciones por verificar en Bodega</p>
+              <p className="text-[11px] text-amber-800 mb-1.5">Bodega revisa lo devuelto y decide si va a la Bodega Comercial o a la Bodega Técnica (Bodega › Devoluciones).</p>
+              {resumen.devoluciones_pendientes.map((d) => (
+                <div key={d.id} className="py-1 border-t border-amber-200 first:border-0 text-[11.5px]"><b className="text-slate-700">{d.cantidad - d.recibido}</b> de {d.cantidad} u. · {d.nombre}</div>
+              ))}
             </div>
           )}
 
@@ -876,6 +837,17 @@ function ModalNotasCredito({ r, cerrar, aviso }: { r: Fila; cerrar: () => void; 
               )
             })}
           </div>
+
+          {Object.values(sel).some((v) => v.on && v.tipo === 'CANTIDAD') && (
+            <div className="bg-white border border-slate-200 rounded-2xl p-3">
+              <p className="text-[12px] font-bold text-slate-700">¿El producto ya se había despachado al cliente? *</p>
+              <p className="text-[10.5px] text-slate-500 mb-2">Si no salió de bodega, las unidades vuelven directo a la Bodega Comercial. Si ya se despachó, Bodega revisa lo devuelto y decide si va a la Bodega Comercial o a la Bodega Técnica.</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setDespachado('no')} className={'nc-op' + (despachado === 'no' ? ' on' : '')}>No se había despachado<small>Vuelve a la Bodega Comercial</small></button>
+                <button type="button" onClick={() => setDespachado('si')} className={'nc-op' + (despachado === 'si' ? ' on' : '')}>Sí, ya se despachó<small>Pasa a verificación de Bodega</small></button>
+              </div>
+            </div>
+          )}
 
           <div className="fi-sec">
             <div className="fi-sec-h"><span className="fi-num" style={{ background: '#7c3aed' }}>1</span><div className="flex-1"><b>Datos de la nota</b><small>Tal como se emitió en Contífico</small></div></div>

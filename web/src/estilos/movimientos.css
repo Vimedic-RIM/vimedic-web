@@ -206,3 +206,17 @@
 .vm-mov :where(svg){width:16px;height:16px;stroke-width:2}
 .vm-mov [hidden]{display:none!important}
 .vm-mov .mono{font-family:'IBM Plex Mono',monospace}
+/* Bodega Comercial / Bodega Técnica */
+.vm-mov .bod{display:inline-block;margin-left:4px;font-size:9.5px;font-weight:800;padding:2px 7px;border-radius:999px;letter-spacing:.02em;white-space:nowrap;vertical-align:middle}
+.vm-mov .bod.com{background:#e7f6f2;color:#04896f}
+.vm-mov .bod.tec{background:#fdecea;color:#b91c1c}
+.vm-mov .bod.ver{background:#f1f5f9;color:#475569}
+.vm-mov .stk{border:1px solid var(--line,#e2e8f0);border-radius:14px;padding:6px 12px;min-width:120px;text-align:right;background:#fff}
+.vm-mov .stk span{display:block;font-size:10px;font-weight:700;text-transform:uppercase;color:#64748b}
+.vm-mov .stk b{display:block;font-family:inherit;font-size:20px;line-height:1.2;color:var(--navy,#0b2545)}
+.vm-mov .stk small{display:block;font-size:10px;color:#94a3b8}
+.vm-mov .stk.com{border-color:#bfe6da;background:#f3fbf8}
+.vm-mov .stk.tec{border-color:#f5c6c0;background:#fff7f6}
+.vm-mov .stk.tec b{color:#b91c1c}
+.vm-mov .acu{display:block;font-size:9.5px;font-weight:600;color:#94a3b8}
+@media(max-width:640px){.vm-mov .stk{min-width:0;flex:1}}

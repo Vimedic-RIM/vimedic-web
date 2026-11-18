@@ -826,3 +826,20 @@ No se cargó a propósito:
 - Empleados: sin empleados nuevos (Issue #24).
 - No se pisaron: revisiones de Marketing hechas en qa, textos de productos editados en qa, leads con actividad más
   reciente en qa, fecha de envío de promociones (qa tiene su propio flujo de aprobación).
+
+## Bodega Comercial y Bodega Técnica (18-nov)
+
+| Función | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| Revisión de importación | Aprobado → Bodega Comercial; con defecto → Bodega Técnica (Servicio Técnico); reparado y aprobado → traslado Técnica → Comercial | ✅ | `rec_revisar`, `rec_revisar_devuelta` (sin cambios de lógica), textos en Recepción |
+| Dos stocks | Stock comercial (lo que se vende) y stock total (Comercial + Técnica) | ✅ | Movimientos (ficha del producto), Inventario (detalle, solo quien ve la Técnica) |
+| Movimientos por bodega | Etiqueta de bodega en cada movimiento, filtro y acumulado por bodega | ✅ | `v_movimientos.bodega`, `v_movimientos_saldo`, `mov_kpis(p_bodega)` |
+| Traslado manual | Comercial ⇄ Técnica con motivo (permiso de edición en Bodega) | ✅ | `mov_trasladar`, Movimientos › Trasladar entre bodegas |
+| Quién ve la Técnica | Movimientos, Servicio Técnico, Bodega, Importaciones, quien edita Inventario y administración | ✅ | `app.ve_bodega_tecnica()`, `inv_estado_stock` |
+| Nota de crédito | Pregunta si ya se despachó: no → vuelve a la Bodega Comercial; sí → «Por verificar» y Bodega decide | ✅ | `nc_registrar(p_despachado)`, Bodega › Devoluciones (`bod_devoluciones_pendientes`, `nc_registrar_recepcion`) |
+| Proveedor de importación | En Movimientos sale abreviado (HME) y la factura es la importación (PI-…) | ✅ | `app.abreviar_proveedor`, `rec_movimiento` |
+
+Datos corregidos en pruebas: el traslado del EQM327 (estaba como SALIDA +1), 9 ventas que la carga del 17-nov dejó como
+«no disponible», y los movimientos de importación con el nombre completo del proveedor. Con eso todos los productos
+cuadran con sus movimientos. La función original de notas de crédito fallaba con devoluciones de unidades (creaba la
+devolución antes que la nota); quedó corregida. Pruebas: `supabase/tests/bodegas_comercial_tecnica.sql` (21/21).

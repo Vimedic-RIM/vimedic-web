@@ -213,7 +213,8 @@ function UbicStock({ p, grande }: { p: { id: string; stock: number }; grande?: b
         {st > 0 ? `${st} en stock` : st < 0 ? `${st} en stock (facturado sin stock)` : grande ? '0 en stock' : 'Sin stock'}
       </span>
       {e?.revision ? <span className={'inv-ub' + c + ' ub-rev'}>{e.revision} en revisión</span> : null}
-      {e?.reparacion ? <span className={'inv-ub' + c + ' ub-rep'}>{e.reparacion} en reparación</span> : null}
+      {e?.reparacion ? <span className={'inv-ub' + c + ' ub-rep'} title="Equipos con defecto o en Servicio Técnico: no se venden">{e.reparacion} en Bodega Técnica</span> : null}
+      {grande && e?.reparacion ? <span className={'inv-ub' + c + ' ub-tot'} title="Bodega Comercial + Bodega Técnica">Stock total {st + e.reparacion}</span> : null}
       {grande && e?.porLlegar ? <span className={'inv-ub' + c + ' ub-lle'}>{e.porLlegar} por llegar</span> : null}
     </>
   )

@@ -7,6 +7,10 @@ const r = procesar({
   cols: {
     ...auto(T, base),
     aplica_iva: (f) => ivaDe(f[9]),
+    // «disponible» vacío NO es falso (el 17-nov quedaron 9 ventas como «no disponible»); solo se marca si la hoja lo dice
+    disponible: (f) => { const p = base.find(([c]) => c === 'disponible'); const v = p ? f[p[1]] : null; return v == null || String(v).trim() === '' ? null : L.aBool(v) },
+    // Traslado a la Bodega Comercial guardado como SALIDA con cantidad positiva en la app original → INGRESO
+    tipo: (f) => { const p = base.find(([c]) => c === 'tipo'), b = base.find(([c]) => c === 'bodega'), q = base.find(([c]) => c === 'cantidad'); const t = p ? L.aTexto(f[p[1]]) : null; return t === 'SALIDA' && b && /^(Principal|Por reparar)$/.test(String(f[b[1]] ?? '').trim()) && q && L.aNum(f[q[1]]) > 0 ? 'INGRESO' : t },
     producto_id: (f) => L.porCodigo('producto', f[4]),
     factura_id: (f) => L.porCodigo('factura', f[1]),
     ingreso_id: (f) => L.porCodigo('ingreso', f[1]),

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Calculator, Download, ExternalLink, FileText, Layers, List, Package, Pencil, RefreshCw, Search, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeftRight, Calculator, Download, ExternalLink, FileText, Layers, List, Package, Pencil, RefreshCw, Search, X } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
@@ -7,15 +7,20 @@ import { imagen } from './inventarioUtil'
 import '../estilos/movimientos.css'
 
 /* ============================ Tipos y utilidades ============================ */
-type Mov = { id: string; codigo: string; fecha: string; tipo: string; cantidad: number; item: string; nombre: string; imagen: string; cliente: string; factura: string; facturaUrl: string; operacion: string; responsable: string; observacion: string; productoId: string | null; facturaId: string | null; ingresoId: string | null }
-type Prod = { id: string; codigo: string; nombre: string; stock: number; imagen_url: string | null; categoria?: { nombre: string } | null; pvp?: number | null }
+type Mov = { id: string; codigo: string; fecha: string; tipo: string; cantidad: number; bodega: string; item: string; nombre: string; imagen: string; cliente: string; factura: string; facturaUrl: string; operacion: string; responsable: string; observacion: string; productoId: string | null; facturaId: string | null; ingresoId: string | null }
+type Prod = { id: string; codigo: string; nombre: string; stock: number; stock_por_reparar?: number | null; imagen_url: string | null; categoria?: { nombre: string } | null; pvp?: number | null }
 type Kpis = { n: number; ing: number; sal: number; productos: number }
-const COLS = 'id,codigo,fecha,tipo,cantidad,item,nombre,imagen_url,cliente,factura,factura_url,operacion,responsable,observacion,producto_id,factura_id,ingreso_id'
+const COLS = 'id,codigo,fecha,tipo,cantidad,bodega,item,nombre,imagen_url,cliente,factura,factura_url,operacion,responsable,observacion,producto_id,factura_id,ingreso_id'
+const COLS_PROD = 'id,codigo,nombre,stock,stock_por_reparar,imagen_url'
 const POR_PAGINA = 25
+/* Dos bodegas: Comercial (lo que se vende) y Técnica (equipos con defecto / Servicio Técnico).
+   «Por verificar» = devolución por nota de crédito que Bodega aún no revisa. */
+const BODEGAS: [string, string][] = [['', 'Todas las bodegas'], ['Bodega Comercial', 'Bodega Comercial'], ['Bodega Técnica', 'Bodega Técnica'], ['Por verificar', 'Por verificar']]
+const ChipBodega = ({ b }: { b: string }) => <span className={'bod ' + (b === 'Bodega Técnica' ? 'tec' : b === 'Por verificar' ? 'ver' : 'com')} title={b}>{b === 'Bodega Técnica' ? 'Técnica' : b === 'Por verificar' ? 'Por verificar' : 'Comercial'}</span>
 const num = (n: number) => (Number(n) || 0).toLocaleString('es-EC', { maximumFractionDigits: 2 })
 const fFecha = (t: string) => { const d = new Date(t); return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' ' + d.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' }) }
 const limpiar = (t: string) => t.replace(/[,()%*\\"']/g, ' ').trim()
-const mapear = (x: Record<string, any>): Mov => ({ id: x.id, codigo: x.codigo ?? '', fecha: x.fecha, tipo: x.tipo ?? '', cantidad: Number(x.cantidad) || 0, item: x.item ?? '', nombre: x.nombre ?? '', imagen: x.imagen_url ?? '', cliente: x.cliente ?? '', factura: x.factura ?? '', facturaUrl: x.factura_url ?? '', operacion: x.operacion ?? '', responsable: x.responsable ?? '', observacion: x.observacion ?? '', productoId: x.producto_id ?? null, facturaId: x.factura_id ?? null, ingresoId: x.ingreso_id ?? null }) // eslint-disable-line @typescript-eslint/no-explicit-any
+const mapear = (x: Record<string, any>): Mov => ({ id: x.id, codigo: x.codigo ?? '', fecha: x.fecha, tipo: x.tipo ?? '', cantidad: Number(x.cantidad) || 0, bodega: x.bodega ?? 'Bodega Comercial', item: x.item ?? '', nombre: x.nombre ?? '', imagen: x.imagen_url ?? '', cliente: x.cliente ?? '', factura: x.factura ?? '', facturaUrl: x.factura_url ?? '', operacion: x.operacion ?? '', responsable: x.responsable ?? '', observacion: x.observacion ?? '', productoId: x.producto_id ?? null, facturaId: x.factura_id ?? null, ingresoId: x.ingreso_id ?? null }) // eslint-disable-line @typescript-eslint/no-explicit-any
 const Miniatura = ({ url, grande }: { url?: string | null; grande?: boolean }) => (
   <span className={'th ' + (grande ? 'th-lg' : '')}>{url ? <img loading="lazy" alt="" src={imagen(url, grande ? 160 : 80)} onError={(e) => e.currentTarget.remove()} /> : <Package />}</span>
 )
@@ -31,24 +36,27 @@ export default function Movimientos({ perfil, aviso, productoInicial, limpiarPro
   const [q, setQ] = useState('')
   const [qDeb, setQDeb] = useState('')
   const [tipo, setTipo] = useState('')
+  const [bodega, setBodega] = useState('')
+  const [traslado, setTraslado] = useState(false)
   const [prod, setProd] = useState<Prod | null>(null)
   const [resp, setResp] = useState('')
   const [desde, setDesde] = useState('')
   const [hasta, setHasta] = useState('')
   const [pagina, setPagina] = useState(1)
   const [responsables, setResponsables] = useState<string[]>([])
-  const [saldos, setSaldos] = useState<Record<string, number>>({})
+  const [saldos, setSaldos] = useState<Record<string, { t: number; c: number; k: number }>>({})
   const [detalle, setDetalle] = useState<Mov | null>(null)
   const [editar, setEditar] = useState<Mov | null>(null)
   const [stockModal, setStockModal] = useState<'confirmar' | 'trabajando' | { error: string } | { r: { productos: number; cambios: { id: string; nombre: string; antes: number; despues: number }[]; huerfanos: { item: string; neto: number }[] } } | null>(null)
   const [cargando, setCargando] = useState(false)
   const peticion = useRef(0)
   const puedeEditar = puede(perfil, 'movimientos', 'editar')
+  const puedeTrasladar = puede(perfil, 'bodega', 'editar')
 
   // "Ver movimientos" desde la ficha de un producto en Inventario: llega con el código y filtra directo.
   useEffect(() => {
     if (!productoInicial) return
-    supabase.from('productos').select('id,codigo,nombre,stock,imagen_url').eq('codigo', productoInicial).maybeSingle()
+    supabase.from('productos').select(COLS_PROD).eq('codigo', productoInicial).maybeSingle()
       .then(({ data }) => { if (data) { setProd(data as Prod); setPagina(1) } limpiarProductoInicial?.() })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productoInicial])
@@ -59,12 +67,13 @@ export default function Movimientos({ perfil, aviso, productoInicial, limpiarPro
   const aplicar = useCallback((c: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
     for (const w of limpiar(qDeb).split(/\s+/).filter(Boolean)) c = c.ilike('texto', `%${w}%`)
     if (tipo === 'in') c = c.gt('cantidad', 0); else if (tipo === 'out') c = c.lt('cantidad', 0)
+    if (bodega) c = c.eq('bodega', bodega)
     if (prod) c = c.eq('item', prod.codigo)
     if (resp) c = c.eq('responsable', resp)
     if (desde) c = c.gte('fecha', desde + 'T00:00:00-05:00')
     if (hasta) c = c.lte('fecha', hasta + 'T23:59:59-05:00')
     return c
-  }, [qDeb, tipo, prod, resp, desde, hasta])
+  }, [qDeb, tipo, bodega, prod, resp, desde, hasta])
 
   const cargar = useCallback(async () => {
     const n = ++peticion.current
@@ -72,7 +81,7 @@ export default function Movimientos({ perfil, aviso, productoInicial, limpiarPro
     const base = supabase.from('v_movimientos').select(COLS, { count: 'exact' })
     const [lista, k] = await Promise.all([
       aplicar(base).order('fecha', { ascending: false }).order('created_at', { ascending: false }).range((pagina - 1) * POR_PAGINA, pagina * POR_PAGINA - 1),
-      supabase.rpc('mov_kpis', { p_q: limpiar(qDeb), p_tipo: tipo, p_item: prod?.codigo ?? '', p_resp: resp, p_desde: desde ? desde + 'T00:00:00-05:00' : null, p_hasta: hasta ? hasta + 'T23:59:59-05:00' : null }),
+      supabase.rpc('mov_kpis', { p_q: limpiar(qDeb), p_tipo: tipo, p_item: prod?.codigo ?? '', p_resp: resp, p_desde: desde ? desde + 'T00:00:00-05:00' : null, p_hasta: hasta ? hasta + 'T23:59:59-05:00' : null, p_bodega: bodega }),
     ])
     if (n !== peticion.current) return
     setCargando(false)
@@ -81,9 +90,15 @@ export default function Movimientos({ perfil, aviso, productoInicial, limpiarPro
     const f = ((lista.data ?? []) as Record<string, any>[]).map(mapear) // eslint-disable-line @typescript-eslint/no-explicit-any
     setFilas(f)
     if (k.data) setKpis(k.data as Kpis)
-    if (prod && f.length) supabase.from('v_movimientos_saldo').select('id,saldo').in('id', f.map((x) => x.id)).then(({ data }) => setSaldos(Object.fromEntries(((data ?? []) as { id: string; saldo: number }[]).map((x) => [x.id, Number(x.saldo)]))))
+    if (prod && f.length) supabase.from('v_movimientos_saldo').select('id,saldo,saldo_comercial,saldo_tecnica').in('id', f.map((x) => x.id)).then(({ data }) => setSaldos(Object.fromEntries(((data ?? []) as { id: string; saldo: number; saldo_comercial: number; saldo_tecnica: number }[]).map((x) => [x.id, { t: Number(x.saldo), c: Number(x.saldo_comercial), k: Number(x.saldo_tecnica) }]))))
     else setSaldos({})
-  }, [aplicar, pagina, qDeb, tipo, prod, resp, desde, hasta])
+  }, [aplicar, pagina, qDeb, tipo, bodega, prod, resp, desde, hasta])
+  /* Stock del producto elegido al día (después de un traslado o una corrección) */
+  const refrescarProd = useCallback(async () => {
+    if (!prod) return
+    const { data } = await supabase.from('productos').select(COLS_PROD).eq('id', prod.id).maybeSingle()
+    if (data) setProd(data as Prod)
+  }, [prod])
   useEffect(() => { cargar() }, [cargar])
   useEffect(() => {
     const recargar = agrupar(() => cargar())
@@ -94,13 +109,13 @@ export default function Movimientos({ perfil, aviso, productoInicial, limpiarPro
   const totPag = Math.max(1, Math.ceil(total / POR_PAGINA))
   const nums: (number | '…')[] = []
   for (let i = 1; i <= totPag; i++) { if (i === 1 || i === totPag || Math.abs(i - pagina) <= 1) nums.push(i); else if (nums[nums.length - 1] !== '…') nums.push('…') }
-  const limpiarTodo = () => { setQ(''); setQDeb(''); setTipo(''); setProd(null); setResp(''); setDesde(''); setHasta(''); setPagina(1) }
+  const limpiarTodo = () => { setQ(''); setQDeb(''); setTipo(''); setBodega(''); setProd(null); setResp(''); setDesde(''); setHasta(''); setPagina(1) }
 
   async function exportarCsv() {
     const { data, error } = await aplicar(supabase.from('v_movimientos').select(COLS)).order('fecha', { ascending: false }).limit(5000)
     if (error) { aviso('No se pudo exportar: ' + error.message); return }
-    const cab = ['Fecha', 'Tipo', 'Item', 'Producto', 'Cantidad', 'Cliente', 'Factura', 'Operacion', 'Responsable', 'Observacion']
-    const filasCsv = ((data ?? []) as Record<string, any>[]).map(mapear).map((r) => [fFecha(r.fecha), r.cantidad < 0 ? 'Salida' : 'Ingreso', r.item, r.nombre, r.cantidad, r.cliente, r.factura, r.operacion, r.responsable, r.observacion]) // eslint-disable-line @typescript-eslint/no-explicit-any
+    const cab = ['Fecha', 'Tipo', 'Bodega', 'Item', 'Producto', 'Cantidad', 'Cliente', 'Factura', 'Operacion', 'Responsable', 'Observacion']
+    const filasCsv = ((data ?? []) as Record<string, any>[]).map(mapear).map((r) => [fFecha(r.fecha), r.cantidad < 0 ? 'Salida' : 'Ingreso', r.bodega, r.item, r.nombre, r.cantidad, r.cliente, r.factura, r.operacion, r.responsable, r.observacion]) // eslint-disable-line @typescript-eslint/no-explicit-any
     const csv = [cab, ...filasCsv].map((f) => f.map((x) => '"' + String(x ?? '').replace(/"/g, '""') + '"').join(',')).join('\n')
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv' })); a.download = 'movimientos.csv'; a.click()
   }
@@ -115,9 +130,10 @@ export default function Movimientos({ perfil, aviso, productoInicial, limpiarPro
     <div className="vm-mov">
       <header className="hdr text-white">
         <div className="max-w-[1500px] mx-auto px-4 py-3 flex items-center gap-3 flex-wrap vm-head-pad">
-          <div className="min-w-0"><h1 className="font-display font-bold text-lg leading-tight">Movimientos de inventario</h1><p className="text-[11px] text-white/70">Ingresos y salidas de todos los productos · {perfil.nombre}{puedeEditar ? ' · puedes modificar' : ' · solo lectura'}</p></div>
+          <div className="min-w-0"><h1 className="font-display font-bold text-lg leading-tight">Movimientos de inventario</h1><p className="text-[11px] text-white/70">Ingresos y salidas de la Bodega Comercial y la Bodega Técnica · {perfil.nombre}{puedeEditar ? ' · puedes modificar' : ' · solo lectura'}</p></div>
           <div className="ml-auto flex gap-2 flex-wrap">
             <button className="btn !bg-white/10 !border-white/20 !text-white" onClick={exportarCsv}><Download />CSV</button>
+            {puedeTrasladar && <button className="btn !bg-white/10 !border-white/20 !text-white" title="Mover unidades entre la Bodega Comercial y la Bodega Técnica" onClick={() => setTraslado(true)}><ArrowLeftRight />Trasladar entre bodegas</button>}
             {puedeEditar && <button className="btn !bg-amber-400 !border-amber-400 !text-slate-900" title="Recalcula el stock de los productos que tienen movimientos" onClick={() => setStockModal('confirmar')}><Calculator />Actualizar stock</button>}
             <button className="btn !bg-white/10 !border-white/20 !text-white" onClick={cargar}><RefreshCw className={cargando ? 'animate-spin' : ''} />Actualizar</button>
           </div>
@@ -135,6 +151,7 @@ export default function Movimientos({ perfil, aviso, productoInicial, limpiarPro
         <div className="bg-white border border-slate-200 rounded-2xl p-3 flex flex-wrap items-center gap-2">
           <div className="relative flex-1 min-w-[220px]"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input className="inp w-full !pl-9" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar item, producto, cliente, factura, operación, responsable…" /></div>
           <div className="seg">{([['', 'Todos'], ['in', 'Ingresos'], ['out', 'Salidas']] as const).map(([v, t]) => <button key={v} className={tipo === v ? 'on' : ''} onClick={() => { setTipo(v); setPagina(1) }}>{t}</button>)}</div>
+          <select className="inp" value={bodega} aria-label="Bodega" onChange={(e) => { setBodega(e.target.value); setPagina(1) }}>{BODEGAS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}</select>
           <SelectorProducto prod={prod} elegir={(p) => { setProd(p); setPagina(1) }} />
           <select className="inp" value={resp} onChange={(e) => { setResp(e.target.value); setPagina(1) }}><option value="">Todos los responsables</option>{responsables.map((r) => <option key={r}>{r}</option>)}</select>
           <label className="text-[11px] font-semibold text-slate-500 flex items-center gap-1">Desde<input type="date" className="inp" value={desde} onChange={(e) => { setDesde(e.target.value); setPagina(1) }} /></label>
@@ -146,7 +163,12 @@ export default function Movimientos({ perfil, aviso, productoInicial, limpiarPro
           <div className="bg-white border border-slate-200 rounded-2xl p-3 flex items-center gap-3 flex-wrap">
             <Miniatura url={prod.imagen_url} grande />
             <div className="min-w-0"><p className="text-sm font-bold text-slate-800">{prod.nombre}</p><p className="text-[11px] text-slate-500 mono">{prod.codigo}</p></div>
-            <div className="ml-auto text-right"><p className="text-[10px] text-slate-500 font-semibold uppercase">Stock actual</p><p className="font-display font-bold text-xl text-[var(--navy)]">{num(prod.stock)}</p></div>
+            <div className="ml-auto flex gap-2 flex-wrap items-stretch">
+              <div className="stk com"><span>Stock comercial</span><b>{num(prod.stock)}</b><small>Bodega Comercial · para vender</small></div>
+              <div className="stk tec"><span>Bodega Técnica</span><b>{num(Number(prod.stock_por_reparar) || 0)}</b><small>con defecto / Servicio Técnico</small></div>
+              <div className="stk tot"><span>Stock total</span><b>{num((Number(prod.stock) || 0) + (Number(prod.stock_por_reparar) || 0))}</b><small>entre las dos bodegas</small></div>
+              {puedeTrasladar && <button className="btn self-center" onClick={() => setTraslado(true)}><ArrowLeftRight />Trasladar</button>}
+            </div>
           </div>
         )}
 
@@ -163,14 +185,14 @@ export default function Movimientos({ perfil, aviso, productoInicial, limpiarPro
                   return (
                     <tr key={r.id} className={'mvrow' + (detalle?.id === r.id ? ' sel' : '')} title="Ver todo el detalle" onClick={() => setDetalle(r)}>
                       <td className="mono text-[11px] whitespace-nowrap">{fFecha(r.fecha)}</td>
-                      <td><span className={'pill ' + (sal ? 'pout' : 'pin')}>{sal ? 'Salida' : 'Ingreso'}</span></td>
-                      <td className="mono text-[11px]"><span className="lnk" onClick={async (e) => { e.stopPropagation(); const { data } = await supabase.from('productos').select('id,codigo,nombre,stock,imagen_url').eq('codigo', r.item).maybeSingle(); if (data) { setProd(data as Prod); setPagina(1); window.scrollTo({ top: 0, behavior: 'smooth' }) } }}>{r.item}</span></td>
+                      <td><span className={'pill ' + (sal ? 'pout' : 'pin')}>{sal ? 'Salida' : 'Ingreso'}</span><ChipBodega b={r.bodega} /></td>
+                      <td className="mono text-[11px]"><span className="lnk" onClick={async (e) => { e.stopPropagation(); const { data } = await supabase.from('productos').select(COLS_PROD).eq('codigo', r.item).maybeSingle(); if (data) { setProd(data as Prod); setPagina(1); window.scrollTo({ top: 0, behavior: 'smooth' }) } }}>{r.item}</span></td>
                       <td className="min-w-[220px]"><div className="flex items-start gap-2"><Miniatura url={r.imagen} /><div className="min-w-0">{r.nombre}{r.observacion && <p className="text-[10px] text-slate-400 mt-0.5 line-clamp-2" title={r.observacion}>{r.observacion}</p>}</div></div></td>
                       <td>{r.cliente || '—'}</td>
                       <td className="mono text-[11px]">{r.facturaUrl ? <a className="lnk" target="_blank" rel="noopener" href={r.facturaUrl} onClick={(e) => e.stopPropagation()}>{r.factura || 'Ver'}</a> : r.factura || '—'}</td>
                       <td className="mono text-[10.5px] text-slate-500">{r.operacion}</td><td>{r.responsable || '—'}</td>
                       <td className="text-right font-bold" style={{ color: sal ? 'var(--amber)' : 'var(--teal)' }}>{sal ? '' : '+'}{num(r.cantidad)}</td>
-                      {prod && <td className="text-right font-semibold text-slate-600">{saldos[r.id] != null ? num(saldos[r.id]) : '…'}</td>}
+                      {prod && <td className="text-right font-semibold text-slate-600 whitespace-nowrap">{saldos[r.id] != null ? <>{num(saldos[r.id].t)}<small className="acu">Com. {num(saldos[r.id].c)} · Téc. {num(saldos[r.id].k)}</small></> : '…'}</td>}
                       <td className="text-right whitespace-nowrap">{puedeEditar && <button className="btn !py-1 !px-2" title="Modificar" onClick={(e) => { e.stopPropagation(); setEditar(r) }}><Pencil /></button>}</td>
                     </tr>
                   )
@@ -186,7 +208,8 @@ export default function Movimientos({ perfil, aviso, productoInicial, limpiarPro
       </main>
 
       <Detalle mov={detalle} puedeEditar={puedeEditar} cerrar={() => setDetalle(null)} editar={(m) => { setDetalle(null); setEditar(m) }} />
-      {editar && <Editar mov={editar} perfil={perfil} cerrar={() => setEditar(null)} guardado={() => { setEditar(null); cargar() }} />}
+      {editar && <Editar mov={editar} perfil={perfil} cerrar={() => setEditar(null)} guardado={() => { setEditar(null); cargar(); refrescarProd() }} />}
+      {traslado && <Traslado inicial={prod} cerrar={() => setTraslado(false)} hecho={(t) => { setTraslado(false); aviso(t); cargar(); refrescarProd() }} />}
       {stockModal && <ModalStock estado={stockModal} cerrar={() => setStockModal(null)} ejecutar={recalcular} />}
     </div>
   )
@@ -203,7 +226,7 @@ function SelectorProducto({ prod, elegir }: { prod: Prod | null; elegir: (p: Pro
   useEffect(() => {
     if (!abierto) return
     const t = setTimeout(() => {
-      let c = supabase.from('productos').select('id,codigo,nombre,stock,imagen_url').is('deleted_at', null)
+      let c = supabase.from('productos').select(COLS_PROD).is('deleted_at', null)
       for (const w of limpiar(txt === prod?.codigo ? '' : txt).split(/\s+/).filter(Boolean)) c = c.or(`nombre.ilike.%${w}%,codigo.ilike.%${w}%,codigo_unico.ilike.%${w}%`)
       c.order('en_vista_publica', { ascending: false }).order('nombre').limit(30).then(({ data }) => { setLista((data as Prod[]) ?? []); setSel(-1) })
     }, 150)
@@ -240,7 +263,7 @@ function Detalle({ mov, puedeEditar, cerrar, editar }: { mov: Mov | null; puedeE
     ;(async () => {
       type R = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
       const [p, f, ing, otros] = await Promise.all([
-        mov.productoId ? supabase.from('productos').select('id,codigo,nombre,stock,imagen_url,pvp,categoria:categorias(nombre)').eq('id', mov.productoId).maybeSingle() : Promise.resolve({ data: null }),
+        mov.productoId ? supabase.from('productos').select('id,codigo,nombre,stock,stock_por_reparar,imagen_url,pvp,categoria:categorias(nombre)').eq('id', mov.productoId).maybeSingle() : Promise.resolve({ data: null }),
         mov.facturaId ? supabase.from('facturas').select('codigo,numero_contifico,estado,total,fecha_facturacion,created_at,pdf_url,cliente:clientes(nombre)').eq('id', mov.facturaId).maybeSingle() : Promise.resolve({ data: null }),
         mov.ingresoId ? supabase.from('ingresos_proveedor').select('codigo,proveedor_texto,numero_factura,fecha_factura,total').eq('id', mov.ingresoId).maybeSingle() : Promise.resolve({ data: null }),
         mov.operacion ? supabase.from('v_movimientos').select(COLS).eq('operacion', mov.operacion).neq('id', mov.id).order('fecha', { ascending: false }).limit(30) : Promise.resolve({ data: [] }),
@@ -274,15 +297,15 @@ function Detalle({ mov, puedeEditar, cerrar, editar }: { mov: Mov | null; puedeE
                 <>
                   {d.producto ? (
                     <div className="db"><h4><Package />Producto</h4><div className="flex gap-3">{d.producto.imagen_url && <img src={imagen(d.producto.imagen_url, 200)} alt="" style={{ width: 84, height: 84, objectFit: 'contain', borderRadius: 12, border: '1px solid var(--line)', background: '#fff' }} />}
-                      {dl([['Código', d.producto.codigo], ['Nombre', d.producto.nombre], ['Categoría', d.producto.categoria?.nombre ?? '—'], ['Stock actual', num(d.producto.stock)], ['PVP', d.producto.pvp ? '$' + Number(d.producto.pvp).toFixed(2) : '—']])}</div></div>
+                      {dl([['Código', d.producto.codigo], ['Nombre', d.producto.nombre], ['Categoría', d.producto.categoria?.nombre ?? '—'], ['Stock comercial', num(d.producto.stock)], ['Bodega Técnica', num(Number(d.producto.stock_por_reparar) || 0)], ['PVP', d.producto.pvp ? '$' + Number(d.producto.pvp).toFixed(2) : '—']])}</div></div>
                   ) : (
                     <div className="db" style={{ borderColor: '#fcd34d', background: '#fffbeb' }}><h4><AlertTriangle />El Item no existe en Productos</h4><p className="text-[12.5px]">Este movimiento no suma a ningún producto. Corrige el Item con el lápiz.</p></div>
                   )}
                   {d.bloques.map((b) => { const I = b.icono; return (
                     <div key={b.titulo} className="db"><h4><I />{b.titulo}{b.estado && <span className="est">{b.estado}</span>}</h4>{dl(b.datos)}{(b.enlaces ?? []).map(([t, u]) => <a key={u} className="lk" target="_blank" rel="noopener" href={u}><ExternalLink style={{ width: 13, height: 13 }} />{t}</a>)}</div>) })}
                   {!d.bloques.length && <div className="db text-[12.5px] text-slate-500">No se encontraron venta ni importación con la operación <b>{mov.operacion || '—'}</b>. Es un movimiento manual o de una operación anterior al sistema.</div>}
-                  <div className="db"><h4><List />Registro del movimiento</h4>{dl([['Código', mov.codigo], ['Tipo', mov.tipo], ['Cliente', mov.cliente], ['Factura', mov.factura], ['Responsable', mov.responsable], ['Observación', mov.observacion]].filter((x) => x[1]) as [string, string][])}</div>
-                  {d.otros.length > 0 && <div className="db"><h4><Layers />Otros movimientos de la operación {mov.operacion}</h4><div className="tl">{d.otros.map((o) => <div key={o.id} className="py-1.5 text-[12.5px] flex gap-2"><span className="mono text-[11px] text-slate-400 w-[104px] shrink-0">{fFecha(o.fecha)}</span><span className="min-w-0 flex-1"><b>{o.item}</b> {o.nombre}<br /><span className="text-slate-500">{o.tipo} · {o.responsable}</span></span><b style={{ color: o.cantidad < 0 ? 'var(--amber)' : 'var(--teal)' }}>{o.cantidad < 0 ? '' : '+'}{num(o.cantidad)}</b></div>)}</div></div>}
+                  <div className="db"><h4><List />Registro del movimiento</h4>{dl([['Código', mov.codigo], ['Tipo', mov.tipo], ['Bodega', mov.bodega], ['Cliente', mov.cliente], ['Factura', mov.factura], ['Responsable', mov.responsable], ['Observación', mov.observacion]].filter((x) => x[1]) as [string, string][])}</div>
+                  {d.otros.length > 0 && <div className="db"><h4><Layers />Otros movimientos de la operación {mov.operacion}</h4><div className="tl">{d.otros.map((o) => <div key={o.id} className="py-1.5 text-[12.5px] flex gap-2"><span className="mono text-[11px] text-slate-400 w-[104px] shrink-0">{fFecha(o.fecha)}</span><span className="min-w-0 flex-1"><b>{o.item}</b> {o.nombre}<br /><span className="text-slate-500">{o.tipo} · {o.bodega} · {o.responsable}</span></span><b style={{ color: o.cantidad < 0 ? 'var(--amber)' : 'var(--teal)' }}>{o.cantidad < 0 ? '' : '+'}{num(o.cantidad)}</b></div>)}</div></div>}
                 </>
               )}
               {puedeEditar && <button className="btn w-full" onClick={() => editar(mov)}><Pencil />Modificar este movimiento</button>}
@@ -300,6 +323,7 @@ function Editar({ mov, perfil, cerrar, guardado }: { mov: Mov; perfil: Perfil; c
   const [nombreItem, setNombreItem] = useState('')
   const [encontrado, setEncontrado] = useState<Prod | null>(null)
   const [tipo, setTipo] = useState(mov.cantidad < 0 ? 'SALIDA' : 'INGRESO')
+  const [bod, setBod] = useState(mov.bodega)
   const [cant, setCant] = useState(String(Math.abs(mov.cantidad)))
   const [cli, setCli] = useState(mov.cliente)
   const [fac, setFac] = useState(mov.factura)
@@ -310,7 +334,7 @@ function Editar({ mov, perfil, cerrar, guardado }: { mov: Mov; perfil: Perfil; c
   useEffect(() => {
     const cod = item.trim()
     if (!cod) { setEncontrado(null); setNombreItem(''); return }
-    const t = setTimeout(() => supabase.from('productos').select('id,codigo,nombre,stock,imagen_url').ilike('codigo', cod).is('deleted_at', null).limit(1).then(({ data }) => { const p = (data as Prod[] | null)?.[0] ?? null; setEncontrado(p); setNombreItem(p ? p.nombre : 'No existe en Productos') }), 200)
+    const t = setTimeout(() => supabase.from('productos').select(COLS_PROD).ilike('codigo', cod).is('deleted_at', null).limit(1).then(({ data }) => { const p = (data as Prod[] | null)?.[0] ?? null; setEncontrado(p); setNombreItem(p ? p.nombre : 'No existe en Productos') }), 200)
     return () => clearTimeout(t)
   }, [item])
   async function guardar() {
@@ -320,7 +344,9 @@ function Editar({ mov, perfil, cerrar, guardado }: { mov: Mov; perfil: Perfil; c
     setGuardando(true); setErr('')
     const nota = `[Modificado por ${perfil.nombre} el ${new Date().toLocaleDateString('es-EC')}: ${motivo.trim()}]`
     const { error } = await supabase.from('movimientos_inventario').update({
-      tipo, cantidad: Number(cant), producto_id: encontrado.id, producto_codigo: encontrado.codigo, nombre: encontrado.nombre, cliente_texto: cli.trim() || null, factura_texto: fac.trim() || null,
+      // La cantidad se guarda con su signo (salida negativa) y la bodega solo si se cambió
+      tipo: tipo === 'INGRESO' && mov.tipo === 'DEVOLUCION' ? 'DEVOLUCION' : tipo, cantidad: (tipo === 'SALIDA' ? -1 : 1) * Number(cant),
+      ...(bod !== mov.bodega ? { bodega: bod === 'Bodega Técnica' ? 'Por reparar' : 'Principal' } : {}), producto_id: encontrado.id, producto_codigo: encontrado.codigo, nombre: encontrado.nombre, cliente_texto: cli.trim() || null, factura_texto: fac.trim() || null,
       responsable_texto: resp.trim() || null, observacion: [mov.observacion, nota].filter(Boolean).join(' ').slice(0, 1000),
     }).eq('id', mov.id)
     if (error) { setGuardando(false); setErr(error.message); return }
@@ -337,6 +363,7 @@ function Editar({ mov, perfil, cerrar, guardado }: { mov: Mov; perfil: Perfil; c
         <div className="grid grid-cols-2 gap-2">
           <label className="text-[11px] font-semibold text-slate-500">Tipo<select className="inp w-full mt-1" value={tipo} onChange={(e) => setTipo(e.target.value)}><option value="INGRESO">Ingreso</option><option value="SALIDA">Salida</option></select></label>
           <label className="text-[11px] font-semibold text-slate-500">Cantidad<input type="number" min={0} step="any" className="inp w-full mt-1" value={cant} onChange={(e) => setCant(e.target.value)} /></label>
+          <label className="text-[11px] font-semibold text-slate-500 col-span-2">Bodega<select className="inp w-full mt-1" value={bod} disabled={mov.bodega === 'Por verificar'} onChange={(e) => setBod(e.target.value)}>{mov.bodega === 'Por verificar' && <option>Por verificar</option>}<option>Bodega Comercial</option><option>Bodega Técnica</option></select></label>
         </div>
         <label className="block text-[11px] font-semibold text-slate-500">Cliente<input className="inp w-full mt-1" value={cli} onChange={(e) => setCli(e.target.value)} /></label>
         <label className="block text-[11px] font-semibold text-slate-500">Factura<input className="inp w-full mt-1" value={fac} onChange={(e) => setFac(e.target.value)} /></label>
@@ -344,6 +371,50 @@ function Editar({ mov, perfil, cerrar, guardado }: { mov: Mov; perfil: Perfil; c
         <label className="block text-[11px] font-semibold text-slate-500">Motivo del cambio *<input className="inp w-full mt-1" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ej. producto equivocado" /></label>
         {err && <p className="text-[11px] text-red-600">{err}</p>}
         <div className="flex justify-end gap-2 pt-1"><button className="btn" onClick={cerrar}>Cancelar</button><button className="btn btn-p" onClick={guardar} disabled={guardando}>{guardando ? 'Guardando…' : 'Guardar'}</button></div>
+      </div>
+    </div>
+  )
+}
+
+/* ============================ Traslado entre bodegas ============================ */
+/* Mueve unidades entre la Bodega Comercial y la Bodega Técnica (permiso de edición en Bodega). Queda como salida de una
+   bodega y entrada a la otra con el mismo código TRA-…; el stock total no cambia. */
+function Traslado({ inicial, cerrar, hecho }: { inicial: Prod | null; cerrar: () => void; hecho: (t: string) => void }) {
+  const [prod, setProd] = useState<Prod | null>(inicial)
+  const [destino, setDestino] = useState<'tecnica' | 'comercial'>('tecnica')
+  const [cant, setCant] = useState('1')
+  const [motivo, setMotivo] = useState('')
+  const [err, setErr] = useState('')
+  const [guardando, setGuardando] = useState(false)
+  useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') cerrar() }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [cerrar])
+  const com = Number(prod?.stock) || 0, tec = Number(prod?.stock_por_reparar) || 0
+  const max = destino === 'tecnica' ? com : tec
+  async function guardar() {
+    if (!prod) { setErr('Elige el producto.'); return }
+    const n = Number(cant)
+    if (!(n > 0) || !Number.isInteger(n)) { setErr('La cantidad debe ser un número entero mayor que cero.'); return }
+    if (n > max) { setErr(`Solo hay ${num(Math.max(0, max))} unidad(es) en la ${destino === 'tecnica' ? 'Bodega Comercial' : 'Bodega Técnica'}.`); return }
+    if (!motivo.trim()) { setErr('Escribe el motivo del traslado.'); return }
+    setGuardando(true); setErr('')
+    const { data, error } = await supabase.rpc('mov_trasladar', { p_producto: prod.id, p_cantidad: n, p_destino: destino, p_motivo: motivo.trim() })
+    setGuardando(false)
+    if (error) { setErr(error.message); return }
+    hecho(`Traslado ${data} listo: ${n} u. a la ${destino === 'tecnica' ? 'Bodega Técnica' : 'Bodega Comercial'}`)
+  }
+  return (
+    <div className="ovl" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5 space-y-3">
+        <div><h3 className="font-display font-bold text-sm text-[var(--navy)]">Trasladar entre bodegas</h3><p className="text-[11px] text-slate-500">El stock total no cambia: sale de una bodega y entra a la otra.</p></div>
+        <div className="text-[11px] font-semibold text-slate-500">Producto<div className="mt-1"><SelectorProducto prod={prod} elegir={setProd} /></div></div>
+        {prod && <p className="text-[11.5px] text-slate-600">Bodega Comercial <b>{num(com)}</b> · Bodega Técnica <b>{num(tec)}</b></p>}
+        <div className="seg w-full">
+          <button type="button" className={destino === 'tecnica' ? 'on' : ''} onClick={() => setDestino('tecnica')}>Comercial → Técnica</button>
+          <button type="button" className={destino === 'comercial' ? 'on' : ''} onClick={() => setDestino('comercial')}>Técnica → Comercial</button>
+        </div>
+        <label className="block text-[11px] font-semibold text-slate-500">Cantidad<input type="number" min={1} step={1} max={Math.max(0, max)} className="inp w-full mt-1" value={cant} onChange={(e) => setCant(e.target.value)} /></label>
+        <label className="block text-[11px] font-semibold text-slate-500">Motivo *<input className="inp w-full mt-1" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder={destino === 'tecnica' ? 'Ej. pantalla con rayón, no enciende' : 'Ej. reparado y revisado por Servicio Técnico'} /></label>
+        {err && <p className="text-[11px] text-red-600">{err}</p>}
+        <div className="flex justify-end gap-2 pt-1"><button className="btn" onClick={cerrar}>Cancelar</button><button className="btn btn-p" onClick={guardar} disabled={guardando}>{guardando ? 'Trasladando…' : 'Trasladar'}</button></div>
       </div>
     </div>
   )

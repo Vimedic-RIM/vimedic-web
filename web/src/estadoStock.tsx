@@ -54,14 +54,14 @@ export function ChipsStockProceso({ e }: { e?: EstadoStock }) {
   return (
     <>
       {e.revision > 0 && <span className="pill" title="Ya llegó a bodega y Bodega aún no lo aprueba" style={{ background: '#eef2ff', color: '#4338ca' }}>{e.revision} por revisar</span>}
-      {e.reparacion > 0 && <span className="pill" title="En Servicio Técnico" style={{ background: '#fef3c7', color: '#92400e' }}>{e.reparacion} en reparación</span>}
+      {e.reparacion > 0 && <span className="pill" title="Bodega Técnica: con defecto o en Servicio Técnico" style={{ background: '#fef3c7', color: '#92400e' }}>{e.reparacion} en Bodega Técnica</span>}
       {e.porLlegar > 0 && <span className="pill" title="En camino de una importación" style={{ background: '#e0f2fe', color: '#075985' }}>{e.porLlegar} por llegar</span>}
     </>
   )
 }
 
 /* Etiquetas de la tarjeta de producto al cotizar / vender (versión 4 del original):
-   "3 en stock · 2 en revisión · 1 en reparación · 4 por llegar"; stock negativo = facturado sin stock. */
+   "3 en stock · 2 en revisión · 1 en Bodega Técnica · 4 por llegar"; stock negativo = facturado sin stock. */
 export function EtiquetasStockCotizacion({ stock, e }: { stock: number | null; e?: EstadoStock }) {
   const st = Number(stock) || 0
   const base: React.CSSProperties = { fontSize: 9, fontWeight: 800, padding: '1px 6px', borderRadius: 999, whiteSpace: 'nowrap', lineHeight: 1.5, display: 'inline-flex' }
@@ -71,7 +71,7 @@ export function EtiquetasStockCotizacion({ stock, e }: { stock: number | null; e
         {st > 0 ? `${st} en stock` : st < 0 ? `${st} en stock (facturado sin stock)` : 'Sin stock'}
       </span>
       {!!e?.revision && <span style={{ ...base, background: '#fef3c7', color: '#92400e' }}>{e.revision} en revisión</span>}
-      {!!e?.reparacion && <span style={{ ...base, background: '#fee2e2', color: '#991b1b' }}>{e.reparacion} en reparación</span>}
+      {!!e?.reparacion && <span style={{ ...base, background: '#fee2e2', color: '#991b1b' }}>{e.reparacion} en Bodega Técnica</span>}
       {!!e?.porLlegar && <span style={{ ...base, background: '#e0f2fe', color: '#075985' }}>{e.porLlegar} por llegar</span>}
     </div>
   )

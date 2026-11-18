@@ -2,6 +2,12 @@ import type { Perfil } from './supabase'
 
 // Equivalente en el navegador a app.puede('modulo','accion'). La seguridad real la hace la RLS en la base;
 // esto solo decide qué botones mostrar.
+/** Bodega Técnica y stock total: Movimientos, Servicio Técnico, Bodega, Importaciones, quien edita Inventario y la administración
+ *  (igual que app.ve_bodega_tecnica en la base). Los asesores ven solo el stock comercial. */
+export function veBodegaTecnica(perfil: Perfil): boolean {
+  return perfil.es_superadmin || ['movimientos', 'servicio_tecnico', 'bodega', 'importaciones'].some((m) => !!perfil.permisos?.[m]?.includes('ver')) || !!perfil.permisos?.inventario?.includes('editar')
+}
+
 export function puede(perfil: Perfil, modulo: string, accion: string): boolean {
   // Mi Perfil es de todo empleado; la bandeja de Solicitudes, de jefes, Talento Humano y administración.
   if (modulo === 'miperfil') return true

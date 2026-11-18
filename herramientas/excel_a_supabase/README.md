@@ -30,3 +30,6 @@ Copiar estos programas a `$T` y trabajar ahí.
 - Leads: se apagan reparto y aviso de Meta; si qa tiene actividad más reciente, no se pisa.
 - Productos: stock, precios y observaciones de Bodega desde el Excel; textos y enlaces solo si en qa están vacíos.
 - Marketing: no se tocan revisiones hechas en qa.
+- Movimientos: «disponible» vacío queda vacío (no «falso»); un traslado guardado como `SALIDA` con cantidad positiva en
+  «Principal» o «Por reparar» es un `INGRESO`. Proveedor de importación abreviado y la importación (PI-…) como factura
+  (la migración `20261118120000_bodegas_comercial_tecnica.sql` lo aplica a lo que ya esté cargado).

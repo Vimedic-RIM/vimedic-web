@@ -121,7 +121,7 @@ export default function RecepcionImportaciones({ perfil, aviso, area }: { perfil
           <div key={i.codigo} className="rc-imp">
             <div className="rc-imp-t"><b>{i.nombre}</b><small>{i.codigo} · {i.etapa}{i.eta ? ' · llega ' + dfecha(i.eta) : ''}</small></div>
             <div className="rc-prog"><i style={{ width: (i.esperada ? Math.round(((i.aprobada + i.noReparable) / i.esperada) * 100) : 0) + '%' }} /></div>
-            <small className="rc-sub">{i.aprobada} de {i.esperada} en inventario · {i.porRecibir} por recibir · {i.pendiente} por revisar{i.enST ? ' · ' + i.enST + ' en Servicio Técnico' : ''}{i.devuelta ? ' · ' + i.devuelta + ' devueltas' : ''}{i.sinIdentificar ? ' · ' + i.sinIdentificar + ' sin identificar por Marketing' : ''}</small>
+            <small className="rc-sub">{i.aprobada} de {i.esperada} en Bodega Comercial · {i.porRecibir} por recibir · {i.pendiente} por revisar{i.enST ? ' · ' + i.enST + ' en Bodega Técnica (Servicio Técnico)' : ''}{i.devuelta ? ' · ' + i.devuelta + ' devueltas' : ''}{i.sinIdentificar ? ' · ' + i.sinIdentificar + ' sin identificar por Marketing' : ''}</small>
             {editar && <div className="rc-acc">
               {i.etapa !== 'En bodega' && <button type="button" className="rc-btn rc-p" onClick={async () => { const { error: e } = await supabase.rpc('rec_llegada', { p_codigo: i.codigo }); if (e) aviso(e.message); else hecho('Llegada registrada') }}><Truck />Registrar llegada</button>}
               {b.puedeEliminar && i.recibida === 0 && <button type="button" className="rc-btn rc-rojo" onClick={() => setHoja({ k: 'quitar', i })}><Trash2 />Quitar</button>}
@@ -139,7 +139,7 @@ export default function RecepcionImportaciones({ perfil, aviso, area }: { perfil
                   <small>{l.producto}{l.modelo && l.modelo !== l.producto ? ' · ' + l.modelo : ''}{l.marca ? ' · ' + l.marca : ''}</small>
                   <div className="rc-chips">
                     <span>Esperadas {l.esperada}</span>{l.porRecibir > 0 && <span className="am">Por recibir {l.porRecibir}</span>}{l.pendiente > 0 && <span className="az">Por revisar {l.pendiente}</span>}
-                    {l.aprobada > 0 && <span className="ok">En inventario {l.aprobada}</span>}{l.enST > 0 && <span className="vi">En Serv. Técnico {l.enST}</span>}{l.devuelta > 0 && <span className="az">Devueltas {l.devuelta}</span>}{l.faltante > 0 && <span className="ro">Faltantes {l.faltante}</span>}
+                    {l.aprobada > 0 && <span className="ok">Bodega Comercial {l.aprobada}</span>}{l.enST > 0 && <span className="vi">Bodega Técnica {l.enST}</span>}{l.devuelta > 0 && <span className="az">Devueltas {l.devuelta}</span>}{l.faltante > 0 && <span className="ro">Faltantes {l.faltante}</span>}
                   </div>
                 </div>
                 <div className="rc-acc">
@@ -184,13 +184,13 @@ export default function RecepcionImportaciones({ perfil, aviso, area }: { perfil
               <div className="rc-imp">
                 <div className="rc-imp-t"><b>{i.nombre}</b><small>{i.codigo} · {i.etapa}{i.cerrada ? (i.autorizada ? ' · cerrada con autorización' : ' · recepción completa') : ''}{i.proveedor ? ' · ' + i.proveedor : ''}</small></div>
                 <div className="rc-prog"><i style={{ width: (i.esperada ? Math.round(((i.aprobada + i.noReparable) / i.esperada) * 100) : 0) + '%' }} /></div>
-                <small className="rc-sub">{i.esperada} esperadas · {i.recibida} recibidas · {i.aprobada} en inventario · {i.porRecibir} por recibir · {i.pendiente} por revisar · {i.enST} en Servicio Técnico · {i.devuelta} devueltas · {i.noReparable} no reparables{i.sinIdentificar ? ' · ' + i.sinIdentificar + ' sin identificar' : ''}</small>
+                <small className="rc-sub">{i.esperada} esperadas · {i.recibida} recibidas · {i.aprobada} en Bodega Comercial · {i.porRecibir} por recibir · {i.pendiente} por revisar · {i.enST} en Bodega Técnica · {i.devuelta} devueltas · {i.noReparable} no reparables{i.sinIdentificar ? ' · ' + i.sinIdentificar + ' sin identificar' : ''}</small>
                 <div className="rc-acc">
                   <button type="button" className="rc-btn" onClick={() => setAbiertas((x) => ({ ...x, [i.codigo]: !ab }))}>{ab ? <ChevronUp /> : <ChevronDown />}{ab ? 'Ocultar líneas' : 'Ver líneas'}</button>
                   {b.aprueba && !!i.enviado && !i.cerrada && <button type="button" className="rc-btn rc-rojo" onClick={() => setHoja({ k: 'cierre', i })}><AlertTriangle />Cierre autorizado</button>}
                 </div>
               </div>
-              {ab && <div className="rc-tabla"><table><thead><tr><th>Producto</th><th>Esp.</th><th>Rec.</th><th>Por recibir</th><th>Por revisar</th><th>Inventario</th><th>Serv. Téc.</th><th>Devueltas</th><th>No rep.</th><th /></tr></thead>
+              {ab && <div className="rc-tabla"><table><thead><tr><th>Producto</th><th>Esp.</th><th>Rec.</th><th>Por recibir</th><th>Por revisar</th><th>B. Comercial</th><th>B. Técnica</th><th>Devueltas</th><th>No rep.</th><th /></tr></thead>
                 <tbody>{ls.map((l) => <tr key={l.itemId} className={l.resuelta ? 'ok' : ''}><td><b>{nombreLinea(l)}</b><small>{l.producto || 'sin identificar'}</small></td><td>{l.esperada}</td><td>{l.recibida}</td><td>{l.porRecibir}</td><td>{l.pendiente}</td><td>{l.aprobada}</td><td>{l.enST}</td><td>{l.devuelta}</td><td>{l.noReparable}</td>
                   <td><button type="button" className="rc-btn" onClick={() => setHoja({ k: 'hist', codigo: l.codigo, itemId: l.itemId, titulo: nombreLinea(l) })} aria-label="Historial"><History /></button></td></tr>)}</tbody></table></div>}
             </section>)
@@ -214,7 +214,7 @@ export default function RecepcionImportaciones({ perfil, aviso, area }: { perfil
 
 function OpFila({ o }: { o: Op }) {
   const c = o.c || {}
-  const partes = [c.rec ? 'recibidas ' + c.rec : '', c.aprob ? 'aprobadas ' + c.aprob : '', c.st && c.st > 0 ? 'a Serv. Técnico ' + c.st : '', c.dev && c.dev > 0 ? 'devueltas ' + c.dev : '', c.noRep ? 'no reparables ' + c.noRep : '', c.falt ? 'faltantes ' + c.falt : ''].filter(Boolean)
+  const partes = [c.rec ? 'recibidas ' + c.rec : '', c.aprob ? 'a Bodega Comercial ' + c.aprob : '', c.st && c.st > 0 ? 'a Bodega Técnica ' + c.st : '', c.dev && c.dev > 0 ? 'devueltas ' + c.dev : '', c.noRep ? 'no reparables ' + c.noRep : '', c.falt ? 'faltantes ' + c.falt : ''].filter(Boolean)
   const T: Record<string, string> = { REVISION: 'Revisión de Bodega', REREVISION: 'Revisión tras Servicio Técnico', ST_RESULTADO: 'Resultado de Servicio Técnico', IDENTIFICACION: 'Identificación de Marketing' }
   return <div className="rc-op"><small>{dfecha(o.fecha)} · {o.por}</small><b>{T[o.tipo] ?? o.tipo}{o.codigo ? ' · ' + o.codigo : ''}{o.producto ? ' · ' + o.producto : ''}</b>{partes.length > 0 && <span>{partes.join(' · ')}</span>}{o.destino && <span>→ {o.destino}</span>}{o.obs && <span className="rc-gris">{o.obs}</span>}</div>
 }
@@ -320,7 +320,7 @@ function Revisar({ l, devuelta, cerrar, listo }: { l: Linea; devuelta: boolean; 
     if (error) { setErr(error.message); return }
     const r = data as { orden?: string | null; repetida?: boolean }
     const pend = total - a - def
-    await listo(r?.repetida ? 'Esta revisión ya se había guardado.' : 'Revisión guardada: ' + a + ' al inventario' + (def ? ', ' + def + ' a Servicio Técnico' + (r?.orden ? ' (' + r.orden + ')' : '') : '') + (pend > 0 && !sinSerie ? ', ' + pend + ' quedan por revisar' : '') + '.')
+    await listo(r?.repetida ? 'Esta revisión ya se había guardado.' : 'Revisión guardada: ' + a + ' a la Bodega Comercial' + (def ? ', ' + def + ' a la Bodega Técnica (Servicio Técnico)' + (r?.orden ? ' (' + r.orden + ')' : '') : '') + (pend > 0 && !sinSerie ? ', ' + pend + ' quedan por revisar' : '') + '.')
   }
 
   return (
@@ -335,15 +335,15 @@ function Revisar({ l, devuelta, cerrar, listo }: { l: Linea; devuelta: boolean; 
       <label className="rc-check"><input type="checkbox" checked={sinSerie} onChange={(e) => setSinSerie(e.target.checked)} />Este producto no tiene número de serie (fotos del lote)</label>
       {sinSerie ? <div className="rc-sec">
         <div className="rc-fila3">
-          <label className="rc-f">Aprobadas<input type="number" min={0} className="rc-in" value={aSS} onChange={(e) => setASS(Math.max(0, Math.floor(Number(e.target.value) || 0)))} /></label>
-          <label className="rc-f">Con defecto<input type="number" min={0} className="rc-in" value={dSS} onChange={(e) => setDSS(Math.max(0, Math.floor(Number(e.target.value) || 0)))} /></label>
+          <label className="rc-f">Aprobadas → Bodega Comercial<input type="number" min={0} className="rc-in" value={aSS} onChange={(e) => setASS(Math.max(0, Math.floor(Number(e.target.value) || 0)))} /></label>
+          <label className="rc-f">Con defecto → Bodega Técnica<input type="number" min={0} className="rc-in" value={dSS} onChange={(e) => setDSS(Math.max(0, Math.floor(Number(e.target.value) || 0)))} /></label>
           <div className="rc-f">Quedan por revisar<b className="rc-num">{Math.max(0, total - aSS - dSS)}</b></div>
         </div>
         {dSS > 0 && <div className="rc-fila2"><label className="rc-f">Tipo de daño<select className="rc-in" value={tipo} onChange={(e) => setTipo(e.target.value)}>{TIPOS_DANO.map((t) => <option key={t}>{t}</option>)}</select></label>
           <label className="rc-f">{devuelta ? 'Qué defecto persiste' : 'Qué defecto tiene'}<input className="rc-in" value={defecto} onChange={(e) => setDefecto(e.target.value)} /></label></div>}
         <div className="rc-fotos"><BotonFoto texto="Fotos del lote" subir={(f) => subirF(f, setLote)} /><ListaFotos fotos={lote} quitar={(id) => setLote((x) => x.filter((y) => y.id !== id))} /></div>
       </div> : <div className="rc-sec">
-        <p className="rc-nota">Completa cada equipo: serie, foto y <b>Bien</b> o <b>Defecto</b>. Se guardan solo los completos; los demás quedan por revisar para después.</p>
+        <p className="rc-nota">Completa cada equipo: serie, foto y <b>Bien</b> (va a la Bodega Comercial) o <b>Defecto</b> (va a la Bodega Técnica). Se guardan solo los completos; los demás quedan por revisar para después.</p>
         <datalist id={'rc-series-' + l.itemId}>{sugeridas.map((s) => <option key={s} value={s} />)}</datalist>
         {filas.map((f, i) => (
           <div key={i} className={'rc-eq' + (completa(f) ? ' listo' : '') + (f.estado === 'def' ? ' def' : '')}>

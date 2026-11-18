@@ -991,7 +991,7 @@ function PanelProducto({ p, perfil, editar, aviso, cerrar, recargar }: { p: Prod
         <div className="sec"><h3>Observación general original de Inventario</h3><p className="text-xs text-slate-500 mb-2">Esta nota pertenece al producto completo. No describe automáticamente a todas sus unidades.</p>
           <textarea className="inp" rows={4} maxLength={40000} value={obs} readOnly={!editar} onChange={(e) => setObs(e.target.value)} />
           <button className="btn btn-sm mt-2" disabled={!editar || !sucio || guardando} onClick={guardarObs}>{guardando ? <Spin /> : 'Guardar observación general'}</button>
-          <p className="text-xs text-slate-500 mt-2">Por reparar: {p.porReparar} · No disponible NC: {p.noDisponible}</p></div>
+          <p className="text-xs text-slate-500 mt-2">En Bodega Técnica: {p.porReparar} · No disponible NC: {p.noDisponible}</p></div>
         <div className="sec"><h3>Equipos específicos por número de serie</h3><p className="text-xs text-slate-500 mb-3">Abre la serie correspondiente para registrar la falla, diagnóstico, reparación y pruebas. Las notas de Bodega se conservan como origen.</p>
           {p.unidades.map((u) => (
             <button key={u.serie} className="w-full text-left border rounded-xl p-3 mb-2" onClick={() => { if (sucio) { aviso('Guarda primero la observación general del producto.'); return } setUnidad({ u }) }}>

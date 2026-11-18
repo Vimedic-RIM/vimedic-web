@@ -851,3 +851,8 @@
 .vm-fact .fx-pg.on{background:var(--primary);border-color:var(--primary);color:#fff}
 .vm-fact .fx-pg:disabled{opacity:.35}
 .vm-fact .fx-pg-gap{padding:0 3px;color:#94a3b8;font-weight:700}.vm-fact .disabled\:opacity-60:disabled{opacity:.6}
+/* Nota de crédito: ¿ya se había despachado? */
+.vm-fact .nc-op{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;padding:9px 11px;border:1.5px solid #e3e9f0;border-radius:14px;background:#fff;font-size:12px;font-weight:700;color:#334155}
+.vm-fact .nc-op small{font-size:10.5px;font-weight:500;color:#64748b}
+.vm-fact .nc-op:hover{border-color:#c4b5fd}
+.vm-fact .nc-op.on{border-color:#7c3aed;background:#f5f3ff;color:#5b21b6}

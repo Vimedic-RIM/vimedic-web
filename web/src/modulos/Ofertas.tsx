@@ -77,7 +77,7 @@ export function armarProductos(filas: any[], estrellasRaw: any[], cfg: Cfg, vige
     const esReserva = /reserv|facturad|apartad|separad|vendid|pedido/i.test(r.obs || '')
     if (r.obs && !esReserva && r.stock > 0) motivos.push(String(r.obs).slice(0, 200))
     if (r.nc > 0) motivos.push(r.nc + ' devuelto(s) no disponible(s)')
-    if (r.rep > 0) motivos.push(r.rep + ' por reparar')
+    if (r.rep > 0) motivos.push(r.rep + ' en Bodega Técnica')
     if (r.noRep > 0) motivos.push(r.noRep + ' no reparable(s)')
     const conObs = motivos.length > 0
     if (r.stock <= 0 && !conObs) continue

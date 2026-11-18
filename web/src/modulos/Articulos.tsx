@@ -216,7 +216,7 @@ export default function Articulos({ perfil, aviso }: { perfil: Perfil; aviso: (t
                     <td><div className="flex items-center gap-2 min-w-[220px]">{img ? <img className="thumb" loading="lazy" src={img} alt="" /> : <div className="thumb" />}
                       <button className="text-left min-w-0" onClick={() => setHoja({ det: p.id })}><b className="block text-[13px] text-[var(--navy)] leading-snug">{p.nombre}</b><span className="mono text-[11px] text-slate-500">{p.codigo}</span>{p.categoria && <span className="text-[11px] text-slate-400"> · {p.categoria}</span>}{al.length > 0 && <div><Chips al={al} max={3} /></div>}{p.nota && <div className="nota" title={p.nota}>📝 {p.nota}</div>}</button></div></td>
                     <td><Pill c={c} /></td>
-                    <td className="num"><b>{ent(p.stock)}</b>{p.porReparar > 0 && <div className="text-[10.5px] text-amber-700">+{ent(p.porReparar)} por reparar</div>}</td>
+                    <td className="num"><b>{ent(p.stock)}</b>{p.porReparar > 0 && <div className="text-[10.5px] text-amber-700">+{ent(p.porReparar)} en Bodega Técnica</div>}</td>
                     <td className="num">{p.transito ? <button className="pill p-tr" onClick={() => setHoja({ det: p.id })}>{ent(p.transito)}</button> : <span className="text-slate-300">0</span>}</td>
                     <td className="num">{dec(c.demanda)}<div className="text-[10.5px]"><Tend t={p.tendencia} /></div></td>
                     <td className="num">{p.monto12 ? <>{money(p.monto12)}<div className="text-[10.5px] text-slate-500">{ent(p.clientes12)} cliente(s)</div></> : <span className="text-slate-300">—</span>}</td>
@@ -285,7 +285,7 @@ function Ayuda({ cerrar }: { cerrar: () => void }) {
         <p><b>Tránsito</b>: unidades de importaciones que todavía no se ingresaron a bodega (módulo Importaciones).</p>
         <p><b>Punto de pedido</b> = ventas/mes × tiempo de llegada. Si stock + tránsito está por debajo, el producto se marca <span className="pill p-ya">Pedir ya</span>: se acabará antes de que llegue lo nuevo.</p>
         <p><b>Objetivo</b> = ventas/mes × (tiempo de llegada + cobertura deseada). Si stock + tránsito no lo alcanza: <span className="pill p-pronto">Pedir pronto</span>.</p>
-        <p><b>Sugerido</b> = objetivo − (stock + tránsito), redondeado hacia arriba. Los equipos por reparar no cuentan como stock.</p>
+        <p><b>Sugerido</b> = objetivo − (stock + tránsito), redondeado hacia arriba. Los equipos de la Bodega Técnica no cuentan como stock.</p>
         <p>Los productos sin ventas en la ventana no tienen sugerido: decide la cantidad a mano si hace falta.</p>
         <p><b>Alertas</b>: <span className="al al-r">Agotado con demanda</span> / <span className="al al-r">Se agota antes de que llegue</span> (cobertura menor al tiempo de llegada), <span className="al al-a">Cotizan más de lo que hay</span> (cotizaciones de 90 días &gt; stock + tránsito), tendencia de ventas (últimos 3 meses contra los 3 anteriores), sobrestock (más de 12 meses) y sin rotación.</p>
         <p><b>Todo se guarda solo</b>: al marcar productos se crea una lista borrador y cada cambio (cantidades, proveedor, notas) se guarda en segundos. Las observaciones de cada producto también se guardan mientras escribes.</p></div></Hoja>
