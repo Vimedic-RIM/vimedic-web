@@ -55,7 +55,7 @@ export default function Rail({ perfil, actual, ir, accion, aviso }: Props) {
   const [ancho, setAncho] = useState(false)
   const [menuAbierto, setMenuAbierto] = useState(false)
   const [tip, setTip] = useState<{ t: string; s: string; top: number; left: number } | null>(null)
-  const [paleta, setPaleta] = useState<{ q: string; sel: number } | null>(null)
+  const [paleta, setPaleta] = useState<{ q: string; sel: number; grid?: boolean } | null>(null)
   const [pers, setPers] = useState<'acciones' | 'modulos' | null>(null)
   const [mfa, setMfa] = useState(false)
   const [config, setConfig] = useState(false)
@@ -293,7 +293,7 @@ export default function Rail({ perfil, actual, ir, accion, aviso }: Props) {
           {favs.length > 0 && <div className="vr-tit"><span>MIS MÓDULOS</span></div>}
           {favsVivo.map(itemModulo)}
           {resto.length > 0 && (
-            <button type="button" className="vr-item" onClick={() => { setMenuAbierto(false); setPaleta({ q: '', sel: 0 }) }} {...verTip('Todos los módulos', `${resto.length} más`)}>
+            <button type="button" className="vr-item" onClick={() => { setMenuAbierto(false); setPaleta({ q: '', sel: 0, grid: true }) }} {...verTip('Todos los módulos', `${resto.length} más`)}>
               <LayoutGrid className="ic" /><span className="vr-lbl">Todos los módulos</span>
             </button>
           )}
@@ -316,18 +316,36 @@ export default function Rail({ perfil, actual, ir, accion, aviso }: Props) {
 
       {paleta && (
         <div id="vrPaleta" className="vr-modal on" role="dialog" aria-modal="true" aria-label="Buscar" onClick={(e) => { if (e.target === e.currentTarget) setPaleta(null) }}>
-          <div className="vr-caja">
+          <div className={'vr-caja' + (paleta.grid ? ' vr-caja-grid' : '')}>
             <div className="vr-pbus">
               <Search className="ic" />
-              <input autoFocus type="text" placeholder="¿A dónde vas? Busca un módulo o una acción…" autoComplete="off" value={paleta.q}
-                onChange={(e) => setPaleta({ q: e.target.value, sel: 0 })}
+              <input autoFocus type="text" placeholder={paleta.grid ? 'Todos los módulos · escribe para filtrar…' : '¿A dónde vas? Busca un módulo o una acción…'} autoComplete="off" value={paleta.q}
+                onChange={(e) => setPaleta({ ...paleta, q: e.target.value, sel: 0 })}
                 onKeyDown={(e) => {
                   if (e.key === 'ArrowDown') { e.preventDefault(); setPaleta({ ...paleta, sel: Math.min(resultados.length - 1, paleta.sel + 1) }) }
                   else if (e.key === 'ArrowUp') { e.preventDefault(); setPaleta({ ...paleta, sel: Math.max(0, paleta.sel - 1) }) }
-                  else if (e.key === 'Enter') { e.preventDefault(); elegir(paleta.sel) }
+                  else if (e.key === 'Enter') { e.preventDefault(); if (paleta.grid) { const i = resultados.findIndex((x) => x.tipo === 'mod'); if (i >= 0) elegir(i) } else elegir(paleta.sel) }
                 }} />
               <kbd>Esc</kbd>
             </div>
+            {paleta.grid ? (
+            <div className="vr-pgrid">
+              {!resultados.some((r) => r.tipo === 'mod') && <div className="vr-vacio">No encontramos «{paleta.q}». Prueba con otra palabra.</div>}
+              {GRUPOS.map(([g, ids]) => {
+                const mods = ids.filter((p) => resultados.some((r) => r.tipo === 'mod' && r.k === p))
+                if (!mods.length) return null
+                return (
+                  <section key={g}>
+                    <div className="vr-pgr">{g.toUpperCase()}</div>
+                    <div className="vr-tiles">{mods.map((p) => { const m = MODULOS[p], Icono = m.icono; return (
+                      <button key={p} type="button" className={'vr-tile' + (p === actual ? ' on' : '')} style={estilo(m.c)} onClick={() => { setPaleta(null); irA(p) }}>
+                        <span className="vr-chip"><Icono className="ic" /></span><b>{m.label}</b><small>{m.desc}</small>
+                      </button>) })}</div>
+                  </section>
+                )
+              })}
+            </div>
+            ) : (
             <div className="vr-plista">
               {resultados.length === 0 && <div className="vr-vacio">No encontramos «{paleta.q}». Prueba con otra palabra.</div>}
               {resultados.map((r, i) => {
@@ -349,6 +367,7 @@ export default function Rail({ perfil, actual, ir, accion, aviso }: Props) {
                 )
               })}
             </div>
+            )}
           </div>
         </div>
       )}
