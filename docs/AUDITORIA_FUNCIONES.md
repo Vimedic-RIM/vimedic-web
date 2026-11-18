@@ -843,3 +843,9 @@ Datos corregidos en pruebas: el traslado del EQM327 (estaba como SALIDA +1), 9 v
 «no disponible», y los movimientos de importación con el nombre completo del proveedor. Con eso todos los productos
 cuadran con sus movimientos. La función original de notas de crédito fallaba con devoluciones de unidades (creaba la
 devolución antes que la nota); quedó corregida. Pruebas: `supabase/tests/bodegas_comercial_tecnica.sql` (21/21).
+
+## Módulo Documentos técnicos (18-nov)
+Tabla por producto (imagen, nombre, código y código interno) con ficha técnica, manual, certificado, registro sanitario y
+videos/otros; avance de 4 requisitos; prioritarios primero (visibles en catálogo o importados); panel con todos los
+documentos, acceso a cada uno y edición de tipo, nombre y observaciones. Permiso: «Documentos técnicos › ver» (editar
+para cambiar). Base: `dt_avance` (migración `20261118150000_documentos_tecnicos_modulo.sql`).

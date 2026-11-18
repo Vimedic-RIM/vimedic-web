@@ -1,5 +1,5 @@
 import {
-  BookOpen, CalendarCheck, ChartNoAxesCombined, Contact, Database, Kanban, Landmark, Megaphone, Package,
+  BookOpen, CalendarCheck, FileText, ChartNoAxesCombined, Contact, Database, Kanban, Landmark, Megaphone, Package,
   Inbox, LayoutTemplate, MapPinned, PackagePlus, ReceiptText, ScanLine, UserRound, Ship, ShieldCheck, Tag, Truck, UsersRound, Users, Warehouse, Wrench,
   type LucideIcon,
 } from 'lucide-react'
@@ -13,6 +13,7 @@ export const MODULOS: Record<string, Modulo> = {
   miperfil: { id: 'miperfil', label: 'Mi Perfil', desc: 'Tus datos laborales, vacaciones disponibles y solicitudes de vacaciones, permisos y horas.', icono: UserRound, permiso: 'miperfil', c: '#be185d', listo: true },
   crm: { id: 'crm', label: 'CRM Vimedic', desc: 'Pipeline, cotizaciones, ventas, seguimiento y mensajes.', icono: Kanban, permiso: 'crm', c: '#055c9d', listo: true },
   marketing: { id: 'marketing', label: 'Marketing', desc: 'Resultados, planificador, audiovisual y biblioteca.', icono: Megaphone, permiso: 'marketing', c: '#e1306c', listo: true },
+  documentostecnicos: { id: 'documentostecnicos', label: 'Documentos técnicos', desc: 'Fichas, manuales, certificados y registros sanitarios por producto: avance y lo que falta.', icono: FileText, permiso: 'documentos_tecnicos', c: '#0e7490', listo: true },
   inventario: { id: 'inventario', label: 'Inventario', desc: 'Productos, stock, precios y fichas técnicas.', icono: Package, permiso: 'inventario', c: '#04896f', listo: true },
   agenda: { id: 'agenda', label: 'Mi Agenda', desc: 'Actividades, tareas y organización diaria.', icono: CalendarCheck, permiso: 'agenda', c: '#17a9ba', listo: true },
   facturacion: { id: 'facturacion', label: 'Facturación', desc: 'Facturas, actas, guías y notas de crédito.', icono: ReceiptText, permiso: 'facturacion', c: '#0e7490', listo: true },
@@ -43,7 +44,7 @@ export const MODULOS: Record<string, Modulo> = {
 
 // Orden por defecto de Mi Espacio (igual que la app original).
 export const ORDEN_MODULOS = [
-  'miperfil', 'crm', 'clientes', 'marketing', 'inventario', 'agenda', 'facturacion', 'dashboard', 'movimientos', 'femedics', 'bodega',
+  'miperfil', 'crm', 'clientes', 'marketing', 'inventario', 'documentostecnicos', 'agenda', 'facturacion', 'dashboard', 'movimientos', 'femedics', 'bodega',
   'logistica', 'tracking', 'escanear', 'serviciotecnico', 'talentohumano', 'importaciones', 'articulos', 'adquisiciones', 'financiero', 'catalogos',
   'ofertas', 'empleados', 'solicitudes', 'seguridad', 'plantillas', 'basedatos',
 ]
