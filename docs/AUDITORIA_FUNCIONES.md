@@ -101,7 +101,7 @@ Pantalla: `Facturacion.html` (26 funciones de servidor). Commits: 5d6d8b3, c3c7f
 |---|---|---|---|
 | `getFacturacionInicial`, `getFacturacionVista`, `getFacturacionVersion` | Cola de ventas y aviso de cambios | ✅ | `Facturacion.tsx` con tiempo real |
 | `getDetalleFacturacion` | Detalle de la venta | ✅ | `Detalle` |
-| `subirFactura` | Número y PDF de la factura | ✅ + 🆕 | El PDF se sube a la unidad compartida (Drive); antes solo se podía pegar un enlace |
+| `subirFactura` | Número y PDF de la factura, y descargo del inventario (una SALIDA por producto) | ✅ + 🆕 | El PDF se sube a la unidad compartida (Drive); antes solo se podía pegar un enlace. El descargo faltaba hasta el 19-nov: `app.fac_descargar` + trigger `tg_factura_descargo` (migración 20261119090000, que también descargó las 15 facturas del 16 al 18-nov) |
 | `vmFactEditarProductos` | Editar productos antes de facturar | 🆕 | `fact_editar_productos` + `ModalEditarProductos`; actualiza también la cotización del CRM |
 | `getMovimientosPorOperacion` | Líneas de la operación | ✅ | Desde `facturas.items` |
 | `generarActaCompleta`, `getDatosActaParaEditar` | Acta de entrega / garantía | ✅ | #5 |
