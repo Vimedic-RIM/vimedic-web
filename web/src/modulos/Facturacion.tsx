@@ -76,6 +76,7 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
   const [statsListas, setStatsListas] = useState(false)
   const [detalle, setDetalle] = useState<Fila | null>(null)
   const [factura, setFactura] = useState<Fila | null>(null)
+  const [facturaVolver, setFacturaVolver] = useState(false) // al guardar, vuelve al detalle de la venta
   const [cargando, setCargando] = useState(false)
   const [notasCredito, setNotasCredito] = useState<Fila | null>(null)
   const [guiaEnvio, setGuiaEnvio] = useState<Fila | null>(null)
@@ -196,7 +197,7 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
 
   function accion(qa: string, r: Fila) {
     if (qa === 'detalle') { setDetalle(conItems(r)); return }
-    if (qa === 'factura') { if (!r.datosCompletos) return; setFactura(conItems(r)); return }
+    if (qa === 'factura') { if (!r.datosCompletos) return; setFacturaVolver(false); setFactura(conItems(r)); return }
     const abrir = (u: string) => window.open(u, '_blank', 'noopener')
     const abrirDelBucket = (ruta: string) => {
       if (/^https?:\/\//i.test(ruta)) return abrir(ruta)
@@ -401,8 +402,16 @@ export default function Facturacion({ perfil, aviso }: { perfil: Perfil; aviso: 
       </main>
 
       {detalle && <Detalle r={conItems(detalle) ?? detalle} perfil={perfil} puedeEditar={puedeEditar} cerrar={() => setDetalle(null)} accion={accion} imgPorCodigo={imgPorCodigo}
-        facturar={(r) => { setDetalle(null); setFactura(conItems(r)) }} aviso={aviso} recargar={() => { cargar(filtro); cargarStats(); setItems({}) }} />}
-      {factura && <ModalFactura r={factura} perfil={perfil} cerrar={() => setFactura(null)} aviso={aviso} guardado={() => { setFactura(null); aviso('Factura registrada.'); cargar(filtro); cargarStats(); setItems({}) }} />}
+        facturar={(r) => { setDetalle(null); setFacturaVolver(true); setFactura(conItems(r)) }} aviso={aviso} recargar={() => { cargar(filtro); cargarStats(); setItems({}) }} />}
+      {factura && <ModalFactura r={factura} cerrar={() => { setFactura(null); if (facturaVolver) setDetalle(factura) }} guardado={(res) => {
+        // Se ve guardada al instante (sin esperar la recarga) y, si venía del detalle, vuelve a él ya con la factura.
+        const f = factura, n = { ...f, estado: 'Facturado', numeroFactura: res.numero ?? f.numeroFactura, facturaUrl: res.pdf_url ?? '' }
+        setFactura(null)
+        setCola((c) => c && c.map((x) => (x.uuid === f.uuid ? { ...x, estado: n.estado, numeroFactura: n.numeroFactura, facturaUrl: n.facturaUrl } : x)))
+        aviso(res.accion === 'registrada' ? 'Factura Nº ' + n.numeroFactura + ' registrada.' : res.accion === 'editada' ? 'Factura actualizada: ' + (res.detalle ?? '') + '.' : 'Sin cambios: la factura ya tenía esos datos.')
+        if (facturaVolver) setDetalle({ ...n, items: undefined, historial: undefined })
+        cargar(filtro); cargarStats(); setItems({})
+      }} />}
       {notasCredito && <ModalNotasCredito r={notasCredito} cerrar={() => setNotasCredito(null)} aviso={aviso} />}
       {editarProd && <ModalEditarProductos r={editarProd} cerrar={() => setEditarProd(null)} aviso={aviso} guardado={(nuevos, total, msg) => {
         setEditarProd(null); aviso(msg)
@@ -581,7 +590,13 @@ function Detalle({ r, perfil, puedeEditar, cerrar, accion, facturar, aviso, reca
               <div className="pm-doc">
                 <p className="pm-doc-h"><span className="ic" style={{ ['--c' as string]: '#055c9d' }}><Receipt /></span>Factura</p>
                 {full.estado === 'Facturado'
-                  ? <div className="space-y-2"><p className="text-[11px] text-slate-600">Nº <b className="font-mono-spec">{full.numeroFactura || '—'}</b></p>{full.facturaUrl && <button type="button" className="pm-btn ok w-full" onClick={() => accion('verFactura', full)}>Ver factura .pdf</button>}</div>
+                  ? <div className="space-y-2"><p className="text-[11px] text-slate-600">Nº <b className="font-mono-spec">{full.numeroFactura || '—'}</b>{!full.facturaUrl && <span style={{ color: '#b45309' }}> · sin PDF</span>}</p>
+                    <div className="flex items-center gap-1.5">
+                      {full.facturaUrl
+                        ? <button type="button" className="pm-btn ok flex-1" onClick={() => accion('verFactura', full)}>Ver factura .pdf</button>
+                        : puedeEditar && <button type="button" className="pm-btn ok flex-1" onClick={() => facturar(full)}>Agregar el PDF</button>}
+                      {puedeEditar && <button type="button" title="Editar el número o el PDF de la factura" aria-label="Editar factura" className="pm-btn ok w-10 !px-0" onClick={() => facturar(full)}><Pencil className="w-4 h-4" /></button>}
+                    </div></div>
                   : puedeEditar && full.datosCompletos
                     ? <button type="button" className="w-full text-white text-xs font-bold py-2.5 rounded-xl" style={{ background: 'linear-gradient(135deg,var(--primary),var(--cyan))' }} onClick={() => facturar(full)}>Registrar factura</button>
                     : <p className="text-[11px] text-slate-400">{full.datosCompletos ? 'Sin permiso para facturar.' : 'Faltan datos de pago/entrega: regularízalos desde el CRM.'}</p>}
@@ -630,44 +645,51 @@ function Detalle({ r, perfil, puedeEditar, cerrar, accion, facturar, aviso, reca
 }
 
 /* ============================ Subir factura ============================ */
-function ModalFactura({ r, perfil, cerrar, guardado, aviso }: { r: Fila; perfil: Perfil; cerrar: () => void; guardado: () => void; aviso: (t: string) => void }) {
+type ResFactura = { ok: boolean; accion?: 'registrada' | 'editada' | 'sin_cambios'; numero?: string; pdf_url?: string | null; detalle?: string; repetido?: { codigo: string; cliente: string; numero: string } }
+function ModalFactura({ r, cerrar, guardado }: { r: Fila; cerrar: () => void; guardado: (res: ResFactura) => void }) {
+  const edita = r.estado === 'Facturado'
   const [numero, setNumero] = useState(r.numeroFactura)
   const [enlace, setEnlace] = useState(r.facturaUrl)
   const [msg, setMsg] = useState('')
   const [guardando, setGuardando] = useState(false)
   const [subiendo, setSubiendo] = useState('')
+  const [cargandoPdf, setCargandoPdf] = useState(false)
   const lineas = r.items
   const monto = totalFila(r)
   async function tomarPdf(file: File | undefined) {
     if (!file) return
-    setMsg(''); setSubiendo('Subiendo ' + file.name + '…')
+    setMsg(''); setSubiendo('Subiendo ' + file.name + '…'); setCargandoPdf(true)
     try { setEnlace(await subirPdfDrive(file, 'Facturas/' + new Date().toISOString().slice(0, 7), 'Factura ' + (numero.trim() || r.id) + '.pdf')); setSubiendo('✓ ' + file.name + ' subido a Drive') }
     catch (e) { setSubiendo(''); setMsg((e as Error).message) }
+    setCargandoPdf(false)
   }
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') cerrar() }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k) }, [cerrar])
 
-  async function guardar() {
+  /* Un solo paso en el servidor (fact_registrar_factura): registra o edita, deja el historial y no duplica si ya estaba guardada. */
+  async function guardar(confirmarRepetido = false) {
     setMsg('')
     const n = numero.trim()
     if (!n) { setMsg('Ingresa el número de factura.'); return }
     if (enlace.trim() && !/^https?:\/\//i.test(enlace.trim())) { setMsg('El enlace debe empezar con https://'); return }
     setGuardando(true)
-    const { data: act } = await supabase.from('facturas').select('historial').eq('id', r.uuid).single()
-    const historial = [...(((act as { historial?: unknown[] } | null)?.historial ?? []) as unknown[]), { fecha: new Date().toISOString(), por: perfil.nombre, accion: 'Factura registrada', detalle: 'Nº ' + n }]
-    const { error } = await supabase.from('facturas').update({
-      estado: 'Facturado', numero_contifico: n, pdf_url: enlace.trim() || null, fecha_facturacion: new Date().toISOString().slice(0, 10), facturado_por: perfil.id, historial,
-    }).eq('id', r.uuid)
+    const { data, error } = await supabase.rpc('fact_registrar_factura', { p_id: r.uuid, p_numero: n, p_pdf_url: enlace.trim() || null, p_confirmar_repetido: confirmarRepetido })
     setGuardando(false)
-    if (error) { setMsg(/duplicate|unique/i.test(error.message) ? 'Ese número de factura ya está registrado.' : error.message); return }
-    guardado()
+    if (error) { setMsg(error.message); return }
+    const res = data as ResFactura
+    if (!res.ok && res.repetido) {
+      const rp = res.repetido
+      if (confirm('El número ' + rp.numero + ' ya está registrado en la venta ' + rp.codigo + (rp.cliente ? ' (' + rp.cliente + ')' : '') + '.\n\n¿Esta venta lleva de verdad el mismo número?')) return guardar(true)
+      setMsg('Revisa el número: ' + rp.numero + ' ya está en la venta ' + rp.codigo + (rp.cliente ? ' (' + rp.cliente + ')' : '') + '.')
+      return
+    }
+    guardado(res)
   }
-  void aviso
   return (
     <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-[2px] z-[60] flex items-center justify-center p-0 sm:p-4 overlay" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
       <div className="modal-panel bg-[#f6f9fc] sm:rounded-3xl shadow-2xl w-full h-full sm:h-auto sm:max-w-lg sm:max-h-[92vh] flex flex-col overflow-hidden">
         <div className="shrink-0 px-5 py-4 text-white" style={{ background: 'linear-gradient(135deg,var(--navy),var(--primary))' }}>
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-white/70 flex items-center gap-1.5"><Receipt className="w-3.5 h-3.5" />Subir factura · Contífico</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-white/70 flex items-center gap-1.5"><Receipt className="w-3.5 h-3.5" />{edita ? 'Editar factura' : 'Subir factura'} · Contífico</span>
             <button type="button" onClick={cerrar} className="w-8 h-8 rounded-xl bg-white/15 hover:bg-white/25 flex items-center justify-center" aria-label="Cerrar"><X className="w-4 h-4" /></button>
           </div>
           <h3 className="font-display font-bold text-lg leading-snug mt-1.5">{r.cliente || 'Venta'}</h3>
@@ -681,6 +703,7 @@ function ModalFactura({ r, perfil, cerrar, guardado, aviso }: { r: Fila; perfil:
                   {l.observacion && <p className="-mt-0.5 mb-1 text-[10.5px] rounded-lg px-2 py-0.5 inline-block" style={{ background: '#fffaf0', border: '1px solid #f2dfb9', color: '#7b5a1e' }}>{l.observacion}</p>}</div>) })}</>
               : <p className="text-[11px] text-slate-400 py-2.5">Los productos se revisan en el detalle completo.</p>}
           </div>
+          {edita && <p className="text-[11px] rounded-xl px-3 py-2" style={{ background: '#eef6fd', border: '1px solid #d6e6f5', color: '#0b2545' }}>Factura actual: <b className="font-mono-spec">Nº {r.numeroFactura || '—'}</b>{r.facturaUrl ? ' · con PDF' : ' · sin PDF'}. Corregir el número o el PDF no vuelve a descargar el inventario y queda en el historial.</p>}
           <div className="fi-sec">
             <div className="fi-sec-h"><span className="fi-num" style={{ background: 'var(--primary)' }}>1</span><div className="flex-1"><b>Número de factura</b><small>Tal como aparece en Contífico</small></div></div>
             <div className="relative"><Hash className="fi-ico" /><input type="text" autoComplete="off" value={numero} onChange={(e) => setNumero(e.target.value.replace(/[^\d-]/g, ''))} placeholder="001-001-000012345" className="fi-in pl-9 font-mono-spec" /></div>
@@ -695,7 +718,7 @@ function ModalFactura({ r, perfil, cerrar, guardado, aviso }: { r: Fila; perfil:
         </div>
         <div className="shrink-0 border-t border-slate-200 bg-white p-4 flex items-center gap-2">
           <button type="button" onClick={cerrar} className="h-11 px-4 rounded-2xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50">Cancelar</button>
-          <button type="button" onClick={guardar} disabled={guardando} className="flex-1 h-11 rounded-2xl text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: 'linear-gradient(135deg,var(--primary),var(--cyan))', boxShadow: '0 10px 20px -14px rgba(5,92,157,.9)' }}>{guardando ? 'Guardando…' : 'Guardar factura'}</button>
+          <button type="button" onClick={() => guardar()} disabled={guardando || cargandoPdf} className="flex-1 h-11 rounded-2xl text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: 'linear-gradient(135deg,var(--primary),var(--cyan))', boxShadow: '0 10px 20px -14px rgba(5,92,157,.9)' }}>{cargandoPdf ? 'Esperando el PDF…' : guardando ? 'Guardando…' : edita ? 'Guardar cambios' : 'Guardar factura'}</button>
         </div>
       </div>
     </div>
@@ -1557,7 +1580,13 @@ async function subirPdfDrive(file: File, carpeta: string, nombre: string): Promi
   const base64 = await new Promise<string>((ok, ko) => { const rd = new FileReader(); rd.onerror = () => ko(new Error('No se pudo leer el PDF.')); rd.onload = () => ok(String(rd.result).split(',')[1] || ''); rd.readAsDataURL(file) })
   const { data, error } = await supabase.functions.invoke('drive', { body: { accion: 'subir', modulo: 'facturacion', carpeta, nombre, mime: 'application/pdf', base64 } })
   const r = data as { enlace?: string; error?: string } | null
-  if (error || r?.error || !r?.enlace) throw new Error('No se pudo subir el PDF: ' + (r?.error || error?.message || 'sin respuesta'))
+  if (error || r?.error || !r?.enlace) {
+    // Si la función responde con error, el motivo viene en el cuerpo de la respuesta (no en error.message)
+    let motivo = r?.error || ''
+    const ctx = (error as { context?: Response } | null)?.context
+    if (!motivo && ctx && typeof ctx.json === 'function') { try { motivo = ((await ctx.json()) as { error?: string })?.error || '' } catch { /* sin cuerpo */ } }
+    throw new Error('No se pudo subir el PDF: ' + (motivo || error?.message || 'sin respuesta') + '. Mientras tanto puedes pegar el enlace de la factura de Contífico.')
+  }
   return r.enlace
 }
 
