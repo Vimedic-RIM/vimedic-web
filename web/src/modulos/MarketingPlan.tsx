@@ -19,11 +19,11 @@ type Persona = { id: string; nombre: string; foto: string | null; rol: string }
 type ProductoT = { id: string; codigo: string; nombre: string; imagen: string | null; publico: boolean }
 type Tarea = {
   id: string; codigo: string; descripcion: string; trabajo: Trabajo; detalle: string | null; instrucciones: string | null
-  fecha: string | null; prioridad: 'Urgente' | 'Importante' | 'Normal' | null; estado: string; responsable: string | null; creadoPor: string | null
+  fecha: string | null; prioridad: 'Urgente' | 'Importante' | 'Normal' | null; estado: string; responsable: string | null; creadoPor: string | null; creador: string | null
   pasos: { t: string; hecho: boolean }[]; resultado: string | null; finalizada: string | null; creada: string
   devolucion: { motivo?: string; comentario?: string } | null; producto: ProductoT | null
 }
-type Plan = { coordina: boolean; yo: string; cerradasAhora: number; equipo: Persona[]; tareas: Tarea[] }
+type Plan = { coordina: boolean; agrega: boolean; yo: string; cerradasAhora: number; equipo: Persona[]; tareas: Tarea[] }
 export type PendientePlan = { producto: ProdBusq & { imagen?: string | null }; trabajo: Trabajo; detalle?: string } | null
 
 export const TRABAJOS: Record<Trabajo, { t: string; c: string; i: typeof FileText; d: string }> = {
@@ -102,7 +102,8 @@ export function PlanTrabajo({ perfil, aviso, irA, pendiente, consumirPendiente }
   if (!plan) return <p className="text-xs text-slate-400 p-4">Cargando el plan de trabajo…</p>
 
   const nombre = (id: string | null) => plan.equipo.find((e) => e.id === id)?.nombre ?? '—'
-  const gente = plan.coordina ? plan.equipo.filter((e) => !persona || e.id === persona) : plan.equipo.filter((e) => e.id === plan.yo)
+  // Colaborador: su fila y la de quienes tienen tareas que él agregó
+  const gente = plan.coordina ? plan.equipo.filter((e) => !persona || e.id === persona) : plan.equipo.filter((e) => e.id === plan.yo || plan.tareas.some((t) => t.responsable === e.id))
   const visibles = plan.tareas.filter((t) => !persona || t.responsable === persona)
   const atrasada = (t: Tarea) => abierta(t) && !!t.fecha && t.fecha < hoy
   const deAntes = visibles.filter((t) => abierta(t) && (!t.fecha || t.fecha < lunes))
@@ -120,7 +121,7 @@ export function PlanTrabajo({ perfil, aviso, irA, pendiente, consumirPendiente }
   const Tarjeta = ({ t, conPersona = false }: { t: Tarea; conPersona?: boolean }) => {
     const m = TRABAJOS[t.trabajo] ?? TRABAJOS.otro, I = m.i
     const hechos = t.pasos.filter((p) => p.hecho).length, [fb, fc] = ESTADO_COLOR[t.estado] ?? ESTADO_COLOR['Por hacer']
-    const mueve = plan!.coordina && abierta(t)
+    const mueve = abierta(t) && (plan!.coordina || t.creadoPor === plan!.yo)
     return (
       <button type="button" className={'mkp-card' + (atrasada(t) ? ' tarde' : '') + (abierta(t) ? '' : ' cerrada') + (mueve ? ' mueve' : '')} style={{ ['--c' as string]: m.c }}
         draggable={mueve} onDragStart={(e) => { arrastra.current = t.id; e.dataTransfer.effectAllowed = 'move' }} onDragEnd={() => { arrastra.current = null; setEncima('') }}
@@ -139,13 +140,13 @@ export function PlanTrabajo({ perfil, aviso, irA, pendiente, consumirPendiente }
   const celda = (resp: string, fecha: string | null, lista: Tarea[], clase: string) => {
     const k = resp + '|' + (fecha ?? 'atr')
     return (
-      <div key={k} className={'mkp-celda ' + clase + (encima === k ? ' encima' : '') + (plan.coordina && fecha ? ' prog' : '')}
-        onDragOver={(e) => { if (!plan.coordina || !fecha || !arrastra.current) return; e.preventDefault(); setEncima(k) }}
+      <div key={k} className={'mkp-celda ' + clase + (encima === k ? ' encima' : '') + (plan.agrega && fecha ? ' prog' : '')}
+        onDragOver={(e) => { if (!plan.agrega || !fecha || !arrastra.current) return; e.preventDefault(); setEncima(k) }}
         onDragLeave={() => setEncima((v) => (v === k ? '' : v))}
         onDrop={(e) => { e.preventDefault(); setEncima(''); if (fecha && arrastra.current) mover(arrastra.current, fecha, resp); arrastra.current = null }}
-        onClick={(e) => { if (!plan.coordina || !fecha || (e.target as HTMLElement).closest('.mkp-card')) return; setDiaSel({ persona: resp, fecha }) }}>
+        onClick={(e) => { if (!plan.agrega || !fecha || (e.target as HTMLElement).closest('.mkp-card')) return; setDiaSel({ persona: resp, fecha }) }}>
         {lista.map((t) => <Tarjeta key={t.id} t={t} />)}
-        {plan.coordina && fecha && <span className="mkp-mas" aria-hidden="true"><Plus />Programar</span>}
+        {plan.agrega && fecha && <span className="mkp-mas" aria-hidden="true"><Plus />Programar</span>}
       </div>
     )
   }
@@ -180,14 +181,14 @@ export function PlanTrabajo({ perfil, aviso, irA, pendiente, consumirPendiente }
         <button type="button" className="mkp-ib" onClick={cargar} title="Actualizar"><RefreshCw /></button>
         <span className="mkp-esp" />
         {plan.coordina && <button type="button" className="btn" onClick={() => setArmar(true)}><Sparkles />Armar la semana</button>}
-        {plan.coordina && <button type="button" className="btn btn-primary" onClick={() => setAsignar('nuevo')}><Plus />Asignar tarea</button>}
+        {plan.agrega && <button type="button" className="btn btn-primary" onClick={() => setAsignar('nuevo')}><Plus />{plan.coordina ? 'Asignar tarea' : 'Agregar tarea'}</button>}
       </div>
 
       <div className="mkp-kpis">
         <div className="mkp-kpi"><b>{kAbiertas}</b><span>Abiertas</span></div>
         <div className={'mkp-kpi' + (kAtrasadas ? ' rojo' : '')}><b>{kAtrasadas}</b><span>Atrasadas</span></div>
         <div className="mkp-kpi verde"><b>{kListas}</b><span>Listas esta semana</span></div>
-        <p className="mkp-nota" style={{ alignSelf: 'center', maxWidth: 420 }}>{plan.coordina ? 'Arrastra una tarea a otro día o a otra persona. ' : ''}Cada tarea también está en la Agenda de la persona y se cierra sola cuando el producto ya cumple.</p>
+        <p className="mkp-nota" style={{ alignSelf: 'center', maxWidth: 420 }}>{plan.coordina ? 'Arrastra una tarea a otro día o a otra persona. ' : plan.agrega ? 'Agrega tareas con «Agregar tarea» o tocando un día; toda tarea queda con su responsable. ' : ''}Cada tarea también está en la Agenda de la persona y se cierra sola cuando el producto ya cumple.</p>
       </div>
 
       {!gente.length && <div className="mkp-vacio">Todavía no hay personas en el equipo de Marketing.</div>}
@@ -214,15 +215,15 @@ export function PlanTrabajo({ perfil, aviso, irA, pendiente, consumirPendiente }
       )}
       {gente.length > 0 && vista === 'lista' && (
         <div className="mkp-lista">
-          {deAntes.length > 0 && <div className="mkp-dia"><h4 className="atr">Atrasadas de antes</h4><div className="grid">{deAntes.map((t) => <Tarjeta key={t.id} t={t} conPersona={plan.coordina} />)}</div></div>}
+          {deAntes.length > 0 && <div className="mkp-dia"><h4 className="atr">Atrasadas de antes</h4><div className="grid">{deAntes.map((t) => <Tarjeta key={t.id} t={t} conPersona={plan.coordina || t.responsable !== plan.yo} />)}</div></div>}
           {dias.map((d) => {
             const l = visibles.filter((t) => t.fecha === d)
-            const prog = plan.coordina && plan.equipo.length > 0
+            const prog = plan.agrega && plan.equipo.length > 0
             return l.length || prog ? <div key={d} className="mkp-dia"><h4 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>{fLarga(d)}{d === hoy ? ' · hoy' : ''}
-              {prog && <button type="button" className="mkp-mas-btn" onClick={() => setDiaSel({ persona: persona || plan.equipo[0].id, fecha: d })}><Plus />Programar</button>}</h4>
-              {l.length > 0 && <div className="grid">{l.map((t) => <Tarjeta key={t.id} t={t} conPersona={plan.coordina} />)}</div>}</div> : null
+              {prog && <button type="button" className="mkp-mas-btn" onClick={() => setDiaSel({ persona: persona || (!plan.coordina && plan.equipo.some((e) => e.id === plan.yo) ? plan.yo : plan.equipo[0].id), fecha: d })}><Plus />Programar</button>}</h4>
+              {l.length > 0 && <div className="grid">{l.map((t) => <Tarjeta key={t.id} t={t} conPersona={plan.coordina || t.responsable !== plan.yo} />)}</div>}</div> : null
           })}
-          {!deAntes.length && !dias.some((d) => visibles.some((t) => t.fecha === d)) && <div className="mkp-vacio">No hay tareas en esta semana.{plan.coordina ? ' Usa «Asignar tarea» o «Armar la semana».' : ''}</div>}
+          {!deAntes.length && !dias.some((d) => visibles.some((t) => t.fecha === d)) && <div className="mkp-vacio">No hay tareas en esta semana.{plan.coordina ? ' Usa «Asignar tarea» o «Armar la semana».' : plan.agrega ? ' Usa «Agregar tarea».' : ''}</div>}
         </div>
       )}
 
@@ -241,7 +242,7 @@ export function PlanTrabajo({ perfil, aviso, irA, pendiente, consumirPendiente }
       {editor && <EditorDesdePlan t={plan.tareas.find((x) => x.id === editor.id) ?? editor} plan={plan} perfil={perfil} nombre={nombre} aviso={aviso}
         cerrar={() => { setEditor(null); cargar() }} verTarea={() => { const t = editor; setEditor(null); setDetalle(t) }} recargar={cargar} />}
       {detalle && <DetalleTarea t={plan.tareas.find((x) => x.id === detalle.id) ?? detalle} plan={plan} nombre={nombre} cerrar={() => setDetalle(null)} aviso={aviso} irA={irA} recargar={cargar} />}
-      {asignar && <ModalAsignar plan={plan} inicial={asignar === 'nuevo' ? null : asignar} personaDef={persona} fechaDef={habil(lunes > hoy ? lunes : hoy)} cerrar={() => setAsignar(null)} aviso={aviso} listo={() => { setAsignar(null); cargar() }} />}
+      {asignar && <ModalAsignar plan={plan} inicial={asignar === 'nuevo' ? null : asignar} personaDef={persona || (plan.coordina ? '' : plan.yo)} fechaDef={habil(lunes > hoy ? lunes : hoy)} cerrar={() => setAsignar(null)} aviso={aviso} listo={() => { setAsignar(null); cargar() }} />}
       {diaSel && <FormularioDia plan={plan} personaId={diaSel.persona} fecha={diaSel.fecha} cerrar={() => setDiaSel(null)} aviso={aviso} listo={() => { setDiaSel(null); cargar() }} />}
       {armar && <ModalArmar plan={plan} personaDef={persona} fechaDef={habil(lunes > hoy ? lunes : hoy)} cerrar={() => setArmar(false)} aviso={aviso} listo={() => { setArmar(false); cargar() }} />}
     </div>
@@ -293,6 +294,8 @@ function DetalleTarea({ t, plan, nombre, cerrar, aviso, irA, recargar }: {
 }) {
   const m = TRABAJOS[t.trabajo] ?? TRABAJOS.otro
   const mia = t.responsable === plan.yo, puede = (mia || plan.coordina) && abierta(t)
+  // Reprogramar, pasar a otra persona o cancelar: quien coordina o quien agregó la tarea
+  const gestiona = abierta(t) && (plan.coordina || t.creadoPor === plan.yo)
   const [resultado, setResultado] = useState('')
   const [fecha, setFecha] = useState(t.fecha ?? '')
   const [resp, setResp] = useState(t.responsable ?? '')
@@ -309,7 +312,7 @@ function DetalleTarea({ t, plan, nombre, cerrar, aviso, irA, recargar }: {
     <div className="mkp-fondo" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
       <div className="mkp-modal">
         <header><div><p style={{ opacity: 0.85, fontWeight: 800, textTransform: 'uppercase', fontSize: 10.5 }}>{m.t}{t.detalle ? ' · ' + t.detalle : ''} · {t.codigo}</p><h3>{t.producto ? t.producto.nombre : t.instrucciones || t.descripcion}</h3>
-          <p>{nombre(t.responsable)} · {t.fecha ? fLarga(t.fecha) : 'Sin fecha'} · Prioridad {t.prioridad ?? 'Normal'}</p></div>
+          <p>Responsable: {nombre(t.responsable)} · {t.fecha ? fLarga(t.fecha) : 'Sin fecha'} · Prioridad {t.prioridad ?? 'Normal'}{t.creador ? ' · Agregada por ' + (t.creadoPor === plan.yo ? 'ti' : t.creador) : ''}</p></div>
           <button type="button" className="x" onClick={cerrar} aria-label="Cerrar"><X className="w-4 h-4" /></button></header>
         <div className="cuerpo">
           {t.producto && (
@@ -333,8 +336,8 @@ function DetalleTarea({ t, plan, nombre, cerrar, aviso, irA, recargar }: {
             <span className="mkp-lab">Terminar a mano</span>
             <textarea className="inp" rows={2} value={resultado} onChange={(e) => setResultado(e.target.value)} placeholder="Qué se hizo (p. ej. «Video subido y enviado a revisión»)" />
           </>}
-          {plan.coordina && abierta(t) && <>
-            <span className="mkp-lab">Reprogramar o cambiar de persona</span>
+          {gestiona && <>
+            <span className="mkp-lab">Reprogramar o cambiar de responsable</span>
             <div className="mkp-2">
               <input type="date" className="inp" value={fecha} onChange={(e) => setFecha(e.target.value)} />
               <select className="inp" value={resp} onChange={(e) => setResp(e.target.value)}>{plan.equipo.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}</select>
@@ -345,8 +348,8 @@ function DetalleTarea({ t, plan, nombre, cerrar, aviso, irA, recargar }: {
         <footer>
           {destino && <button type="button" className="btn" onClick={() => { cerrar(); irA(destino[0]) }}>{destino[1]}</button>}
           <span style={{ flex: 1 }} />
-          {plan.coordina && abierta(t) && <button type="button" className="btn" style={{ color: '#b91c1c' }} disabled={!!ocupado} onClick={() => { const mo = prompt('¿Por qué se cancela esta tarea?'); if (mo !== null) hacer('cancelar', () => rpc('mkt_plan_cancelar', { p_id: t.id, p_motivo: mo }), 'Tarea cancelada.', true) }}><Trash2 />Cancelar</button>}
-          {plan.coordina && abierta(t) && (fecha !== (t.fecha ?? '') || resp !== (t.responsable ?? '')) && <button type="button" className="btn" disabled={!!ocupado || !fecha} onClick={() => hacer('mover', () => rpc('mkt_plan_mover', { p_id: t.id, p_fecha: fecha, p_responsable: resp }), 'Tarea reprogramada.')}>Guardar cambios</button>}
+          {gestiona && <button type="button" className="btn" style={{ color: '#b91c1c' }} disabled={!!ocupado} onClick={() => { const mo = prompt('¿Por qué se cancela esta tarea?'); if (mo !== null) hacer('cancelar', () => rpc('mkt_plan_cancelar', { p_id: t.id, p_motivo: mo }), 'Tarea cancelada.', true) }}><Trash2 />Cancelar</button>}
+          {gestiona && (fecha !== (t.fecha ?? '') || resp !== (t.responsable ?? '')) && <button type="button" className="btn" disabled={!!ocupado || !fecha} onClick={() => hacer('mover', () => rpc('mkt_plan_mover', { p_id: t.id, p_fecha: fecha, p_responsable: resp }), 'Tarea reprogramada.')}>Guardar cambios</button>}
           {puede && <button type="button" className="btn btn-primary" disabled={!!ocupado || !resultado.trim()} onClick={() => hacer('terminar', () => rpc('mkt_plan_terminar', { p_id: t.id, p_resultado: resultado }), 'Tarea terminada.', true)}><Check />Terminar</button>}
         </footer>
       </div>
@@ -411,7 +414,7 @@ function FormularioDia({ plan, personaId, fecha, cerrar, aviso, listo }: {
     return rpc<{ creadas: number; omitidos: { producto: string; motivo: string }[] }>('mkt_plan_asignar', { p: { responsable: resp, trabajo, detalle, prioridad, instrucciones, items } })
   }
   async function guardar() {
-    if (!resp) { aviso('Elige a la persona.'); return }
+    if (!resp) { aviso('Elige al responsable de la tarea.'); return }
     const lotes: [Trabajo, { producto_id?: string; fecha: string }[], string][] = []
     if (tipo === 'producto') {
       if (!productos.length) { aviso('Agrega al menos un producto.'); return }
@@ -448,7 +451,7 @@ function FormularioDia({ plan, personaId, fecha, cerrar, aviso, listo }: {
           <button type="button" className="x" onClick={cerrar} aria-label="Cerrar"><X className="w-4 h-4" /></button></header>
         <div className="cuerpo">
           {plan.equipo.length > 1 && (
-            <label><span className="mkp-lab" style={{ marginTop: 0 }}>Persona</span>
+            <label><span className="mkp-lab" style={{ marginTop: 0 }}>Responsable</span>
               <select className="inp" value={resp} onChange={(e) => setResp(e.target.value)}>{plan.equipo.map((e) => <option key={e.id} value={e.id}>{e.nombre} · {e.rol}</option>)}</select></label>
           )}
           <div className="mkp-tabs">{tab('producto', 'Producto', FileText)}{tab('video', 'Video', Clapperboard)}{tab('otro', 'Otra tarea', ClipboardList)}</div>
@@ -535,7 +538,7 @@ function ModalAsignar({ plan, inicial, personaDef, fechaDef, cerrar, aviso, list
   const [ocupado, setOcupado] = useState(false)
   useEffect(() => { if (busca) { setProductos((l) => (l.some((x) => x.id === busca.id) ? l : [...l, busca])); setBusca(null) } }, [busca])
   async function enviar() {
-    if (!resp) { aviso('Elige a la persona.'); return }
+    if (!resp) { aviso('Elige al responsable de la tarea.'); return }
     if (trabajo === 'otro' ? !instrucciones.trim() : !productos.length) { aviso(trabajo === 'otro' ? 'Escribe qué hay que hacer.' : 'Agrega al menos un producto.'); return }
     const items = trabajo === 'otro' ? [{ fecha }] : (repartir1 ? repartir(productos, fecha, 1) : productos.map((x) => ({ x, fecha }))).map((r) => ({ producto_id: r.x.id, fecha: r.fecha }))
     setOcupado(true)
@@ -548,10 +551,10 @@ function ModalAsignar({ plan, inicial, personaDef, fechaDef, cerrar, aviso, list
   return (
     <div className="mkp-fondo" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
       <div className="mkp-modal">
-        <header><div><h3>Asignar tarea</h3><p>Le llega un aviso a la persona y queda en su Agenda.</p></div><button type="button" className="x" onClick={cerrar} aria-label="Cerrar"><X className="w-4 h-4" /></button></header>
+        <header><div><h3>{plan.coordina ? 'Asignar tarea' : 'Agregar tarea'}</h3><p>Toda tarea queda con su responsable: le llega un aviso y queda en su Agenda.</p></div><button type="button" className="x" onClick={cerrar} aria-label="Cerrar"><X className="w-4 h-4" /></button></header>
         <div className="cuerpo">
           <div className="mkp-2">
-            <label><span className="mkp-lab">Persona</span><select className="inp" value={resp} onChange={(e) => setResp(e.target.value)}>{plan.equipo.map((e) => <option key={e.id} value={e.id}>{e.nombre} · {e.rol}</option>)}</select></label>
+            <label><span className="mkp-lab">Responsable</span><select className="inp" value={resp} onChange={(e) => setResp(e.target.value)}>{plan.equipo.map((e) => <option key={e.id} value={e.id}>{e.nombre} · {e.rol}{e.id === plan.yo ? ' (tú)' : ''}</option>)}</select></label>
             <label><span className="mkp-lab">Trabajo</span><select className="inp" value={trabajo} onChange={(e) => setTrabajo(e.target.value as Trabajo)}>{(Object.keys(TRABAJOS) as Trabajo[]).map((k) => <option key={k} value={k}>{TRABAJOS[k].t}</option>)}</select></label>
           </div>
           <p className="mkp-nota" style={{ marginTop: 6 }}>{TRABAJOS[trabajo].d}</p>
@@ -569,7 +572,7 @@ function ModalAsignar({ plan, inicial, personaDef, fechaDef, cerrar, aviso, list
           <label><span className="mkp-lab">{trabajo === 'otro' ? 'Qué hay que hacer' : 'Instrucciones (opcional)'}</span><textarea className="inp" rows={3} value={instrucciones} onChange={(e) => setInstrucciones(e.target.value)} placeholder={trabajo === 'otro' ? 'Ej. Ordenar el material de la sala de exhibición' : 'Ej. Grabar en la sala de exhibición, con el equipo encendido'} /></label>
         </div>
         <footer><span style={{ flex: 1 }} /><button type="button" className="btn" onClick={cerrar}>Cancelar</button>
-          <button type="button" className="btn btn-primary" disabled={ocupado} onClick={enviar}><Check />{ocupado ? 'Asignando…' : 'Asignar'}</button></footer>
+          <button type="button" className="btn btn-primary" disabled={ocupado} onClick={enviar}><Check />{ocupado ? 'Guardando…' : plan.coordina ? 'Asignar' : 'Agregar'}</button></footer>
       </div>
     </div>
   )
