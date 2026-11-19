@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Building2, CalendarDays, Check, PackageOpen, PackagePlus, Plus, Search, Trash2, Wallet, X } from 'lucide-react'
+import { MiniProducto } from './inventarioUtil'
 import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
 import '../estilos/comun.css'
@@ -152,7 +153,7 @@ function NuevoIngreso({ perfil, cerrar, creado, aviso }: { perfil: Perfil; cerra
   const [fechaF, setFechaF] = useState(() => new Date().toISOString().slice(0, 10))
   const [observacion, setObservacion] = useState('')
   const [items, setItems] = useState<Item[]>([{ codigo: '', nombre: '', cantidad: '', precio: '', aplicaIva: true }])
-  const [busqueda, setBusqueda] = useState<{ fila: number; texto: string; res: { codigo: string; nombre: string }[] } | null>(null)
+  const [busqueda, setBusqueda] = useState<{ fila: number; texto: string; res: { codigo: string; nombre: string; imagen_url?: string | null }[] } | null>(null)
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState('')
   const [nuevoProv, setNuevoProv] = useState<null | { ruc: string; nombre: string; email: string; telefono: string; direccion: string }>(null)
@@ -171,8 +172,8 @@ function NuevoIngreso({ perfil, cerrar, creado, aviso }: { perfil: Perfil; cerra
     setBusqueda({ fila, texto, res: [] })
     const t = texto.trim().replace(/[,()%*\\]/g, ' ')
     if (t.length < 2) return
-    supabase.from('productos').select('codigo,nombre').or(`codigo.ilike.%${t}%,nombre.ilike.%${t}%`).is('deleted_at', null).order('en_vista_publica', { ascending: false }).limit(8)
-      .then(({ data }) => setBusqueda((b) => (b && b.fila === fila ? { ...b, res: (data as { codigo: string; nombre: string }[]) ?? [] } : b)))
+    supabase.from('productos').select('codigo,nombre,imagen_url').or(`codigo.ilike.%${t}%,nombre.ilike.%${t}%`).is('deleted_at', null).order('en_vista_publica', { ascending: false }).limit(8)
+      .then(({ data }) => setBusqueda((b) => (b && b.fila === fila ? { ...b, res: (data as { codigo: string; nombre: string; imagen_url: string | null }[]) ?? [] } : b)))
   }
   function elegirProducto(fila: number, p: { codigo: string; nombre: string }) {
     setItems((a) => a.map((x, i) => (i === fila ? { ...x, codigo: p.codigo, nombre: p.nombre } : x)))
@@ -262,7 +263,7 @@ function NuevoIngreso({ perfil, cerrar, creado, aviso }: { perfil: Perfil; cerra
                         placeholder="Buscar producto por código o nombre" className="inp w-full" />
                       {busqueda?.fila === i && busqueda.res.length > 0 && (
                         <div className="absolute z-10 top-full left-0 right-0 bg-white border border-slate-200 rounded-xl shadow-lg mt-1 max-h-48 overflow-y-auto">
-                          {busqueda.res.map((p) => <button key={p.codigo} type="button" onClick={() => elegirProducto(i, p)} className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50"><b>{p.codigo}</b> · {p.nombre}</button>)}
+                          {busqueda.res.map((p) => <button key={p.codigo} type="button" onClick={() => elegirProducto(i, p)} className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><MiniProducto url={p.imagen_url} tam={32} /><span style={{ minWidth: 0 }}><b>{p.codigo}</b> · {p.nombre}</span></button>)}
                         </div>
                       )}
                     </div>

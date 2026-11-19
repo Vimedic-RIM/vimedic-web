@@ -64,7 +64,7 @@ const num2 = (v: number | null | undefined) => (Number(v) || 0).toLocaleString('
 
 // imagen() e Interruptor viven en inventarioUtil (otros módulos los usan sin cargar todo Inventario).
 export { imagen, Interruptor } from './inventarioUtil'
-import { imagen, Interruptor } from './inventarioUtil'
+import { imagen, Interruptor, MiniProducto } from './inventarioUtil'
 
 type Linea = { id: string; codigo: string; nombre: string; imagen: string; precio: number; cantidad: number; descuento: number; iva: boolean; categoria: string; ficha: string; carpeta: string }
 type Carrito = { cant: (id: string) => number; agregar: (p: Fila, e?: HTMLElement | null) => void }
@@ -1098,11 +1098,11 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
 
 /* ---------- Papelera: productos eliminados (borrado lógico), se pueden devolver ---------- */
 function PapeleraProductos({ cerrar, restaurado }: { cerrar: () => void; restaurado: () => void }) {
-  const [lista, setLista] = useState<{ id: string; codigo: string; nombre: string; deleted_at: string }[] | null>(null)
+  const [lista, setLista] = useState<{ id: string; codigo: string; nombre: string; imagen_url: string | null; deleted_at: string }[] | null>(null)
   const [error, setError] = useState('')
   const cargarLista = useCallback(() => {
-    supabase.from('productos').select('id,codigo,nombre,deleted_at').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }).limit(200)
-      .then(({ data, error }) => { if (error) setError(error.message); else setLista((data as { id: string; codigo: string; nombre: string; deleted_at: string }[]) ?? []) })
+    supabase.from('productos').select('id,codigo,nombre,imagen_url,deleted_at').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }).limit(200)
+      .then(({ data, error }) => { if (error) setError(error.message); else setLista((data as { id: string; codigo: string; nombre: string; imagen_url: string | null; deleted_at: string }[]) ?? []) })
   }, [])
   useEffect(() => { cargarLista() }, [cargarLista])
   async function restaurar(id: string) {
@@ -1123,6 +1123,7 @@ function PapeleraProductos({ cerrar, restaurado }: { cerrar: () => void; restaur
           {lista && !lista.length && <p className="text-xs text-slate-400 py-6 text-center">La papelera está vacía.</p>}
           {lista?.map((x) => (
             <div key={x.id} className="flex items-center gap-3 py-2.5 border-b border-dashed border-slate-200 last:border-0">
+              <MiniProducto url={x.imagen_url} tam={40} />
               <div className="min-w-0 flex-1"><p className="text-xs font-bold text-slate-800 truncate">{x.nombre}</p><p className="text-[11px] text-slate-500">{x.codigo} · eliminado {new Date(x.deleted_at).toLocaleDateString('es-EC')}</p></div>
               <button type="button" onClick={() => restaurar(x.id)} className="text-[11px] font-bold px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 flex items-center gap-1"><RotateCcw className="w-3.5 h-3.5" />Restaurar</button>
             </div>

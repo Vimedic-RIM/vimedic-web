@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CalendarClock, ChevronLeft, ChevronRight, ExternalLink, Pencil, Plug, RefreshCw, RotateCcw, Send, Sparkles, Trash2, Upload, X } from 'lucide-react'
+import { MiniProducto } from './inventarioUtil'
 import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
 import { llamar } from './MarketingIntegraciones'
@@ -23,7 +24,7 @@ type Rol = { rol?: string; coord?: boolean; requiere?: boolean }
 type Progreso = (pct: number, texto: string) => void
 type Trabajo = { id: string; titulo: string; pct: number; texto: string; estado: 'run' | 'ok' | 'err'; correr: (p: Progreso) => Promise<unknown>; alTerminar?: (r: unknown) => void }
 type Vista = 'week' | 'month' | 'list'
-type ProdIa = { id: string; codigo: string; nombre: string; marca: string | null; codigo_unico: string | null; descripcion: string | null; caracteristicas: string | null; especificaciones: string | null; garantia: string | null; categoria: { nombre: string } | null }
+type ProdIa = { id: string; codigo: string; nombre: string; imagen_url?: string | null; marca: string | null; codigo_unico: string | null; descripcion: string | null; caracteristicas: string | null; especificaciones: string | null; garantia: string | null; categoria: { nombre: string } | null }
 
 const PLAT: Record<string, [string, string]> = {
   facebook: ['F', '#1877f2'], instagram: ['I', '#e1306c'], tiktok: ['T', '#111827'], linkedin: ['in', '#0a66c2'], youtube: ['Y', '#ff0000'], twitter: ['X', '#111827'], x: ['X', '#111827'],
@@ -458,7 +459,7 @@ function Composer({ modo, post, dia, hora, pieza: piezaIni, cuentas, piezas, rol
     const q = qProd.replace(/[,()%*\\]/g, ' ').trim()
     if (!verOpc || q.length < 2 || (prod && qProd === prod.codigo + ' · ' + prod.nombre)) { setProdOpc([]); return }
     const t = window.setTimeout(() => {
-      supabase.from('productos').select('id,codigo,nombre,marca,codigo_unico,descripcion,caracteristicas,especificaciones,garantia,categoria:categorias(nombre)').is('deleted_at', null)
+      supabase.from('productos').select('id,codigo,nombre,imagen_url,marca,codigo_unico,descripcion,caracteristicas,especificaciones,garantia,categoria:categorias(nombre)').is('deleted_at', null)
         .or(`nombre.ilike.%${q}%,codigo.ilike.%${q}%`).order('en_catalogo', { ascending: false }).order('nombre').limit(8)
         .then(({ data }) => setProdOpc((data as unknown as ProdIa[]) ?? []))
     }, 250)
@@ -603,7 +604,7 @@ function Composer({ modo, post, dia, hora, pieza: piezaIni, cuentas, piezas, rol
               <div className="relative">
                 <input value={qProd} onChange={(e) => { setQProd(e.target.value); setProd(null); setVerOpc(true) }} onFocus={() => setVerOpc(true)} onBlur={() => setTimeout(() => setVerOpc(false), 180)} className="inp w-full" placeholder="Producto (código o nombre)…" />
                 {verOpc && prodOpc.length > 0 && <div className="mk-ac">{prodOpc.map((p) => (
-                  <button key={p.id} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { setProd(p); setQProd(p.codigo + ' · ' + p.nombre); setVerOpc(false) }}><b>{p.codigo}</b> · {p.nombre}{p.marca ? ' · ' + p.marca : ''}</button>))}</div>}
+                  <button key={p.id} type="button" style={{ display: 'flex', alignItems: 'center', gap: 8 }} onMouseDown={(e) => e.preventDefault()} onClick={() => { setProd(p); setQProd(p.codigo + ' · ' + p.nombre); setVerOpc(false) }}><MiniProducto url={p.imagen_url} tam={34} /><span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}><b>{p.codigo}</b> · {p.nombre}{p.marca ? ' · ' + p.marca : ''}</span></button>))}</div>}
               </div>
               <input value={idea} onChange={(e) => setIdea(e.target.value)} className="inp w-full" placeholder="Idea o indicaciones (opcional)" />
             </div>

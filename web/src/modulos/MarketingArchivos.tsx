@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
+import { MiniProducto } from './inventarioUtil'
 import { LIMITE_APP_MB, LIMITE_DRIVE_MB, MIME_AV, fotogramaVideo, guardarMiniatura, prepararPortada, subirArchivoAv } from './audiovisualMedios'
 
 function Ventana({ titulo, cerrar, children, pie }: { titulo: string; cerrar: () => void; children: React.ReactNode; pie: React.ReactNode }) {
@@ -17,7 +18,7 @@ function Ventana({ titulo, cerrar, children, pie }: { titulo: string; cerrar: ()
 const fecha = (s: string) => new Date(s).toLocaleDateString('es-EC', { day: '2-digit', month: 'short', year: 'numeric' })
 
 /* ============================ Buscador de productos (visibles al público primero) ============================ */
-export type ProdBusq = { id: string; codigo: string; nombre: string }
+export type ProdBusq = { id: string; codigo: string; nombre: string; imagen?: string | null }
 export function BuscadorProducto({ valor, cambiar, placeholder = 'Producto (código o nombre)…' }: { valor: ProdBusq | null; cambiar: (p: ProdBusq | null) => void; placeholder?: string }) {
   const [q, setQ] = useState(valor ? valor.codigo + ' · ' + valor.nombre : '')
   const [opc, setOpc] = useState<ProdBusq[]>([])
@@ -27,8 +28,9 @@ export function BuscadorProducto({ valor, cambiar, placeholder = 'Producto (cód
     const t = q.replace(/[,()%*\\]/g, ' ').trim()
     if (!ver || t.length < 2 || (valor && q === valor.codigo + ' · ' + valor.nombre)) { setOpc([]); return }
     const h = window.setTimeout(() => {
-      supabase.from('productos').select('id,codigo,nombre').is('deleted_at', null).or(`nombre.ilike.%${t}%,codigo.ilike.%${t}%`)
-        .order('en_catalogo', { ascending: false }).order('nombre').limit(8).then(({ data }) => setOpc((data as ProdBusq[]) ?? []))
+      supabase.from('productos').select('id,codigo,nombre,imagen_url').is('deleted_at', null).or(`nombre.ilike.%${t}%,codigo.ilike.%${t}%`)
+        .order('en_catalogo', { ascending: false }).order('nombre').limit(8)
+        .then(({ data }) => setOpc(((data as { id: string; codigo: string; nombre: string; imagen_url: string | null }[]) ?? []).map((p) => ({ id: p.id, codigo: p.codigo, nombre: p.nombre, imagen: p.imagen_url }))))
     }, 250)
     return () => window.clearTimeout(h)
   }, [q, ver, valor])
@@ -36,7 +38,8 @@ export function BuscadorProducto({ valor, cambiar, placeholder = 'Producto (cód
     <div className="relative">
       <input value={q} onChange={(e) => { setQ(e.target.value); setVer(true); if (valor) cambiar(null) }} onFocus={() => setVer(true)} onBlur={() => setTimeout(() => setVer(false), 180)} className="inp w-full" placeholder={placeholder} />
       {ver && opc.length > 0 && <div className="mk-ac">{opc.map((p) => (
-        <button key={p.id} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { cambiar(p); setQ(p.codigo + ' · ' + p.nombre); setVer(false) }}><b>{p.codigo}</b> · {p.nombre}</button>))}</div>}
+        <button key={p.id} type="button" style={{ display: 'flex', alignItems: 'center', gap: 8 }} onMouseDown={(e) => e.preventDefault()} onClick={() => { cambiar(p); setQ(p.codigo + ' · ' + p.nombre); setVer(false) }}>
+          <MiniProducto url={p.imagen} tam={34} /><span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}><b>{p.codigo}</b> · {p.nombre}</span></button>))}</div>}
     </div>
   )
 }

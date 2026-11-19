@@ -8,7 +8,7 @@ import {
   Plus, RefreshCw, Scissors, Sparkles, Trash2, Video, X,
 } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
-import { imagen } from './inventarioUtil'
+import { imagen, MiniProducto } from './inventarioUtil'
 import { hoyEC } from './ofertasInv'
 import { BuscadorProducto, type ProdBusq } from './MarketingArchivos'
 import { EditorProducto, type Prod } from './MarketingIntegraciones'
@@ -460,6 +460,7 @@ function FormularioDia({ plan, personaId, fecha, cerrar, aviso, listo }: {
               const e = p.estado, falta = e ? faltaDe(e) : []
               return (
                 <div key={p.id} className="mkp-paso" style={{ cursor: 'default', alignItems: 'flex-start' }}>
+                  <MiniProducto url={p.imagen} tam={40} />
                   <span className="min-w-0 flex-1"><b style={{ fontSize: 12.5 }}>{p.codigo} · {p.nombre}</b>
                     <span className="block text-[11px]" style={{ color: e === undefined ? '#94a3b8' : falta.length ? '#b45309' : '#04896f' }}>
                       {e === undefined ? 'Revisando…' : e === null ? '' : tipo === 'video'
@@ -558,7 +559,7 @@ function ModalAsignar({ plan, inicial, personaDef, fechaDef, cerrar, aviso, list
           {trabajo !== 'otro' ? <>
             <span className="mkp-lab">Productos</span>
             <BuscadorProducto valor={busca} cambiar={setBusca} placeholder="Busca y agrega productos (código o nombre)…" />
-            {productos.length > 0 && <div className="mkp-chips">{productos.map((x) => <span key={x.id} className="mkp-chip">{x.codigo} · {x.nombre.slice(0, 40)}<button type="button" onClick={() => setProductos((l) => l.filter((y) => y.id !== x.id))} aria-label="Quitar"><X className="w-3 h-3" /></button></span>)}</div>}
+            {productos.length > 0 && <div className="mkp-chips">{productos.map((x) => <span key={x.id} className="mkp-chip" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><MiniProducto url={x.imagen} tam={22} />{x.codigo} · {x.nombre.slice(0, 40)}<button type="button" onClick={() => setProductos((l) => l.filter((y) => y.id !== x.id))} aria-label="Quitar"><X className="w-3 h-3" /></button></span>)}</div>}
           </> : null}
           <div className="mkp-2">
             <label><span className="mkp-lab">Fecha</span><input type="date" className="inp" value={fecha} onChange={(e) => setFecha(e.target.value)} /></label>

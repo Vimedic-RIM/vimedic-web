@@ -16,6 +16,16 @@ export function imagen(url: string | null | undefined, ancho: number): string {
   } catch { return v }
 }
 
+/** Miniatura cuadrada del producto para buscadores y listados (sin imagen: recuadro gris). Carga diferida. */
+export function MiniProducto({ url, tam = 32 }: { url: string | null | undefined; tam?: number }) {
+  const src = imagen(url, tam * 3)
+  return (
+    <span aria-hidden="true" style={{ width: tam, height: tam, flexShrink: 0, borderRadius: 8, background: '#f1f5f9', border: '1px solid #e2e8f0', overflow: 'hidden', display: 'inline-grid', placeItems: 'center' }}>
+      {src ? <img src={src} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#fff' }} onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} /> : null}
+    </span>
+  )
+}
+
 export function Interruptor({ activo, cambiar }: { activo: boolean; cambiar: () => void }) {
   return (
     <button type="button" onClick={cambiar} className="relative w-11 h-6 rounded-full transition-colors shrink-0" style={{ background: activo ? 'var(--teal)' : '#cbd5e1' }}>

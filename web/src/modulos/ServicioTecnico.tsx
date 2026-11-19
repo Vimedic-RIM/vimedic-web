@@ -1,5 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Archive, BookOpen, Calendar, CalendarCheck, CalendarPlus, Check, CheckCheck, ChevronLeft, ChevronRight, ClipboardList, Cpu, FileCheck2, FileText, Gauge, GraduationCap, Hammer, History, Hourglass, Lightbulb, List, ListChecks, MapPin, MessageCircle, PackageOpen, Package, Pencil, Phone, Play, Plus, PlugZap, RefreshCw, RotateCcw, Save, ScanSearch, Search, ShieldAlert, Stethoscope, User, UserPlus, Users, Wrench, X, XCircle, BadgeCheck, Camera } from 'lucide-react'
+import { MiniProducto } from './inventarioUtil'
 import { supabase, type Perfil } from '../supabase'
 import { palabras } from '../busqueda'
 import { agrupar } from '../tiempoReal'
@@ -490,7 +491,7 @@ function PanelOrden({ id, perfil, externo, editar, tecnicos, aviso, cerrar, abri
   const [estadoNuevo, setEstadoNuevo] = useState('')
   const [guardando, setGuardando] = useState(false)
   const [subiendo, setSubiendo] = useState(false)
-  const [productos, setProductos] = useState<{ id: string; nombre: string; stock: number }[] | null>(null)
+  const [productos, setProductos] = useState<{ id: string; nombre: string; stock: number; imagen: string | null }[] | null>(null)
   const [repQ, setRepQ] = useState('')
   const [repAbierto, setRepAbierto] = useState(false)
   const [ckNuevo, setCkNuevo] = useState('')
@@ -605,8 +606,8 @@ function PanelOrden({ id, perfil, externo, editar, tecnicos, aviso, cerrar, abri
   }
   async function buscarProductos() {
     if (productos) return
-    const { data } = await supabase.from('productos').select('codigo,nombre,stock').is('deleted_at', null).order('en_vista_publica', { ascending: false }).order('nombre').limit(3000)
-    setProductos(((data ?? []) as { codigo: string; nombre: string; stock: number }[]).map((p) => ({ id: p.codigo, nombre: p.nombre, stock: p.stock })))
+    const { data } = await supabase.from('productos').select('codigo,nombre,stock,imagen_url').is('deleted_at', null).order('en_vista_publica', { ascending: false }).order('nombre').limit(3000)
+    setProductos(((data ?? []) as { codigo: string; nombre: string; stock: number; imagen_url: string | null }[]).map((p) => ({ id: p.codigo, nombre: p.nombre, stock: p.stock, imagen: p.imagen_url })))
   }
   async function descargar(variante: 'informe' | 'recepcion') {
     if (!o) return
@@ -712,7 +713,7 @@ function PanelOrden({ id, perfil, externo, editar, tecnicos, aviso, cerrar, abri
         <input className="inp !py-1 !w-16 text-center" type="number" min={1} value={r.cantidad} disabled={o.repuestosDescontados} onChange={(e) => marcar((w) => { w.repuestos = w.repuestos.map((c, j) => (j === i ? { ...c, cantidad: Math.max(1, +e.target.value || 1) } : c)) })} />
         {!o.repuestosDescontados && <button className="text-slate-300 hover:text-red-500" onClick={() => marcar((w) => { w.repuestos = w.repuestos.filter((_, j) => j !== i) })}><X style={{ width: 14, height: 14 }} /></button>}</div>)}
       {!o.repuestosDescontados && <div className="relative mt-2"><input className="inp !py-2 text-sm" placeholder="Buscar repuesto por nombre o código" autoComplete="off" value={repQ} onFocus={() => { buscarProductos(); setRepAbierto(true) }} onBlur={() => setTimeout(() => setRepAbierto(false), 200)} onChange={(e) => { setRepQ(e.target.value); setRepAbierto(true) }} />
-        {repAbierto && productos && <div className="sugg">{(() => { const w = norm(repQ).trim().split(/\s+/).filter(Boolean); const l = productos.filter((p) => !w.length || w.every((x) => norm(p.id + ' ' + p.nombre).includes(x))).slice(0, 15); return l.length ? l.map((p) => <div key={p.id} className={p.stock > 0 ? '' : 'opacity-50'} onMouseDown={() => { marcar((wk) => { const ya = wk.repuestos.find((r) => r.id === p.id); if (ya) ya.cantidad++; else wk.repuestos = [...wk.repuestos, { id: p.id, nombre: p.nombre, cantidad: 1, precio: 0 }] }); setRepQ('') }}><b>{p.nombre}</b><br /><span className="text-xs text-slate-500 mono">{p.id}</span> <span className={'text-xs font-semibold ' + (p.stock > 0 ? 'text-emerald-700' : 'text-red-600')}>· stock {p.stock}</span></div>) : <div className="text-slate-400">Sin resultados</div> })()}</div>}</div>}
+        {repAbierto && productos && <div className="sugg">{(() => { const w = norm(repQ).trim().split(/\s+/).filter(Boolean); const l = productos.filter((p) => !w.length || w.every((x) => norm(p.id + ' ' + p.nombre).includes(x))).slice(0, 15); return l.length ? l.map((p) => <div key={p.id} className={p.stock > 0 ? '' : 'opacity-50'} style={{ display: 'flex', alignItems: 'center', gap: 8 }} onMouseDown={() => { marcar((wk) => { const ya = wk.repuestos.find((r) => r.id === p.id); if (ya) ya.cantidad++; else wk.repuestos = [...wk.repuestos, { id: p.id, nombre: p.nombre, cantidad: 1, precio: 0 }] }); setRepQ('') }}><MiniProducto url={p.imagen} tam={34} /><span style={{ minWidth: 0 }}><b>{p.nombre}</b><br /><span className="text-xs text-slate-500 mono">{p.id}</span> <span className={'text-xs font-semibold ' + (p.stock > 0 ? 'text-emerald-700' : 'text-red-600')}>· stock {p.stock}</span></span></div>) : <div className="text-slate-400">Sin resultados</div> })()}</div>}</div>}
       {editar && (o.estado === 'Esperando repuesto' ? <button className="btn w-full mt-3" onClick={() => cambiarEstado('En proceso', '')}><Play />Repuesto recibido · seguir</button> : o.estado === 'En proceso' ? <button className="btn w-full mt-3" onClick={() => { setEstadoNuevo(''); setHoja('estado') }}><Hourglass />Pausar: esperar repuesto</button> : null)}</div>}
   </>
   const sFotos = (
