@@ -5,6 +5,7 @@
 // La clave de Zernio y la de Gemini viven cifradas en Vault (se conectan en Marketing › Configuración).
 // También recibe el webhook de Zernio (firma HMAC-SHA256 en X-Zernio-Signature), cosa que Apps Script no podía verificar.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
+import { credencialGemini, generarGemini } from '../_shared/gemini.ts'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -12,7 +13,6 @@ const CORS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 const ZERNIO = 'https://zernio.com/api/v1'
-const GEMINI = 'https://generativelanguage.googleapis.com/v1beta'
 const responder = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { ...CORS, 'Content-Type': 'application/json' } })
 class Falla extends Error { constructor(m: string, public status = 400) { super(m) } }
 // deno-lint-ignore no-explicit-any
@@ -201,8 +201,8 @@ Deno.serve(async (req) => {
     }
 
     if (accion === 'sugerir') {
-      const c = await credencial('gemini')
-      const modelo = /^gemini-[\w.-]+$/.test(String(c.config?.modelo || '')) ? String(c.config.modelo) : 'gemini-2.5-flash'
+      const cred = await credencialGemini(admin)
+      if (!cred.secreto) throw new Falla('La IA (Gemini) no está conectada. Se conecta en Marketing › Configuración.')
       const hilo = (Array.isArray(b.hilo) ? b.hilo : []).slice(-20).map((m: Cualquiera) => (m.saliente ? 'VIMEDIC: ' : 'Cliente: ') + String(m.texto || '').slice(0, 600)).join('\n')
       const tipos: Record<string, string> = {
         rapida: 'Responde de forma breve y directa (1 a 2 oraciones).',
@@ -210,12 +210,9 @@ Deno.serve(async (req) => {
         seguimiento: 'Escribe un mensaje de seguimiento cordial para retomar la conversación y pedir una respuesta concreta.',
       }
       const instruccion = `Eres asesor comercial de ${String(b.empresa || 'VIMEDIC')}, importador de equipos médicos en Ecuador. ${tipos[String(b.tipo)] ?? tipos.comercial} Usa español neutro y trato de usted, sin inventar precios, stock ni plazos. Devuelve solo el texto del mensaje.\n\nConversación con ${String(b.nombre || 'el cliente')}:\n${hilo}`
-      const r = await fetch(`${GEMINI}/models/${modelo}:generateContent`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': c.secreto }, body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: instruccion }] }], generationConfig: { temperature: 0.6, maxOutputTokens: 400 } }) })
-      const j = await r.json().catch(() => ({}))
-      if (!r.ok) throw new Falla('Gemini respondió: ' + (j?.error?.message || r.status), 502)
-      const texto = ((j.candidates?.[0]?.content?.parts ?? []) as Cualquiera[]).filter((x) => !x.thought).map((x) => x.text || '').join('').trim()
-      if (!texto) throw new Falla('La IA no devolvió texto. Intenta de nuevo.')
-      return responder({ texto })
+      // Modelo guardado o «Automático», con cambio automático si Google lo retiró (../_shared/gemini.ts)
+      try { return responder({ texto: (await generarGemini(admin, cred, { contents: [{ role: 'user', parts: [{ text: instruccion }] }], generationConfig: { temperature: 0.6, maxOutputTokens: 400 } })).texto }) }
+      catch (e) { throw new Falla((e as Error).message, 502) }
     }
 
     throw new Falla('Acción no válida.')

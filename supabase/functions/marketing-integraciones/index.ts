@@ -1,6 +1,7 @@
 // Edge Function: puente seguro entre la app y Zernio (redes sociales) / Gemini (IA).
 // Las claves viven cifradas en Supabase Vault; solo se descifran aquí, con service_role, vía integracion_secreto().
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
+import { credencialGemini, estadoModelos, generarGemini } from '../_shared/gemini.ts'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -8,8 +9,6 @@ const CORS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 const ZERNIO = 'https://zernio.com/api/v1'
-const GEMINI = 'https://generativelanguage.googleapis.com/v1beta'
-const MODELO0 = 'gemini-2.5-flash'
 
 const responder = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { ...CORS, 'Content-Type': 'application/json' } })
 class Falla extends Error { constructor(m: string, public status = 400) { super(m) } }
@@ -75,17 +74,13 @@ Deno.serve(async (req) => {
       const t = await r.text(); let j: any = null; try { j = t ? JSON.parse(t) : null } catch { /* texto */ } // deno-lint-ignore no-explicit-any
       return { ok: r.ok, status: r.status, data: j, texto: t }
     }
-    const gemini = async (partes: unknown[], gen: Record<string, unknown>) => {
-      const c = await credencial('gemini')
-      const modelo = /^gemini-[\w.-]+$/.test(String(c.config?.modelo || '')) ? String(c.config.modelo) : MODELO0
-      const r = await fetch(`${GEMINI}/models/${modelo}:generateContent`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': c.secreto }, body: JSON.stringify({ contents: [{ role: 'user', parts: partes }], generationConfig: gen }) })
-      const j = await r.json().catch(() => ({}))
-      if (!r.ok) throw new Falla('Gemini respondió: ' + (j?.error?.message || r.status))
-      // deno-lint-ignore no-explicit-any
-      const texto = ((j.candidates?.[0]?.content?.parts ?? []) as any[]).filter((x) => !x.thought).map((x) => x.text || '').join('').trim()
-      if (!texto) throw new Falla('La IA no devolvió texto. Intenta de nuevo.')
-      return texto
+    // Modelo guardado o «Automático»; si Google retiró el modelo, cambia solo y reintenta una vez (../_shared/gemini.ts).
+    const geminiConModelo = async (partes: unknown[], gen: Record<string, unknown>) => {
+      const cred = await credencialGemini(admin)
+      if (!cred.secreto) throw new Falla('Gemini no está conectado. Ve a Marketing › Configuración.')
+      try { return await generarGemini(admin, cred, { contents: [{ role: 'user', parts: partes }], generationConfig: gen }) } catch (e) { throw new Falla((e as Error).message) }
     }
+    const gemini = async (partes: unknown[], gen: Record<string, unknown>) => (await geminiConModelo(partes, gen)).texto
     const json = (t: string) => { const l = t.replace(/^```(?:json)?\s*|\s*```$/g, ''); try { return JSON.parse(l) } catch { const m = l.match(/\{[\s\S]*\}/); if (m) return JSON.parse(m[0]); throw new Falla('La IA no devolvió un resultado válido.') } }
 
     /* ---------------- Probar conexiones (solo quien administra) ---------------- */
@@ -101,7 +96,7 @@ Deno.serve(async (req) => {
         mensaje = ok ? `Conexión correcta · ${lista.length} cuenta${lista.length === 1 ? '' : 's'} conectada${lista.length === 1 ? '' : 's'}.` : `Zernio rechazó la clave (código ${r.status}).`
         extra = lista
       } else if (prov === 'gemini') {
-        try { const t = await gemini([{ text: 'Responde solo con la palabra: listo' }], { temperature: 0, maxOutputTokens: 20 }); ok = true; mensaje = 'Conexión correcta · la IA respondió: ' + t.slice(0, 40) } catch (e) { mensaje = (e as Error).message }
+        try { const r = await geminiConModelo([{ text: 'Responde solo con la palabra: listo' }], { temperature: 0, maxOutputTokens: 512 }); ok = true; mensaje = 'Conexión correcta · ' + r.modelo + ' respondió: ' + r.texto.slice(0, 40) } catch (e) { mensaje = (e as Error).message }
       } else if (prov === 'meta_pixel') {
         try {
           const { secreto, config } = await credencial('meta_pixel')
@@ -117,6 +112,13 @@ Deno.serve(async (req) => {
       } else throw new Falla('Proveedor no válido.')
       await admin.from('integraciones').update({ estado_prueba: (ok ? 'ok: ' : 'error: ') + mensaje, probado_en: new Date().toISOString() }).eq('proveedor', prov)
       return responder({ ok, mensaje, extra })
+    }
+
+    /* ---------------- Gemini: lista de modelos de Google (caché 24 h) y modelo en uso ----------------
+       forzar = «Actualizar lista de modelos». Si el modelo guardado ya no existe, lo deja en «auto». La clave no sale del servidor. */
+    if (accion === 'gemini_modelos') {
+      if (!(await puede('administrar'))) throw new Falla('Solo quien administra Marketing puede ver los modelos de IA.', 403)
+      return responder(await estadoModelos(admin, await credencialGemini(admin), b.forzar === true))
     }
 
     /* ---------------- Zernio: planificador de publicaciones ----------------

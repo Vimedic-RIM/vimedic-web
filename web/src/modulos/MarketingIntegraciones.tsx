@@ -43,7 +43,9 @@ function Ventana({ titulo, cerrar, children, pie, ancho = 'sm:max-w-lg' }: { tit
 
 /* ============================ Configuración ============================ */
 type Estado = { proveedor: string; configurado: boolean; vista: string; config: { modelo?: string }; estado_prueba: string | null; probado_en: string | null; actualizado: string | null }
-const MODELOS = [['gemini-2.5-flash', 'Gemini 2.5 Flash · equilibrado (recomendado)'], ['gemini-2.5-flash-lite', 'Gemini 2.5 Flash-Lite · el más rápido y económico'], ['gemini-2.5-pro', 'Gemini 2.5 Pro · máxima calidad']]
+/* Modelos de Gemini: la lista sale de Google (Edge Function, caché 24 h). El modelo de respaldo y las palabras
+   que se excluyen están en un solo lugar: supabase/functions/_shared/gemini.ts. */
+type ModelosIA = { modelos: { id: string; nombre: string }[]; actualizado: string | null; origen: 'google' | 'cache' | 'respaldo'; falla?: string; guardado: string; auto: string; migrado: string | null }
 
 export function Configuracion({ aviso, alCambiar }: { aviso: (t: string) => void; alCambiar: () => void }) {
   const [estados, setEstados] = useState<Estado[] | null>(null)
@@ -127,11 +129,28 @@ function TarjetaPixel({ proveedor, titulo, color, est, aviso, cambio }: {
 
 function Tarjeta({ proveedor, titulo, sub, est, aviso, cambio, ayuda, conModelo }: { proveedor: 'zernio' | 'gemini'; titulo: string; sub: string; est: Estado; aviso: (t: string) => void; cambio: () => void; ayuda: string; conModelo?: boolean }) {
   const [clave, setClave] = useState('')
-  const [modelo, setModelo] = useState(est.config?.modelo || 'gemini-2.5-flash')
+  const [modelo, setModelo] = useState(est.config?.modelo || 'auto')
   const [ocupado, setOcupado] = useState('')
   const [cuentas, setCuentas] = useState<{ id: string; plataforma: string; nombre: string }[]>([])
+  const [ia, setIa] = useState<ModelosIA | null>(null)
+  const [iaError, setIaError] = useState('')
+  const [cargandoIa, setCargandoIa] = useState(false)
   const prueba = est.estado_prueba ?? ''
   const ok = prueba.startsWith('ok')
+  /* Lista de modelos de Google (o la guardada de las últimas 24 h). sincronizar = mostrar lo que quedó guardado
+     (al abrir y después de probar: la autorreparación pudo cambiar el modelo). */
+  async function cargarModelos(forzar = false, sincronizar = false) {
+    setCargandoIa(true)
+    try {
+      const r = await llamar<ModelosIA>('gemini_modelos', { forzar })
+      setIa(r); setIaError('')
+      if (r.migrado) { setModelo('auto'); aviso('El modelo guardado (' + r.migrado + ') ya no está disponible en Google: se cambió a Automático.') }
+      else if (sincronizar) setModelo(r.guardado)
+      if (forzar && !r.falla) aviso('Lista de modelos actualizada: ' + r.modelos.length + ' modelos de texto.')
+    } catch (e) { setIaError((e as Error).message) }
+    setCargandoIa(false)
+  }
+  useEffect(() => { if (conModelo) cargarModelos(false, true) }, []) // eslint-disable-line react-hooks/exhaustive-deps
   async function guardar() {
     if (!clave.trim() && !conModelo) { aviso('Pega la clave primero.'); return }
     setOcupado('guardar')
@@ -139,9 +158,10 @@ function Tarjeta({ proveedor, titulo, sub, est, aviso, cambio, ayuda, conModelo 
     setOcupado('')
     if (error) { aviso('No se pudo guardar: ' + error.message); return }
     const nueva = !!clave.trim(); setClave(''); aviso(nueva ? 'Clave guardada. Probando la conexión…' : 'Configuración guardada.'); cambio()
-    if (nueva) probar()
+    if (nueva) probarYListar(true)
   }
-  async function probar() {
+  async function probar() { await probarYListar(false) }
+  async function probarYListar(claveNueva: boolean) {
     setOcupado('probar')
     try {
       const r = await llamar<{ ok: boolean; mensaje: string; extra?: typeof cuentas }>('probar', { proveedor })
@@ -149,7 +169,10 @@ function Tarjeta({ proveedor, titulo, sub, est, aviso, cambio, ayuda, conModelo 
       aviso(r.mensaje)
     } catch (e) { aviso((e as Error).message) }
     setOcupado(''); cambio()
+    if (conModelo) cargarModelos(claveNueva, true) // con clave nueva, la lista se pide otra vez a Google
   }
+  const usando = modelo === 'auto' ? ia?.auto : modelo
+  const fechaLista = ia?.actualizado ? new Date(ia.actualizado).toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' }) : ''
   async function quitar() {
     if (!confirm('¿Desconectar ' + (proveedor === 'zernio' ? 'Zernio' : 'Gemini') + '? Dejará de funcionar hasta que pegues una clave nueva.')) return
     const { error } = await supabase.rpc('integracion_quitar', { p_proveedor: proveedor })
@@ -166,10 +189,24 @@ function Tarjeta({ proveedor, titulo, sub, est, aviso, cambio, ayuda, conModelo 
       <p className="text-[11px] text-slate-500 mt-3">{ayuda}</p>
       <label className="block text-[11px] font-bold text-slate-500 mt-3">Clave de API{est.configurado && <span className="font-mono-spec font-normal text-slate-400"> · actual {est.vista}</span>}
         <input type="password" autoComplete="off" value={clave} onChange={(e) => setClave(e.target.value)} className="inp w-full mt-1" placeholder={est.configurado ? 'Pega una nueva para reemplazarla' : 'Pega aquí la clave'} /></label>
-      {conModelo && (
+      {conModelo && (<>
         <label className="block text-[11px] font-bold text-slate-500 mt-3">Modelo de IA
-          <select value={modelo} onChange={(e) => setModelo(e.target.value)} className="inp w-full mt-1">{MODELOS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}</select></label>
-      )}
+          <select value={modelo} onChange={(e) => setModelo(e.target.value)} className="inp w-full mt-1">
+            <option value="auto">Automático · siempre el más reciente (recomendado)</option>
+            {modelo !== 'auto' && !ia?.modelos.some((m) => m.id === modelo) && <option value={modelo}>{modelo}</option>}
+            {(ia?.modelos ?? []).map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+          </select></label>
+        <div className="flex items-center gap-1 flex-wrap mt-1 text-[10px] text-slate-500">
+          <span className="min-w-0">
+            {ia ? <>Usando: <b className="font-mono-spec">{usando}</b> · {ia.origen === 'respaldo' ? 'lista de respaldo' : 'lista actualizada ' + fechaLista}</>
+              : iaError ? <span className="text-amber-700">No se pudo cargar la lista de modelos: {iaError}</span>
+                : 'Consultando los modelos de Google…'}
+          </span>
+          <button type="button" className="inline-flex items-center gap-1 font-bold ml-auto" style={{ color: 'var(--primary)' }} onClick={() => cargarModelos(true)} disabled={cargandoIa}>
+            <RefreshCw className="w-3 h-3" />{cargandoIa ? 'Actualizando…' : 'Actualizar lista de modelos'}</button>
+        </div>
+        {ia?.falla && <p className="text-[10px] text-amber-700 mt-1">Google no entregó la lista ({ia.falla}): se usa {ia.origen === 'cache' ? 'la última lista guardada' : 'una lista mínima de respaldo'}.</p>}
+      </>)}
       {prueba && <p className="text-[11px] mt-3 rounded-lg px-3 py-2" style={ok ? { background: '#ecfaf5', color: '#04896f' } : { background: '#fdecea', color: '#a3341f' }}>{prueba.replace(/^(ok|error): /, '')}{est.probado_en ? ' · ' + new Date(est.probado_en).toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' }) : ''}</p>}
       {cuentas.length > 0 && <div className="flex flex-wrap gap-1.5 mt-3">{cuentas.map((c) => <span key={c.id} className="pill" style={{ background: '#eff6ff', color: '#055c9d' }}>{c.plataforma} · {c.nombre}</span>)}</div>}
       <div className="flex gap-2 flex-wrap mt-4">
