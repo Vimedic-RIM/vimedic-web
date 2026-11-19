@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, ArrowLeftRight, Calculator, Download, ExternalLink, FileText, Layers, List, Package, Pencil, RefreshCw, Search, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeftRight, BadgeCheck, Calculator, Download, ExternalLink, FileText, Layers, List, Package, Pencil, RefreshCw, Search, X } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
@@ -10,6 +10,7 @@ import '../estilos/movimientos.css'
 type Mov = { id: string; codigo: string; fecha: string; tipo: string; cantidad: number; bodega: string; item: string; nombre: string; imagen: string; cliente: string; factura: string; facturaUrl: string; operacion: string; responsable: string; observacion: string; productoId: string | null; facturaId: string | null; ingresoId: string | null }
 type Prod = { id: string; codigo: string; nombre: string; stock: number; stock_por_reparar?: number | null; imagen_url: string | null; categoria?: { nombre: string } | null; pvp?: number | null }
 type Kpis = { n: number; ing: number; sal: number; productos: number }
+type Control = { facturas_sin_salida: { codigo: string; numero: string | null; fecha: string; cliente: string | null }[]; descuadrados: { id: string; codigo: string; nombre: string; stock: number; segun_movimientos: number; tecnica: number; tecnica_segun_movimientos: number }[] }
 const COLS = 'id,codigo,fecha,tipo,cantidad,bodega,item,nombre,imagen_url,cliente,factura,factura_url,operacion,responsable,observacion,producto_id,factura_id,ingreso_id'
 const COLS_PROD = 'id,codigo,nombre,stock,stock_por_reparar,imagen_url'
 const POR_PAGINA = 25
@@ -100,8 +101,15 @@ export default function Movimientos({ perfil, aviso, productoInicial, limpiarPro
     if (data) setProd(data as Prod)
   }, [prod])
   useEffect(() => { cargar() }, [cargar])
+  /* Control del stock (mov_control_stock): facturas registradas sin su salida y productos que no cuadran con sus movimientos */
+  const [control, setControl] = useState<Control | null>(null)
+  const revisarControl = useCallback(async () => {
+    const { data, error } = await supabase.rpc('mov_control_stock')
+    if (!error && data) setControl(data as Control)
+  }, [])
+  useEffect(() => { revisarControl() }, [revisarControl])
   useEffect(() => {
-    const recargar = agrupar(() => cargar())
+    const recargar = agrupar(() => { cargar(); revisarControl() })
     const c = supabase.channel('mov-lista').on('postgres_changes', { event: '*', schema: 'public', table: 'movimientos_inventario' }, recargar).subscribe()
     return () => { recargar.cancelar(); supabase.removeChannel(c) }
   }, [cargar])
@@ -123,7 +131,7 @@ export default function Movimientos({ perfil, aviso, productoInicial, limpiarPro
     setStockModal('trabajando')
     const { data, error } = await supabase.rpc('recalcular_stock_general')
     if (error) { setStockModal({ error: error.message }); return }
-    setStockModal({ r: data as never }); cargar()
+    setStockModal({ r: data as never }); cargar(); revisarControl()
   }
 
   return (
@@ -140,6 +148,16 @@ export default function Movimientos({ perfil, aviso, productoInicial, limpiarPro
         </div>
       </header>
       <main className="max-w-[1500px] mx-auto px-4 py-4 space-y-3">
+        {control && (control.facturas_sin_salida.length || control.descuadrados.length ? (
+          <div className="mv-ctl mal" role="alert">
+            <AlertTriangle />
+            <div className="min-w-0 flex-1">
+              <b>Control del stock: hay que revisar</b>
+              {control.facturas_sin_salida.length > 0 && <p>{control.facturas_sin_salida.length} factura(s) registradas sin su salida de inventario: {control.facturas_sin_salida.slice(0, 6).map((f) => f.codigo + (f.numero ? ' (Nº ' + f.numero + ')' : '')).join(', ')}{control.facturas_sin_salida.length > 6 ? '…' : ''}</p>}
+              {control.descuadrados.length > 0 && <p>{control.descuadrados.length} producto(s) con un stock distinto a la suma de sus movimientos: {control.descuadrados.slice(0, 6).map((d) => d.codigo + ' ' + num(d.stock) + ' → ' + num(d.segun_movimientos) + (d.tecnica !== d.tecnica_segun_movimientos ? ' (Técnica ' + num(d.tecnica) + ' → ' + num(d.tecnica_segun_movimientos) + ')' : '')).join(', ')}{control.descuadrados.length > 6 ? '…' : ''}{puedeEditar ? '. «Actualizar stock» los iguala a sus movimientos.' : '.'}</p>}
+            </div>
+          </div>
+        ) : <p className="mv-ctl ok"><BadgeCheck />Control del stock: cada factura tiene su salida y el stock de cada producto cuadra con sus movimientos.</p>)}
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
           <div className="kpi"><span>Movimientos</span><b>{kpis ? num(kpis.n) : '—'}</b></div>
           <div className="kpi"><span>Unidades ingresadas</span><b style={{ color: 'var(--teal)' }}>{kpis ? num(kpis.ing) : '—'}</b></div>

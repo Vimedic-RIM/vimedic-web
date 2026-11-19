@@ -220,3 +220,10 @@
 .vm-mov .stk.tec b{color:#b91c1c}
 .vm-mov .acu{display:block;font-size:9.5px;font-weight:600;color:#94a3b8}
 @media(max-width:640px){.vm-mov .stk{min-width:0;flex:1}}
+/* Control del stock (mov_control_stock) */
+.vm-mov .mv-ctl{display:flex;align-items:flex-start;gap:8px;border-radius:14px;padding:8px 12px;font-size:11.5px;line-height:1.45;margin:0}
+.vm-mov .mv-ctl svg{width:16px;height:16px;flex-shrink:0;margin-top:1px}
+.vm-mov .mv-ctl.ok{color:#047857;background:#ecfdf5;border:1px solid #a7f3d0;align-items:center}
+.vm-mov .mv-ctl.mal{color:#92400e;background:#fffbeb;border:1px solid #fcd34d}
+.vm-mov .mv-ctl.mal b{display:block;font-size:12.5px;color:#78350f}
+.vm-mov .mv-ctl.mal p{margin:2px 0 0}

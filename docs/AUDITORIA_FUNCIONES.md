@@ -858,3 +858,19 @@ productos y categorías, oportunidades abiertas que cubren la meta y recomendaci
 (sin ver montos de otros). Coordinación (CRM ver todos, Dashboard o jefe con equipo) ve el equipo: ranking con barra de
 meta, metas editables por asesor (quedan como mínimo; el asesor puede subirla, no bajarla) y el panel de cada uno.
 Base: `metas_ventas`, `ven_panel`, `ven_meta_guardar` (migración `20261118180000_ventas_metas.sql`, 9/9 pruebas en ensayo).
+
+
+## Revisión de los procesos que mueven stock (19-nov)
+
+Cada proceso del original que escribe en Movimientos o cambia el stock, contra la app nueva. Prueba de todo el ciclo: `supabase/tests/stock_procesos.sql` (15/15) y `bodegas_comercial_tecnica.sql` (21/21).
+
+| Original | Qué hace | Estado | Dónde quedó |
+|---|---|---|---|
+| `subirFactura` → `crearMovimientosDesdeProductos_` | SALIDA por producto al registrar la factura | ✅ (faltaba hasta el 19-nov) | `app.fac_descargar` + trigger `tg_factura_descargo` |
+| `vmFactEditarProductos` | Cambiar productos de una venta antes de facturar (no mueve stock) | ✅ | Facturación |
+| `vmCrearIngresoConProductos_` (IngresosProveedores) | INGRESO por compra local | ✅ (no funcionaba: columna inexistente y orden de guardado) | `app.registrar_ingreso_proveedor` (migración 20261119110000) |
+| `vmRecRevisar`, `vmRecRevisarDevuelta`, `vmImpConfirmarIngreso`, `vmImpPorReparar` | INGRESO a la Bodega Comercial o Técnica al revisar la importación | ✅ | `rec_revisar`, `rec_revisar_devuelta` |
+| `ncIngresarProductos_`, `registrarRecepcionNC` | Devolución por nota de crédito | ✅ | `nc_registrar`, `nc_registrar_recepcion` (Bodega verifica) |
+| `vmStFinalizar` | SALIDA de repuestos de Servicio Técnico | ✅ (cantidad positiva corregida a negativa) | `st_finalizar` |
+| `vmEditarMovimiento`, `vmRecalcularStockGeneral` | Corregir un movimiento y recalcular | ✅ | Movimientos + `recalcular_stock_producto` / `recalcular_stock_general` |
+| — (nuevo) | Control permanente: facturas sin salida y productos descuadrados | 🆕 | `mov_control_stock`, aviso arriba en Movimientos |
