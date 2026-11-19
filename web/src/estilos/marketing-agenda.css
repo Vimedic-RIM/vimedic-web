@@ -1,0 +1,81 @@
+/* Marketing › Agenda (MarketingAgenda.tsx): semana por horas al estilo de Google Calendar. Dentro de .vm-mkt;
+   usa .mkp-* de marketing-plan.css para la barra y las ventanas. */
+.vm-mkt .mka-vistas button{border:0;background:none;font-size:12px;font-weight:800;color:#64748b;padding:6px 10px;border-radius:9px;cursor:pointer}
+.vm-mkt .mka-vistas button.on{background:#eef6fd;color:var(--primary)}
+
+/* Gente (cada persona con su color) y campañas */
+.vm-mkt .mka-gente{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.vm-mkt .mka-chip{display:inline-flex;align-items:center;gap:6px;border:1px solid #e2e8f0;background:#fff;border-radius:99px;padding:4px 10px 4px 6px;font-size:11.5px;font-weight:700;color:#64748b;cursor:pointer}
+.vm-mkt .mka-chip i{width:12px;height:12px;border-radius:50%;background:var(--c);opacity:.3;flex-shrink:0}
+.vm-mkt .mka-chip small{font-weight:600;color:#94a3b8;font-size:10.5px}
+.vm-mkt .mka-chip.on{color:#0b2545;border-color:var(--c);background:color-mix(in srgb,var(--c) 8%,#fff)}
+.vm-mkt .mka-chip.on i{opacity:1}
+.vm-mkt .mka-camps{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.vm-mkt .mka-camp{display:inline-flex;align-items:center;gap:6px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:10px;padding:5px 10px;font-size:11.5px}
+.vm-mkt .mka-camp svg{width:14px;height:14px;flex-shrink:0}
+.vm-mkt .mka-camp b{font-weight:800}
+
+/* Calendario */
+.vm-mkt .mka-cal{border:1px solid #e2e8f0;border-radius:16px;background:#fff;overflow:auto;max-height:calc(100vh - 260px);min-height:420px;-webkit-overflow-scrolling:touch}
+.vm-mkt .mka-grid{display:grid;position:relative}
+.vm-mkt .mka-th{position:sticky;top:0;z-index:5;height:52px;box-sizing:border-box;justify-content:center;background:#f8fafc;border:0;border-bottom:1px solid #e2e8f0;border-right:1px solid #f1f5f9;padding:6px 4px;text-align:center;font:inherit;font-size:11px;font-weight:800;color:#64748b;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:1px;text-transform:capitalize}
+.vm-mkt .mka-th b{display:inline-block;font-size:17px;font-family:"Space Grotesk",sans-serif;color:#0b2545;line-height:1.15;min-width:28px;padding:1px 6px;border-radius:99px}
+.vm-mkt .mka-th.hoy span{color:var(--primary)}
+.vm-mkt .mka-th.hoy b{background:var(--primary);color:#fff}
+.vm-mkt .mka-th:hover b{box-shadow:0 0 0 2px #d6e6f5}
+.vm-mkt .mka-th small{font-size:9.5px;font-weight:600;color:#94a3b8;text-transform:none}
+.vm-mkt .mka-th-n{font-size:11.5px;color:#0b2545;text-transform:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.vm-mkt .mka-th.esq{left:0;z-index:7;cursor:default}
+.vm-mkt .mka-th.per{flex-direction:row;gap:6px;cursor:default;padding:4px 6px}
+.vm-mkt .mka-th-p{display:flex;flex-direction:column;align-items:flex-start;min-width:0}
+.vm-mkt .mka-av{width:26px;height:26px;flex-shrink:0;border-radius:50%;display:inline-grid;place-items:center;color:#fff;font-size:10.5px;font-weight:800;background:var(--c)}
+.vm-mkt .mka-av svg{width:14px;height:14px}
+
+.vm-mkt .mka-todo{position:sticky;top:52px;z-index:4;border-bottom:2px solid #e2e8f0;border-right:1px solid #f1f5f9;padding:3px;min-height:30px;display:flex;flex-direction:column;gap:3px;background:#fcfdff;min-width:0}
+.vm-mkt .mka-todo.lab{position:sticky;left:0;z-index:6;font-size:9.5px;color:#94a3b8;font-weight:700;align-items:flex-end;justify-content:center;padding-right:6px;text-align:right;line-height:1.1}
+.vm-mkt .mka-todo.encima{background:#e8f2fc;outline:2px dashed var(--primary);outline-offset:-3px}
+.vm-mkt .mka-dia-chip{display:block;width:100%;border:0;border-left:3px solid var(--c);background:color-mix(in srgb,var(--c) 12%,#fff);border-radius:6px;padding:2px 5px;font:inherit;font-size:10.5px;font-weight:700;color:#0b2545;text-align:left;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vm-mkt .mka-dia-chip svg{width:11px;height:11px;display:inline;vertical-align:-1px;margin-right:3px;color:var(--c)}
+.vm-mkt .mka-dia-chip small{font-weight:600;color:#64748b}
+.vm-mkt .mka-dia-chip[draggable=true]{cursor:grab}
+.vm-mkt .mka-dia-chip.listo{opacity:.55;text-decoration:line-through}
+.vm-mkt .mka-mas{border:0;background:none;color:var(--primary);font-size:10px;font-weight:800;cursor:pointer;text-align:left;padding:0 4px}
+
+.vm-mkt .mka-hrs{position:sticky;left:0;z-index:3;background:#fff;border-right:1px solid #e2e8f0}
+.vm-mkt .mka-hrs span{position:absolute;right:6px;font-size:10px;color:#94a3b8;transform:translateY(-50%);white-space:nowrap}
+.vm-mkt .mka-col{position:relative;min-width:0;border-right:1px solid #f1f5f9;
+  background-image:repeating-linear-gradient(to bottom,#e9eef4 0,#e9eef4 1px,transparent 1px,transparent calc(var(--px) / 2),#f5f7fa calc(var(--px) / 2),#f5f7fa calc(var(--px) / 2 + 1px),transparent calc(var(--px) / 2 + 1px),transparent var(--px))}
+.vm-mkt .mka-col.hoy{background-color:#fafcff}
+.vm-mkt .mka-col.crea{cursor:cell}
+
+/* Citas */
+.vm-mkt .mka-ev{position:absolute;z-index:1;border:0;border-left:3px solid var(--c);background:color-mix(in srgb,var(--c) 14%,#fff);color:#0b2545;border-radius:7px;padding:2px 5px;text-align:left;font:inherit;overflow:hidden;cursor:pointer;display:flex;flex-direction:column;gap:1px}
+.vm-mkt .mka-ev:hover{z-index:4;box-shadow:0 6px 14px -8px rgba(11,37,69,.55)}
+.vm-mkt .mka-ev[draggable=true]{cursor:grab}
+.vm-mkt .mka-ev .h{font-size:9.5px;font-weight:700;color:color-mix(in srgb,var(--c) 80%,#0b2545);white-space:nowrap}
+.vm-mkt .mka-ev .t{font-size:11px;font-weight:700;line-height:1.2;overflow-wrap:anywhere;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
+.vm-mkt .mka-ev .t svg{width:11px;height:11px;display:inline;vertical-align:-1px;margin-right:3px}
+.vm-mkt .mka-ev.corta{flex-direction:row;align-items:center;padding:0 5px}
+.vm-mkt .mka-ev .t1{font-size:10.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.vm-mkt .mka-ev .t1 svg{width:11px;height:11px;display:inline;vertical-align:-1px;margin-right:3px}
+.vm-mkt .mka-ev .t1 em{font-style:normal;font-weight:600;color:#64748b;margin-left:4px}
+.vm-mkt .mka-ev .q{font-size:9.5px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vm-mkt .mka-ev.priv{background:repeating-linear-gradient(135deg,#f1f5f9 0,#f1f5f9 6px,#e2e8f0 6px,#e2e8f0 8px);border-left-color:#94a3b8;color:#64748b;cursor:default}
+.vm-mkt .mka-ev.priv .h{color:#64748b}
+.vm-mkt .mka-ev.listo{opacity:.55}
+.vm-mkt .mka-ev.listo .t{text-decoration:line-through}
+.vm-mkt .mka-ev.pub{background:#fff;border:1px dashed var(--c);border-left:3px solid var(--c)}
+.vm-mkt .mka-ahora{position:absolute;left:0;right:0;height:2px;background:#e11d48;z-index:2;pointer-events:none}
+.vm-mkt .mka-ahora::before{content:"";position:absolute;left:-4px;top:-4px;width:10px;height:10px;border-radius:50%;background:#e11d48}
+.vm-mkt .mka-ahora.sin-punto::before{display:none}
+.vm-mkt .mka-fantasma{position:absolute;left:2px;right:2px;height:2px;background:var(--primary);z-index:3;pointer-events:none}
+.vm-mkt .mka-fantasma span{position:absolute;left:4px;top:-17px;background:var(--primary);color:#fff;font-size:10px;font-weight:800;border-radius:6px;padding:1px 5px}
+
+/* Detalle y formulario */
+.vm-mkt .mka-dato{display:flex;align-items:flex-start;gap:8px;font-size:12.5px;color:#334155;margin-top:8px}
+.vm-mkt .mka-dato svg{width:15px;height:15px;color:#64748b;flex-shrink:0;margin-top:1px}
+.vm-mkt .mka-inv{display:flex;flex-wrap:wrap;gap:6px}
+.vm-mkt .mka-inv button{display:inline-flex;align-items:center;gap:5px;border:1px solid #e2e8f0;background:#fff;border-radius:99px;padding:4px 10px;font-size:11.5px;font-weight:700;color:#475569;cursor:pointer}
+.vm-mkt .mka-inv button svg{width:12px;height:12px}
+.vm-mkt .mka-inv button.on{background:#eef6fd;border-color:var(--primary);color:var(--primary)}
+@media(max-width:560px){.vm-mkt .mka-cal{max-height:calc(100vh - 230px)}}

@@ -1,12 +1,13 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Activity, AlertCircle, Award, BadgePercent, BookOpen, CalendarDays, CalendarRange, CheckCircle2, ClipboardCheck, ClipboardList, Clapperboard, DollarSign, Download, FileText, Filter, FolderUp,
+  Activity, AlertCircle, Award, BadgePercent, BookOpen, CalendarClock, CalendarDays, CalendarRange, CheckCircle2, ClipboardCheck, ClipboardList, Clapperboard, DollarSign, Download, FileText, Filter, FolderUp,
   GalleryHorizontal as Gallery, Image as ImageIcon, Images, LayoutDashboard, Lightbulb, ListChecks, Megaphone, PenLine, PieChart, Receipt, RefreshCw, Search, Send, ShoppingBag, Smartphone, Palette,
   Target, TrendingUp, Trash2, UploadCloud, UserCheck, Users, Video, X, Settings, Copy,
 } from 'lucide-react'
 import { Configuracion, Biblioteca } from './MarketingIntegraciones'
 import { Revision } from './MarketingRevision'
 import { PlanTrabajo, type PendientePlan } from './MarketingPlan'
+import { AgendaMarketing } from './MarketingAgenda'
 import { Planificador } from './MarketingPlanificador'
 import { Anuncios, Material, Promociones } from './MarketingExtra'
 import { SubirMaterial, PapeleraAv, BuscadorProducto, useEquipo, type ProdBusq } from './MarketingArchivos'
@@ -57,10 +58,11 @@ const TITLES: Record<string, [string, string]> = {
   biblioteca: ['Biblioteca de productos', 'Imágenes, fichas técnicas y álbumes de cada equipo.'], material: ['Material de proveedores', 'Fichas técnicas, manuales, certificaciones y videos que suben los proveedores.'],
   revision: ['Revisión del equipo', 'Aprobaciones, cambios aplicados y trabajo de cada persona.'], promociones: ['Promociones', 'Campañas de descuento: Black Friday, liquidaciones y ofertas.'],
   plan: ['Plan de trabajo', 'Programa las actividades del equipo: fichas, fotos, videos, documentos del proveedor y publicaciones.'],
+  agenda: ['Agenda', 'La semana por horas de quien coordina y su equipo: reuniones, tareas del plan, publicaciones y campañas.'],
   configuracion: ['Configuración', 'Conecta Google Drive, Zernio (redes sociales), Gemini (inteligencia artificial) y los píxeles.'],
 }
 const NAV: [string, string, typeof LayoutDashboard][] = [
-  ['resumen', 'Resumen', LayoutDashboard], ['planificador', 'Planificador', CalendarDays], ['audiovisual', 'Audiovisual', Clapperboard], ['plan', 'Plan de trabajo', ClipboardList], ['anuncios', 'Anuncios', Megaphone],
+  ['resumen', 'Resumen', LayoutDashboard], ['planificador', 'Planificador', CalendarDays], ['audiovisual', 'Audiovisual', Clapperboard], ['plan', 'Plan de trabajo', ClipboardList], ['agenda', 'Agenda', CalendarClock], ['anuncios', 'Anuncios', Megaphone],
   ['biblioteca', 'Biblioteca', Images], ['material', 'Material de proveedores', FolderUp], ['importacion', 'Importaciones', PackageSearch], ['revision', 'Revisión', ClipboardCheck], ['promociones', 'Promociones', BadgePercent], ['configuracion', 'Configuración', Settings],
 ]
 const AV_COLOR: Record<string, string> = { Idea: '#94a3b8', 'En producción': '#c98a1f', 'En edición': '#7c3aed', Listo: '#17a9ba', Programado: '#055c9d', Publicado: '#04896f' }
@@ -420,6 +422,7 @@ export default function Marketing({ perfil, aviso, accion, limpiarAccion }: { pe
 
         {tab === 'planificador' && <Planificador perfil={perfil} piezas={(av ?? []).map((a) => ({ id: a.id, titulo: a.titulo, tipo: a.tipo, estado: a.estado, url: a.url, producto: a.producto, mime: a.mime, notas: a.notas, productoId: a.productoId ?? undefined, enlace: enlaceZernio(a), mini: miniaturaAv(a, 480) }))} piezaInicial={piezaProgramar ? { id: piezaProgramar.id, titulo: piezaProgramar.titulo, tipo: piezaProgramar.tipo, estado: piezaProgramar.estado, url: piezaProgramar.url, producto: piezaProgramar.producto, mime: piezaProgramar.mime, notas: piezaProgramar.notas, productoId: piezaProgramar.productoId ?? undefined, enlace: enlaceZernio(piezaProgramar), mini: miniaturaAv(piezaProgramar, 480) } : null} limpiarPieza={() => setPiezaProgramar(null)} irConfig={() => setTab('configuracion')} aviso={aviso} alSincronizar={cargarDatos} abrirAlEntrar={abrirPublicacion} consumirAbrir={() => setAbrirPublicacion(false)} />}
         {tab === 'biblioteca' && <Biblioteca perfil={perfil} aviso={aviso} asignar={coordina ? (p) => { setPendientePlan(p); setTab('plan') } : undefined} />}
+        {tab === 'agenda' && <AgendaMarketing aviso={aviso} irA={setTab} />}
         {tab === 'plan' && <PlanTrabajo perfil={perfil} aviso={aviso} irA={setTab} pendiente={pendientePlan} consumirPendiente={consumirPendientePlan} />}
         {tab === 'revision' && coordina && <Revision perfil={perfil} aviso={aviso} irA={setTab} />}
         {tab === 'configuracion' && puedeAdmin && <Configuracion aviso={aviso} alCambiar={() => undefined} />}
