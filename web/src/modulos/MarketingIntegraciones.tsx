@@ -76,11 +76,63 @@ export function Configuracion({ aviso, alCambiar }: { aviso: (t: string) => void
           ayuda="En console.anthropic.com entra a API Keys, crea una clave y pégala aquí. Mientras Claude esté conectado, toda la IA de la app usa Claude." modelosFijos={MODELOS_CLAUDE} />
         <Tarjeta proveedor="gemini" titulo="Gemini · IA de respaldo" sub={ver('claude').configurado ? 'No se usa: la IA de la app es Claude. Solo entra si desconectas Claude.' : 'Se usa solo mientras Claude no esté conectado.'} est={ver('gemini')} aviso={aviso} cambio={() => { cargar(); alCambiar() }}
           ayuda="Crea una clave en Google AI Studio (aistudio.google.com/apikey) y pégala aquí." conModelo />
+        <TarjetaWhatsapp aviso={aviso} />
         <TarjetaDrive est={ver('drive')} estApp={ver('google_app')} aviso={aviso} cambio={() => { cargar(); alCambiar() }} />
         <TarjetaPixel proveedor="meta_pixel" titulo="Meta Conversions API" color="#1877f2" est={ver('meta_pixel')} aviso={aviso} cambio={() => { cargar(); alCambiar() }} />
         <TarjetaPixel proveedor="tiktok_pixel" titulo="TikTok Events API" color="#000000" est={ver('tiktok_pixel')} aviso={aviso} cambio={() => { cargar(); alCambiar() }} />
       </div>
     </section>
+  )
+}
+
+/* WhatsApp en las publicaciones: al publicar en Facebook se agrega un enlace que abre el chat con un mensaje
+   que dice de qué publicación viene; en Instagram, el número. El teléfono sale de Empleados. */
+function TarjetaWhatsapp({ aviso }: { aviso: (t: string) => void }) {
+  type Op = { id: string; nombre: string; cargo: string | null; termina: string }
+  const [ops, setOps] = useState<Op[] | null>(null)
+  const [emp, setEmp] = useState('')
+  const [activo, setActivo] = useState(true)
+  const [guardado, setGuardado] = useState<{ empleado_id?: string; activo?: boolean } | null>(null)
+  const [ocupado, setOcupado] = useState(false)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    supabase.rpc('mkt_whatsapp_opciones').then(({ data, error }) => {
+      if (error) { setError(error.message); return }
+      const d = data as { actual: { empleado_id?: string; activo?: boolean } | null; empleados: Op[] }
+      setOps(d.empleados ?? []); setGuardado(d.actual); setEmp(d.actual?.empleado_id ?? ''); setActivo(d.actual?.activo !== false)
+    })
+  }, [])
+  async function guardar() {
+    if (!emp) { aviso('Elige a quién le llegan los mensajes.'); return }
+    setOcupado(true)
+    const { data, error } = await supabase.rpc('mkt_whatsapp_guardar', { p_empleado: emp, p_activo: activo })
+    setOcupado(false)
+    if (error) { aviso('No se pudo guardar: ' + error.message); return }
+    setGuardado(data as { empleado_id?: string; activo?: boolean }); aviso(activo ? 'Listo: las publicaciones de Facebook e Instagram llevarán el WhatsApp.' : 'WhatsApp en las publicaciones desactivado.')
+  }
+  const cambiado = !!guardado && (guardado.empleado_id !== emp || (guardado.activo !== false) !== activo)
+  const elegido = ops?.find((o) => o.id === emp)
+  return (
+    <article className="card p-5">
+      <div className="flex items-start gap-3">
+        <span className="w-10 h-10 rounded-xl grid place-items-center shrink-0" style={{ background: '#25d3661A', color: '#128c4b' }}><Link2 className="w-5 h-5" /></span>
+        <div className="min-w-0 flex-1"><h3 className="font-display font-bold text-sm text-slate-800">WhatsApp en las publicaciones</h3>
+          <p className="text-[11px] text-slate-500">Facebook: enlace que abre el chat con «Vengo de su publicación en Facebook sobre…». Instagram: el número (allí los enlaces no se pueden tocar).</p></div>
+        {guardado && <span className="pill shrink-0" style={guardado.activo !== false ? { background: '#ecfaf5', color: '#04896f' } : { background: '#f1f5f9', color: '#64748b' }}>{guardado.activo !== false ? 'Activo' : 'Apagado'}</span>}
+      </div>
+      {error ? <p className="text-[11px] text-amber-700 mt-3">{error}</p> : !ops ? <p className="text-[11px] text-slate-400 mt-3">Cargando…</p> : <>
+        <label className="block text-[11px] font-bold text-slate-500 mt-3">Los mensajes le llegan a
+          <select value={emp} onChange={(e) => setEmp(e.target.value)} className="inp w-full mt-1">
+            <option value="">— Elegir —</option>
+            {ops.map((o) => <option key={o.id} value={o.id}>{o.nombre}{o.cargo ? ' · ' + o.cargo : ''} · cel. …{o.termina}</option>)}
+          </select></label>
+        <p className="text-[10px] text-slate-400 mt-1">Solo aparecen empleados activos con celular en Empleados.{elegido ? ' Se usa el celular que termina en ' + elegido.termina + '.' : ''}</p>
+        <div className="flex items-center gap-2 mt-3 text-[11px] font-bold text-slate-600"><Interruptor activo={activo} cambiar={() => setActivo((a) => !a)} />{activo ? 'Agregar el WhatsApp al publicar' : 'No agregar el WhatsApp'}</div>
+        <div className="flex gap-2 flex-wrap mt-4">
+          <button type="button" className="btn btn-primary" onClick={guardar} disabled={ocupado || (!cambiado && !!guardado)}><Check />{ocupado ? 'Guardando…' : 'Guardar'}</button>
+        </div>
+      </>}
+    </article>
   )
 }
 

@@ -521,6 +521,12 @@ function Composer({ modo, post, dia, hora, pieza: piezaIni, cuentas, piezas, rol
   posts: Post[]; hayMas: boolean; cargandoPosts: boolean; cargarMas: () => void
 }) {
   const [verPiezas, setVerPiezas] = useState(false)
+  // WhatsApp que se agrega al publicar en Facebook / Instagram (Marketing › Configuración): nombre del contacto si está activo.
+  const [waPub, setWaPub] = useState('')
+  useEffect(() => {
+    supabase.from('marketing_ajustes').select('valor').eq('clave', 'whatsapp_publicaciones').is('deleted_at', null).maybeSingle()
+      .then(({ data }) => { const v = (data?.valor ?? {}) as { activo?: boolean; nombre?: string }; setWaPub(v.activo && v.nombre ? v.nombre : '') })
+  }, [])
   const editar = modo === 'edit' && !!post
   const fechaIni = () => {
     if (editar) { const d = ecDate(post!.fecha); return d && d.t > Date.now() ? d.key + 'T' + hm(d.h, d.m) : '' }
@@ -680,6 +686,11 @@ function Composer({ modo, post, dia, hora, pieza: piezaIni, cuentas, piezas, rol
               <label key={c.id} className="acc-chip"><input type="checkbox" checked={sel.includes(c.id)} onChange={(e) => setSel((s) => (e.target.checked ? [...s, c.id] : s.filter((x) => x !== c.id)))} /><Punto p={c.plataforma} />{c.nombre}</label>
             )) : <span className="text-[11px] text-slate-400">No hay cuentas conectadas en Zernio.</span>}</div>
           </div>}
+          {waPub && formato !== 'story' && (() => {
+            const redes = new Set((editar ? post!.plataformas : cuentas.filter((c) => sel.includes(c.id)).map((c) => c.plataforma)).map((x) => String(x).toLowerCase()))
+            if (!redes.has('facebook') && !redes.has('instagram')) return null
+            return <p className="mkwa-aviso"><span>💬</span><span>Al publicar se agrega el WhatsApp de <b>{waPub}</b>{redes.has('facebook') && <>: en <b>Facebook</b>, un enlace que abre el chat con el mensaje «Vengo de su publicación en Facebook…»</>}{redes.has('instagram') && <>{redes.has('facebook') ? '; en ' : ': en '}<b>Instagram</b>, el número</>}.</span></p>
+          })()}
           {!editar && <div className="grid sm:grid-cols-2 gap-3">
             <label className="block text-[11px] font-bold text-slate-500">Formato
               <select value={formato} onChange={(e) => setFormato(e.target.value)} className="inp w-full mt-1">{FORMATOS.map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select></label>

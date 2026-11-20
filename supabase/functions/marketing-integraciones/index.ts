@@ -3,6 +3,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
 import { credencialGemini, estadoModelos, generarGemini } from '../_shared/gemini.ts'
 import { credencialClaude, generarClaude, generarIA, type Esfuerzo, type ParteIA } from '../_shared/ia.ts'
+import { conWhatsapp, numeroWa, temaPublicacion, type ContactoWa } from '../_shared/whatsapp.ts'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -179,6 +180,16 @@ Deno.serve(async (req) => {
         return { ok: true, enRevision: true, id: data.id, mensaje: 'Enviado al coordinador para aprobación. Aparece en Revisión.' }
       }
 
+      /** WhatsApp en las publicaciones (Marketing › Configuración): contacto activo con celular, o null. */
+      const whatsappPub = async (): Promise<ContactoWa | null> => {
+        const { data: aj } = await admin.from('marketing_ajustes').select('valor').eq('clave', 'whatsapp_publicaciones').is('deleted_at', null).maybeSingle()
+        const v = (aj?.valor ?? {}) as Cualquiera
+        if (!v.activo || !v.empleado_id) return null
+        const { data: e } = await admin.from('empleados').select('nombre,telefono,estado').eq('id', v.empleado_id).is('deleted_at', null).maybeSingle()
+        const numero = numeroWa(e?.telefono)
+        return e && e.estado === 'activo' && numero ? { numero, nombre: String(e.nombre) } : null
+      }
+
       /** mkPublicar: valida formato y reglas de cada red, evita duplicados y registra la publicación. */
       const crearPost = async (d: Cualquiera, aplicando: boolean) => {
         const cuentas = await cuentasZ()
@@ -205,7 +216,7 @@ Deno.serve(async (req) => {
         if (formato === 'reel' && media?.type !== 'video') throw new Falla('Reels requiere un video.')
         if (formato === 'story' && !media) throw new Falla('Historias requiere imagen o video.')
         let conTikTok = false
-        const platforms = ids.map((id) => {
+        const platforms: Record<string, unknown>[] = ids.map((id) => {
           const a = cuentas.find((c) => c.id === id); if (!a) throw new Falla('Cuenta no autorizada.')
           const pl = a.plataforma.toLowerCase(), esVideo = media?.type === 'video'
           if (pl === 'instagram' && !media) throw new Falla('Instagram requiere una imagen o un video.')
@@ -225,6 +236,18 @@ Deno.serve(async (req) => {
           if (formato === 'story' || (formato === 'reel' && pl === 'facebook')) p.platformSpecificData = { contentType: formato }
           return p
         })
+        // WhatsApp al final del texto de Facebook (enlace con mensaje de origen) e Instagram (número). Las historias no llevan texto.
+        const wa = formato === 'story' ? null : await whatsappPub()
+        if (wa) {
+          const tema = temaPublicacion(d.productoTexto, contenido)
+          for (const p of platforms) {
+            const red = String(p.platform).toLowerCase()
+            const t = conWhatsapp(contenido, red, wa, tema)
+            if (t === contenido) continue
+            if (red === 'instagram' && [...t].length > 2200) throw new Falla(`Con el WhatsApp, el texto de Instagram pasa de 2.200 caracteres: acórtalo unos ${[...t].length - 2200} caracteres.`)
+            p.customContent = t
+          }
+        }
         const cuerpo: Record<string, unknown> = { content: contenido, platforms, timezone: TZ }
         if (conTikTok) cuerpo.tiktokSettings = { privacy_level: 'PUBLIC_TO_EVERYONE', allow_comment: true, allow_duet: true, allow_stitch: true, content_preview_confirmed: true, express_consent_given: true }
         if (media) cuerpo.mediaItems = [{ url: media.url, type: media.type }]
@@ -271,6 +294,31 @@ Deno.serve(async (req) => {
         const contenido = String(d.contenido ?? '').trim()
         if ([...contenido].length > 5000) throw new Falla('El texto supera 5000 caracteres.')
         const cuerpo: Record<string, unknown> = { timezone: TZ, content: contenido }
+        // Facebook e Instagram llevan su propio texto (con el WhatsApp): se reescribe también, si no la edición no llegaría a esas redes.
+        const plats = (Array.isArray(p.platforms) ? p.platforms : []) as Cualquiera[]
+        const redFi = (x: Cualquiera) => ['facebook', 'instagram'].includes(String(x?.platform || '').toLowerCase())
+        if (plats.some(redFi)) {
+          const wa = await whatsappPub()
+          if (wa || plats.some((x) => x?.customContent)) {
+            const tema = temaPublicacion(d.productoTexto, contenido)
+            const nuevas = plats.map((x) => {
+              const red = String(x.platform || '').toLowerCase()
+              const cuenta = x.accountId && typeof x.accountId === 'object' ? String(x.accountId._id ?? x.accountId.id ?? '') : String(x.accountId ?? '')
+              const o: Record<string, unknown> = { platform: x.platform, accountId: cuenta }
+              if (x.platformSpecificData && typeof x.platformSpecificData === 'object') o.platformSpecificData = x.platformSpecificData
+              const historia = x.platformSpecificData?.contentType === 'story'
+              if (redFi(x)) o.customContent = wa && !historia ? conWhatsapp(contenido, red, wa, tema) : contenido
+              else if (x.customContent) o.customContent = contenido
+              return o
+            })
+            // Solo si se pudo leer bien cada cuenta; si no, se edita como antes (texto general).
+            if (nuevas.every((o) => o.platform && /^[a-zA-Z0-9_-]{6,}$/.test(String(o.accountId)))) {
+              const ig = nuevas.find((o) => String(o.platform).toLowerCase() === 'instagram')
+              if (ig && [...String(ig.customContent ?? '')].length > 2200) throw new Falla(`Con el WhatsApp, el texto de Instagram pasa de 2.200 caracteres: acórtalo unos ${[...String(ig.customContent)].length - 2200} caracteres.`)
+              cuerpo.platforms = nuevas
+            }
+          }
+        }
         if (d.fechaISO) cuerpo.scheduledFor = fechaFutura(d.fechaISO)
         if (d.borrador === false && p.status === 'draft') cuerpo.isDraft = false
         // Seguir editando un borrador (sin fecha ni publicarlo) no necesita aprobación.
