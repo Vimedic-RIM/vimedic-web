@@ -54,7 +54,7 @@ type Categoria = { id: string; nombre: string }
 type Orden = { campo: 'nombre' | 'stock' | 'precio' | 'codigo' | 'codInterno' | 'marca'; dir: 'asc' | 'desc' } | null
 
 const COLUMNAS =
-  'id,codigo,codigo_unico,nombre,marca,pvp,precio_dis,aplica_iva,stock,imagen_url,ficha_tecnica_url,drive_carpeta_url,reservaciones,estado,fecha_creacion,categoria_id,categoria:categorias(nombre)'
+  'id,codigo,codigo_unico,nombre,marca,pvp,precio_dis,aplica_iva,stock,imagen_url,ficha_tecnica_url,drive_carpeta_url,reservaciones,estado,fecha_creacion,categoria_id,categoria:categorias(nombre,orden)'
 
 const CAMPO_BD: Record<string, string> = {
   nombre: 'nombre', stock: 'stock', precio: 'pvp', codigo: 'codigo', codInterno: 'codigo_unico', marca: 'marca',
@@ -518,6 +518,7 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
   const [guardandoOrden, setGuardandoOrden] = useState(false)
   const [papelera, setPapelera] = useState(false)
   const [gestionCat, setGestionCat] = useState(false)
+  const catCambiada = useRef(false) // al cerrar «Categorías del catálogo» se recarga la lista con el orden nuevo
   const reordRef = useRef(false)
   const arrastrando = useRef<string | null>(null)
   // Ordenar catálogo (categorías y productos dentro de cada una): solo quien está autorizado (inventario_ajustes).
@@ -584,7 +585,8 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
   }, [texto])
 
   const cargarCategorias = useCallback(() => {
-    supabase.from('categorias').select('id,nombre').eq('activo', true).is('deleted_at', null).order('nombre')
+    // Mismo orden que «Categorías del catálogo».
+    supabase.from('categorias').select('id,nombre').eq('activo', true).is('deleted_at', null).order('orden', { ascending: true, nullsFirst: false }).order('nombre')
       .then(({ data }) => setCategorias((data as Categoria[]) ?? []))
   }, [])
   useEffect(() => { cargarCategorias() }, [cargarCategorias])
@@ -635,8 +637,11 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
     if (categoria) q = q.eq('categoria_id', categoria)
     if (!mostrarInactivos) q = q.or('estado.is.null,estado.not.ilike.inactivo')
     if (orden) q = q.order(CAMPO_BD[orden.campo], { ascending: orden.dir === 'asc', nullsFirst: false })
-    else q = q.order('en_vista_publica', { ascending: false }).order('orden', { ascending: true, nullsFirst: false })
-    return q.order('nombre', { ascending: true })
+    // Orden del catálogo: primero las categorías en el orden de «Categorías del catálogo» (empate: por nombre, para
+    // que no se mezclen); dentro de cada una, visibles al público primero y luego el orden de «Ordenar».
+    else q = q.order('categoria(orden)', { ascending: true, nullsFirst: false }).order('categoria(nombre)', { ascending: true, nullsFirst: false })
+      .order('en_vista_publica', { ascending: false }).order('orden', { ascending: true, nullsFirst: false })
+    return q.order('nombre', { ascending: true }).order('id')
   }, [busqueda, categoria, mostrarInactivos, orden, idsImp, idsOferta])
 
   // Carga desde cero cuando cambia la búsqueda, el filtro o el orden.
@@ -1168,7 +1173,9 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
       {multimedia && <EditarMultimedia producto={multimedia} cerrar={() => setMultimedia(null)} guardado={() => { setMultimedia(null); setCajon(null); cargar(Math.max(LOTE, items.length)) }} />}
       {band.preciosFemedics && <div role="status" style={{ position: 'fixed', left: '50%', bottom: 14, transform: 'translateX(-50%)', zIndex: 40, background: '#0cc4cf', color: '#fff', font: '700 11px/1.2 Inter,sans-serif', padding: '7px 14px', borderRadius: 999, boxShadow: '0 6px 18px rgba(12,196,207,.35)', pointerEvents: 'none' }}>PVP Femedics +11,11 % aplicado automáticamente</div>}
       {papelera && <PapeleraProductos cerrar={() => setPapelera(false)} restaurado={() => cargar(Math.max(LOTE, items.length))} />}
-      {gestionCat && <GestionCategorias cerrar={() => setGestionCat(false)} actualizado={cargarCategorias} ordenar={puedeOrdenar} />}
+      {gestionCat && <GestionCategorias ordenar={puedeOrdenar}
+        actualizado={() => { cargarCategorias(); catCambiada.current = true }}
+        cerrar={() => { setGestionCat(false); if (catCambiada.current) { catCambiada.current = false; cargar(Math.max(LOTE, itemsRef.current.length)) } }} />}
       {verOfertas && (
         <Suspense fallback={<div className="io-ovl"><p className="io-cargando">Abriendo ofertas…</p></div>}>
           <OfertasVigentes perfil={perfil} femedics={!!band.preciosFemedics} ambas={!!band.ambas} cerrar={() => setVerOfertas(false)} />
