@@ -78,12 +78,109 @@ export function Configuracion({ aviso, alCambiar }: { aviso: (t: string) => void
           ayuda="En console.anthropic.com entra a API Keys, crea una clave y pégala aquí. Mientras Claude esté conectado, toda la IA de la app usa Claude." modelosFijos={MODELOS_CLAUDE} />
         <Tarjeta proveedor="gemini" titulo="Gemini · IA de respaldo" sub={ver('claude').configurado ? 'No se usa: la IA de la app es Claude. Solo entra si desconectas Claude.' : 'Se usa solo mientras Claude no esté conectado.'} est={ver('gemini')} aviso={aviso} cambio={() => { cargar(); alCambiar() }}
           ayuda="Crea una clave en Google AI Studio (aistudio.google.com/apikey) y pégala aquí." conModelo />
+        <TarjetaMetaLeads est={ver('meta_leads')} aviso={aviso} cambio={() => { cargar(); alCambiar() }} />
         <TarjetaWhatsapp aviso={aviso} />
         <TarjetaDrive est={ver('drive')} estApp={ver('google_app')} aviso={aviso} cambio={() => { cargar(); alCambiar() }} />
         <TarjetaPixel proveedor="meta_pixel" titulo="Meta Conversions API" color="#1877f2" est={ver('meta_pixel')} aviso={aviso} cambio={() => { cargar(); alCambiar() }} />
         <TarjetaPixel proveedor="tiktok_pixel" titulo="TikTok Events API" color="#000000" est={ver('tiktok_pixel')} aviso={aviso} cambio={() => { cargar(); alCambiar() }} />
       </div>
     </section>
+  )
+}
+
+/* Meta Lead Ads → CRM: los formularios de Facebook e Instagram entran solos como leads y se reparten entre los
+   asesores (Edge Function meta-leads). Token y clave secreta de la app cifrados en Vault. */
+function TarjetaMetaLeads({ est, aviso, cambio }: { est: Estado; aviso: (t: string) => void; cambio: () => void }) {
+  const cfg = est.config as { paginaId?: string; empresa?: string; verifyToken?: string }
+  const [paginaId, setPaginaId] = useState(cfg.paginaId ?? '')
+  const [empresa, setEmpresa] = useState(cfg.empresa === 'FEMEDICS' ? 'FEMEDICS' : 'VIMEDIC')
+  const [verifyToken] = useState(() => cfg.verifyToken || 'vm-' + crypto.randomUUID().replace(/-/g, '').slice(0, 24))
+  const [token, setToken] = useState('')
+  const [appSecret, setAppSecret] = useState('')
+  const [dias, setDias] = useState(7)
+  const [ocupado, setOcupado] = useState('')
+  const prueba = est.estado_prueba ?? '', ok = prueba.startsWith('ok')
+  const webhook = String(import.meta.env.VITE_SUPABASE_URL || '').replace(/\/$/, '') + '/functions/v1/meta-leads'
+  const copiar = (t: string, que: string) => { navigator.clipboard?.writeText(t).then(() => aviso(que + ' copiado.'), () => aviso('No se pudo copiar: selecciónalo y cópialo a mano.')) }
+  async function guardar() {
+    if (!/^\d{5,30}$/.test(paginaId.trim())) { aviso('Pon el ID de la página de Facebook (solo números).'); return }
+    if (!!token.trim() !== !!appSecret.trim()) { aviso('Pega el token y la clave secreta de la app juntos.'); return }
+    if (!token.trim() && !est.configurado) { aviso('Pega el token de acceso y la clave secreta de la app.'); return }
+    setOcupado('guardar')
+    const { error } = await supabase.rpc('integracion_guardar', { p_proveedor: 'meta_leads', p_secreto: token.trim() ? JSON.stringify({ token: token.trim(), appSecret: appSecret.trim() }) : null, p_config: { paginaId: paginaId.trim(), empresa, verifyToken } })
+    setOcupado('')
+    if (error) { aviso('No se pudo guardar: ' + error.message); return }
+    const nueva = !!token.trim(); setToken(''); setAppSecret(''); aviso(nueva ? 'Guardado. Probando y conectando la página…' : 'Configuración guardada.'); cambio()
+    if (nueva) probar()
+  }
+  async function probar() {
+    setOcupado('probar')
+    try { const r = await llamar<{ ok: boolean; mensaje: string }>('probar', {}, 'meta-leads'); aviso(r.mensaje) } catch (e) { aviso((e as Error).message) }
+    setOcupado(''); cambio()
+  }
+  async function traer() {
+    setOcupado('traer')
+    try {
+      const r = await llamar<{ formularios: number; nuevos: number; ya: number; pruebas: number; fallos: number }>('traer', { dias }, 'meta-leads')
+      aviso(`${r.formularios} formulario${r.formularios === 1 ? '' : 's'} revisado${r.formularios === 1 ? '' : 's'}: ${r.nuevos} lead${r.nuevos === 1 ? '' : 's'} nuevo${r.nuevos === 1 ? '' : 's'} en el CRM, ${r.ya} ya estaba${r.ya === 1 ? '' : 'n'}${r.pruebas ? ', ' + r.pruebas + ' de prueba' : ''}${r.fallos ? ', ' + r.fallos + ' con error' : ''}.`)
+    } catch (e) { aviso((e as Error).message) }
+    setOcupado('')
+  }
+  async function quitar() {
+    if (!confirm('¿Desconectar Meta? Los formularios dejarán de entrar al CRM hasta que vuelvas a conectarlo.')) return
+    const { error } = await supabase.rpc('integracion_quitar', { p_proveedor: 'meta_leads' })
+    if (error) aviso('No se pudo quitar: ' + error.message); else { aviso('Conexión eliminada.'); cambio() }
+  }
+  const fila = (etq: string, valor: string, que: string) => (
+    <div className="mkml-copia"><small>{etq}</small><code>{valor}</code><button type="button" className="btn" onClick={() => copiar(valor, que)}><Copy />Copiar</button></div>
+  )
+  return (
+    <article className="card p-5" style={{ gridColumn: "1 / -1" }}>
+      <div className="flex items-start gap-3">
+        <span className="w-10 h-10 rounded-xl grid place-items-center shrink-0" style={{ background: '#0866ff1A' }}><IconoRed red="meta" size={22} /></span>
+        <div className="min-w-0 flex-1"><h3 className="font-display font-bold text-sm text-slate-800">Meta · formularios de clientes potenciales</h3>
+          <p className="text-[11px] text-slate-500">Los formularios de los anuncios de Facebook e Instagram entran solos al CRM como gestión nueva y se reparten entre los asesores (reparto justo), con el anuncio, la campaña y las respuestas.</p></div>
+        <span className="pill shrink-0" style={est.configurado ? (prueba && !ok ? { background: '#fdecea', color: '#c0392b' } : { background: '#ecfaf5', color: '#04896f' }) : { background: '#f1f5f9', color: '#64748b' }}>
+          {est.configurado ? (prueba ? (ok ? 'Conectado' : 'Con error') : 'Sin probar') : 'No conectado'}</span>
+      </div>
+      <div className="mkml-grid">
+        <div className="space-y-2">
+          <label className="block text-[11px] font-bold text-slate-500">ID de la página de Facebook
+            <input type="text" inputMode="numeric" value={paginaId} onChange={(e) => setPaginaId(e.target.value.replace(/\D/g, ''))} className="inp w-full mt-1" placeholder="Ej. 104512345678901" /></label>
+          <label className="block text-[11px] font-bold text-slate-500">Los leads son de
+            <select value={empresa} onChange={(e) => setEmpresa(e.target.value)} className="inp w-full mt-1"><option value="VIMEDIC">VIMEDIC</option><option value="FEMEDICS">FEMEDICS</option></select></label>
+          <label className="block text-[11px] font-bold text-slate-500">Token de acceso (usuario del sistema){est.configurado && <span className="font-mono-spec font-normal text-slate-400"> · actual {est.vista}</span>}
+            <input type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} className="inp w-full mt-1" placeholder={est.configurado ? 'Pega uno nuevo para reemplazarlo' : 'Pega aquí el token'} /></label>
+          <label className="block text-[11px] font-bold text-slate-500">Clave secreta de la app (App Secret)
+            <input type="password" autoComplete="off" value={appSecret} onChange={(e) => setAppSecret(e.target.value)} className="inp w-full mt-1" placeholder={est.configurado ? 'Solo si cambias el token' : 'Configuración de la app › Básica'} /></label>
+        </div>
+        <div className="space-y-2">
+          <p className="text-[11px] font-bold text-slate-500">Para el webhook en la app de Meta (objeto «Page», campo «leadgen»)</p>
+          {fila('URL de devolución', webhook, 'URL')}
+          {fila('Token de verificación', verifyToken, 'Token de verificación')}
+          {!cfg.verifyToken && <p className="text-[10.5px] text-amber-700">Primero pulsa «Guardar»: Meta comprueba este token al guardar el webhook.</p>}
+          <details className="mkml-pasos"><summary>Paso a paso en Meta</summary><ol>
+            <li>En <b>developers.facebook.com</b> crea (o abre) la app de tipo Negocio de VIMEDIC.</li>
+            <li>En <b>Webhooks</b> elige «Page», pega la URL de devolución y el token de verificación de aquí y suscríbete al campo <b>leadgen</b>.</li>
+            <li>En el <b>Business Manager › Usuarios del sistema</b> crea un usuario, asígnale la página y la app y genera un token con los permisos <code>leads_retrieval</code>, <code>pages_manage_metadata</code>, <code>pages_read_engagement</code>, <code>pages_show_list</code> y <code>pages_manage_ads</code>.</li>
+            <li>En <b>Configuración del negocio › Integraciones › Acceso a clientes potenciales</b> da acceso a la app.</li>
+            <li>Pega aquí el token, la clave secreta de la app y el ID de la página, y pulsa <b>Guardar</b>: la página queda conectada sola.</li>
+            <li>Prueba con la <b>herramienta de prueba de anuncios para clientes potenciales</b> de Meta: aquí debe decir «Lead de prueba de Meta recibido» (los de prueba no entran al CRM).</li>
+          </ol></details>
+        </div>
+      </div>
+      {prueba && <p className="text-[11px] mt-3 rounded-lg px-3 py-2" style={ok ? { background: '#ecfaf5', color: '#04896f' } : { background: '#fdecea', color: '#a3341f' }}>{prueba.replace(/^(ok|error): /, '')}{est.probado_en ? ' · ' + new Date(est.probado_en).toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' }) : ''}</p>}
+      <div className="flex gap-2 flex-wrap items-center mt-4">
+        <button type="button" className="btn btn-primary" onClick={guardar} disabled={!!ocupado}><Check />{ocupado === 'guardar' ? 'Guardando…' : 'Guardar'}</button>
+        <button type="button" className="btn" onClick={probar} disabled={!!ocupado || !est.configurado}><Plug />{ocupado === 'probar' ? 'Probando…' : 'Probar conexión'}</button>
+        <span className="inline-flex items-center gap-1.5">
+          <button type="button" className="btn" onClick={traer} disabled={!!ocupado || !est.configurado}><RefreshCw />{ocupado === 'traer' ? 'Trayendo…' : 'Traer leads'}</button>
+          <select className="inp" value={dias} onChange={(e) => setDias(Number(e.target.value))} aria-label="Desde hace"><option value={1}>de hoy</option><option value={7}>de 7 días</option><option value={30}>de 30 días</option><option value={90}>de 90 días</option></select>
+        </span>
+        {est.configurado && <button type="button" className="btn ml-auto" style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={quitar}><Trash2 />Desconectar</button>}
+      </div>
+      <p className="text-[10.5px] text-slate-400 mt-2">«Traer leads» recupera los que no llegaron (Meta los guarda 90 días). No se duplican. Los de más de un día entran sin asesor: se asignan en CRM › Leads de Meta (reparto).</p>
+    </article>
   )
 }
 
@@ -1381,7 +1478,7 @@ function TarjetaDrive({ est, estApp, aviso, cambio }: { est: Estado; estApp: Est
       style={modo === m ? { background: '#0f9d58', borderColor: '#0f9d58', color: '#fff' } : undefined}>{t}</button>
   )
   return (
-    <article className="card p-5 xl:col-span-2">
+    <article className="card p-5" style={{ gridColumn: "1 / -1" }}>
       <div className="flex items-start gap-3">
         <span className="w-10 h-10 rounded-xl grid place-items-center shrink-0" style={{ background: '#0f9d581A', color: '#0f9d58' }}><Plug className="w-5 h-5" /></span>
         <div className="min-w-0 flex-1"><h3 className="font-display font-bold text-sm text-slate-800">Google Drive · documentos y multimedia</h3><p className="text-[11px] text-slate-500">Guarda PDF, facturas, evidencias, fotos y videos en la unidad compartida «VIMEDIC Sistema» o en una carpeta de Drive.</p></div>

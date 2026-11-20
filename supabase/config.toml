@@ -32,3 +32,8 @@ verify_jwt = false
 # se valida con el «state» firmado (HMAC) que la misma función emitió para quien administra Marketing.
 [functions.google-oauth]
 verify_jwt = false
+
+# Meta Lead Ads: Meta llama sin sesión de Supabase; cada aviso se valida con la firma X-Hub-Signature-256
+# (clave secreta de la app, en Vault). Las acciones desde la app validan la sesión dentro de la función.
+[functions.meta-leads]
+verify_jwt = false
