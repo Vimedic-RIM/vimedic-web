@@ -1,6 +1,6 @@
 import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  BadgePercent, GripVertical, Move, RotateCcw, Ship, ArrowDownAZ, ArrowRight, BadgeCheck, CircleCheck, ClipboardList, PlusCircle, ShoppingCart, BadgeDollarSign, Barcode, Boxes, Check, ChevronDown, ChevronUp,
+  BadgePercent, GripVertical, Move, RotateCcw, Ship, ArrowDownAZ, ArrowRight, BadgeCheck, CircleCheck, ClipboardList, PlusCircle, ShoppingCart, BadgeDollarSign, Barcode, Boxes, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
   ChevronsUpDown, ClipboardCopy, Download, Eraser, Eye, EyeOff, FileText, Flame, Hash, ImagePlus, Images, LayoutGrid, Menu,
   Package, PackagePlus, PackageX, PanelsTopLeft, Pencil, Plus, RefreshCw, Search, SlidersHorizontal, Table2, Tag,
   Maximize2, Trash2, TriangleAlert, Video, X,
@@ -249,7 +249,7 @@ function AvisoObs({ texto, className = '' }: { texto: string; className?: string
 }
 
 /* ---------- Tarjeta ---------- */
-type Orden_ = { arrastrar: (id: string) => void; soltar: (id: string) => void }
+type Orden_ = { arrastrar: (id: string) => void; soltar: (id: string) => void; mover?: (id: string, dir: -1 | 1) => void }
 function Tarjeta({ p, abrir, car, alternar, reordenar }: { p: Fila; abrir: (id: string) => void; car: Carrito | null; alternar?: (p: Fila) => void; reordenar?: Orden_ }) {
   const act = !inactivo(p)
   const n = car?.cant(p.id) ?? 0
@@ -264,6 +264,11 @@ function Tarjeta({ p, abrir, car, alternar, reordenar }: { p: Fila; abrir: (id: 
         <div className="absolute z-10 m-1.5 flex items-center justify-center text-slate-400 bg-white/90 rounded-md p-0.5"><GripVertical className="w-3.5 h-3.5" /></div>
         {p.imagen_url ? <img loading="lazy" decoding="async" src={imagen(p.imagen_url, 240)} className="w-full aspect-square object-cover bg-slate-50 border-b border-slate-100 pointer-events-none" alt="" /> : <div className="w-full aspect-square bg-slate-50 border-b border-slate-100" />}
         <div className="p-2"><p className="text-[9px] font-mono-spec text-slate-400 truncate">{p.codigo}</p><p className="text-xs font-bold text-slate-800 leading-snug line-clamp-2">{p.nombre}</p></div>
+        {/* Flechas: en el celular no se puede arrastrar. */}
+        {reordenar.mover && <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6, padding: '0 8px 8px', marginTop: 'auto' }}>
+          <button type="button" onClick={() => reordenar.mover?.(p.id, -1)} className="w-6 h-6 rounded border border-slate-200 flex items-center justify-center" style={{ background: '#fff' }} aria-label={'Mover antes ' + p.nombre}><ChevronLeft className="w-3.5 h-3.5" /></button>
+          <button type="button" onClick={() => reordenar.mover?.(p.id, 1)} className="w-6 h-6 rounded border border-slate-200 flex items-center justify-center" style={{ background: '#fff' }} aria-label={'Mover después ' + p.nombre}><ChevronRight className="w-3.5 h-3.5" /></button>
+        </div>}
       </div>
     )
   }
@@ -515,6 +520,11 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
   const [gestionCat, setGestionCat] = useState(false)
   const reordRef = useRef(false)
   const arrastrando = useRef<string | null>(null)
+  // Ordenar catálogo (categorías y productos dentro de cada una): solo quien está autorizado (inventario_ajustes).
+  const [puedeOrdenar, setPuedeOrdenar] = useState(false)
+  const [catsOrden, setCatsOrden] = useState<Categoria[]>([])
+  const arrastrandoCat = useRef<string | null>(null)
+  useEffect(() => { supabase.rpc('inv_puede_ordenar').then(({ data }) => setPuedeOrdenar(data === true)) }, [])
   const fabRef = useRef<HTMLButtonElement>(null)
   const conCrm = puede(perfil, 'crm', 'crear')
   useEffect(() => { try { sessionStorage.setItem(CLAVE_CARRITO, JSON.stringify(carrito)) } catch { /* sin almacenamiento */ } }, [carrito])
@@ -721,8 +731,11 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
     if (error) { alert('No se pudo cambiar el estado: ' + error.message); cargar(Math.max(LOTE, itemsRef.current.length)) }
   }
 
-  /* Reordenar: trae todos los productos del catálogo, agrupados por categoría, y se arrastran las tarjetas. */
+  /* Ordenar catálogo: trae todos los productos agrupados por categoría (en el orden de las categorías). Se mueven las
+     categorías (arrastrando su título o con ↑ ↓) y, dentro de cada una, las tarjetas (arrastrando o con ‹ ›). */
+  const catDe = (p: Fila) => p.categoria_id ?? ''
   async function iniciarOrden() {
+    if (!puedeOrdenar) return
     setVista('tarjetas'); setMenu(null); setCargando(true)
     reordRef.current = true; peticion.current++
     // Todos de verdad: en tandas de 1.000 (Supabase corta cada respuesta en 1.000 aunque se pida más).
@@ -731,30 +744,67 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
       if (!mostrarInactivos) q = q.or('estado.is.null,estado.not.ilike.inactivo')
       return q.order('en_vista_publica', { ascending: false }).order('orden', { ascending: true, nullsFirst: false }).order('nombre').order('id')
     }
-    const { data, error } = await traerTodo((a, z) => base().range(a, z))
+    const [{ data, error }, { data: cs }] = await Promise.all([
+      traerTodo((a, z) => base().range(a, z)),
+      supabase.from('categorias').select('id,nombre').is('deleted_at', null).order('orden', { ascending: true, nullsFirst: false }).order('nombre'),
+    ])
     setCargando(false)
     if (error) { reordRef.current = false; alert('No se pudo cargar el catálogo: ' + error.message); return }
-    const lista = ((data as unknown as Fila[]) ?? []).slice().sort((a, b) => (a.categoria?.nombre ?? '').localeCompare(b.categoria?.nombre ?? '', 'es'))
+    const prods = (data as unknown as Fila[]) ?? []
+    const presentes = new Set(prods.map(catDe))
+    const cats = ((cs as Categoria[] | null) ?? []).filter((c) => presentes.has(c.id))
+    for (const p of prods) if (p.categoria_id && !cats.some((c) => c.id === p.categoria_id)) cats.push({ id: p.categoria_id, nombre: p.categoria?.nombre ?? 'Categoría' })
+    if (presentes.has('')) cats.push({ id: '', nombre: 'Sin categoría' })
+    const pos = new Map(cats.map((c, i) => [c.id, i]))
+    // Dentro de cada categoría se conserva el orden guardado (visibles al público primero).
+    const lista = prods.slice().sort((a, b) => (pos.get(catDe(a)) ?? 0) - (pos.get(catDe(b)) ?? 0))
     setTexto(''); setCategoria(''); setOrden(null); setImpFiltro('')
-    setItems(lista); setTotal(lista.length); setReordenando(true)
+    setCatsOrden(cats); setItems(lista); setTotal(lista.length); setReordenando(true)
     window.scrollTo({ top: 0 })
   }
   function cancelarOrden() { reordRef.current = false; setReordenando(false); cargar() }
+  /* Productos: solo dentro de su categoría (la categoría del producto no cambia aquí). */
   function soltar(destino: string) {
     const origen = arrastrando.current; arrastrando.current = null
     if (!origen || origen === destino) return
     setItems((a) => {
       const i = a.findIndex((x) => x.id === origen), j = a.findIndex((x) => x.id === destino)
-      if (i < 0 || j < 0) return a
+      if (i < 0 || j < 0 || catDe(a[i]) !== catDe(a[j])) return a
       const c = a.slice(); const [m] = c.splice(i, 1); c.splice(j, 0, m); return c
+    })
+  }
+  function moverProducto(id: string, dir: -1 | 1) {
+    setItems((a) => {
+      const i = a.findIndex((x) => x.id === id)
+      if (i < 0) return a
+      let j = i + dir
+      while (j >= 0 && j < a.length && catDe(a[j]) !== catDe(a[i])) j += dir
+      if (j < 0 || j >= a.length) return a
+      const c = a.slice(); [c[i], c[j]] = [c[j], c[i]]; return c
+    })
+  }
+  /* Categorías: arrastrando el título o con las flechas. */
+  function moverCategoria(i: number, dir: -1 | 1) {
+    setCatsOrden((cs) => { const j = i + dir; if (j < 0 || j >= cs.length) return cs; const c = cs.slice(); [c[i], c[j]] = [c[j], c[i]]; return c })
+  }
+  function soltarCategoria(destino: string) {
+    const origen = arrastrandoCat.current; arrastrandoCat.current = null
+    if (origen === null || origen === destino) return
+    setCatsOrden((cs) => {
+      const i = cs.findIndex((c) => c.id === origen), j = cs.findIndex((c) => c.id === destino)
+      if (i < 0 || j < 0) return cs
+      const c = cs.slice(); const [m] = c.splice(i, 1); c.splice(j, 0, m); return c
     })
   }
   async function guardarOrden() {
     setGuardandoOrden(true)
-    const { error } = await supabase.rpc('inv_guardar_orden', { p_ids: items.map((x) => x.id) })
+    // Productos en el orden de las categorías; dentro de cada una, en el orden de las tarjetas.
+    const enCats = new Set(catsOrden.map((c) => c.id))
+    const ids = [...catsOrden.flatMap((c) => items.filter((p) => catDe(p) === c.id).map((p) => p.id)), ...items.filter((p) => !enCats.has(catDe(p))).map((p) => p.id)]
+    const { error } = await supabase.rpc('inv_guardar_orden_catalogo', { p_categorias: catsOrden.map((c) => c.id).filter(Boolean), p_productos: ids })
     setGuardandoOrden(false)
     if (error) { alert('No se pudo guardar el orden: ' + error.message); return }
-    reordRef.current = false; setReordenando(false); cargar()
+    reordRef.current = false; setReordenando(false); cargar(); cargarCategorias()
   }
 
   function cambiarVista(v: 'tarjetas' | 'tabla') {
@@ -881,7 +931,7 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
                   <button type="button" onClick={() => { setMenu(null); setVerOfertas(true) }}><BadgePercent style={{ color: '#c2410c' }} /><span>Ofertas vigentes<small>Elegir productos y descargar PDF</small></span>{nProdOferta > 0 && <b className="inv-of-n">{nProdOferta}</b>}</button>
                   {crear && <button type="button" onClick={() => { setMenu(null); setForm('nuevo') }}><Plus /><span>Agregar producto</span></button>}
                   {editar && <button type="button" onClick={() => { setMenu(null); setMostrarInactivos((v) => !v) }}><EyeOff /><span>Mostrar productos inactivos</span>{mostrarInactivos && <Check className="ok" />}</button>}
-                  {editar && <button type="button" disabled={reordenando} onClick={() => { setMenu(null); iniciarOrden() }}><Move /><span>Reordenar productos</span></button>}
+                  {puedeOrdenar && <button type="button" disabled={reordenando} onClick={() => { setMenu(null); iniciarOrden() }}><Move /><span>Ordenar categorías y productos</span></button>}
                   {editar && <button type="button" onClick={() => { setMenu(null); setGestionCat(true) }}><Tag /><span>Categorías del catálogo</span></button>}
                   {puede(perfil, 'inventario', 'eliminar') && <button type="button" onClick={() => { setMenu(null); setPapelera(true) }}><Trash2 /><span>Papelera</span></button>}
                   <button type="button" onClick={() => { setMenu(null); cargarEstado(); cargarOfertas(); cargar(Math.max(LOTE, items.length)) }}><RefreshCw /><span>Actualizar inventario</span></button>
@@ -919,7 +969,7 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
             {editar && (
               <button onClick={() => setMostrarInactivos((v) => !v)} className={'flex w-9 h-9 rounded-lg hover:bg-white/20 text-white items-center justify-center transition-colors ' + (mostrarInactivos ? 'bg-white/30' : 'bg-white/10')} title="Mostrar productos inactivos"><EyeOff className="w-4 h-4" /></button>
             )}
-            {editar && <button onClick={iniciarOrden} disabled={reordenando} className="flex w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white items-center justify-center transition-colors" title="Reordenar productos"><Move className="w-4 h-4" /></button>}
+            {puedeOrdenar && <button onClick={iniciarOrden} disabled={reordenando} className="flex w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white items-center justify-center transition-colors" title="Ordenar categorías y productos"><Move className="w-4 h-4" /></button>}
             {editar && <button onClick={() => setGestionCat(true)} className="flex w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white items-center justify-center transition-colors" title="Categorías del catálogo"><Tag className="w-4 h-4" /></button>}
             <button onClick={() => { cargarEstado(); cargarOfertas(); cargar(Math.max(LOTE, items.length)) }} className="w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors" title="Actualizar inventario"><RefreshCw className={'w-4 h-4 ' + (cargando ? 'animate-spin' : '')} /></button>
           </div>
@@ -928,7 +978,7 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
 
       {reordenando && (
         <div className="bg-amber-50 border-b border-amber-200 px-4 sm:px-6 py-2 flex items-center justify-between gap-2 flex-wrap">
-          <p className="text-[11px] font-semibold text-amber-800">🔀 Modo reordenar: arrastra las tarjetas para cambiar su posición en el catálogo público.</p>
+          <p className="text-[11px] font-semibold text-amber-800">🔀 Ordenar catálogo: mueve las categorías (arrastra su título o usa ↑ ↓) y, dentro de cada una, los productos (arrastra la tarjeta o usa ‹ ›). Así se ven en el catálogo público.</p>
           <div className="flex items-center gap-2">
             <button type="button" onClick={cancelarOrden} className="text-[11px] font-bold px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600">Cancelar</button>
             <button type="button" onClick={guardarOrden} disabled={guardandoOrden} className="text-[11px] font-bold px-3 py-1.5 rounded-lg text-white" style={{ background: 'var(--amber, #c98a1f)' }}>{guardandoOrden ? 'Guardando...' : 'Guardar Orden'}</button>
@@ -971,9 +1021,34 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
           </div>
         )}
 
-        {vista === 'tarjetas' && items.length > 0 && (
+        {vista === 'tarjetas' && items.length > 0 && reordenando && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {catsOrden.map((c, i) => {
+              const ps = items.filter((p) => catDe(p) === c.id)
+              return (
+                <section key={c.id || 'sin-categoria'} style={{ border: '1px solid #e2e8f0', borderRadius: 16, background: '#f8fafc', padding: 12 }}
+                  onDragOver={(e) => e.preventDefault()} onDrop={(e) => { if (arrastrandoCat.current !== null) { e.preventDefault(); soltarCategoria(c.id) } }}>
+                  <div draggable onDragStart={(e) => { arrastrandoCat.current = c.id; e.dataTransfer.effectAllowed = 'move' }} onDragEnd={() => { arrastrandoCat.current = null }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, cursor: 'grab' }} title="Arrastra para mover la categoría">
+                    <GripVertical className="w-4 h-4 text-slate-400" />
+                    <span style={{ minWidth: 24, height: 24, borderRadius: 8, background: '#fff7e6', color: '#92400e', fontSize: 11, fontWeight: 700, display: 'grid', placeItems: 'center' }}>{i + 1}</span>
+                    <b style={{ fontSize: 14, color: '#1e293b', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nombre}</b>
+                    <small style={{ fontSize: 11, color: '#64748b', whiteSpace: 'nowrap' }}>{ps.length} producto{ps.length === 1 ? '' : 's'}</small>
+                    <span style={{ flex: 1 }} />
+                    <button type="button" disabled={i === 0} onClick={() => moverCategoria(i, -1)} className="w-6 h-6 rounded border border-slate-200 flex items-center justify-center disabled:opacity-30" style={{ background: '#fff' }} aria-label={'Subir ' + c.nombre}><ChevronUp className="w-3.5 h-3.5" /></button>
+                    <button type="button" disabled={i === catsOrden.length - 1} onClick={() => moverCategoria(i, 1)} className="w-6 h-6 rounded border border-slate-200 flex items-center justify-center disabled:opacity-30" style={{ background: '#fff' }} aria-label={'Bajar ' + c.nombre}><ChevronDown className="w-3.5 h-3.5" /></button>
+                  </div>
+                  <div className="inv-grid">
+                    {ps.map((p) => <Tarjeta key={p.id} p={p} abrir={clickProducto} car={car} alternar={editar ? alternarEstado : undefined} reordenar={{ arrastrar: (id) => { arrastrando.current = id }, soltar, mover: moverProducto }} />)}
+                  </div>
+                </section>
+              )
+            })}
+          </div>
+        )}
+        {vista === 'tarjetas' && items.length > 0 && !reordenando && (
           <div className="inv-grid">
-            {items.map((p) => <Tarjeta key={p.id} p={p} abrir={clickProducto} car={car} alternar={editar ? alternarEstado : undefined} reordenar={reordenando ? { arrastrar: (id) => { arrastrando.current = id }, soltar } : undefined} />)}
+            {items.map((p) => <Tarjeta key={p.id} p={p} abrir={clickProducto} car={car} alternar={editar ? alternarEstado : undefined} />)}
           </div>
         )}
 
@@ -1093,7 +1168,7 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
       {multimedia && <EditarMultimedia producto={multimedia} cerrar={() => setMultimedia(null)} guardado={() => { setMultimedia(null); setCajon(null); cargar(Math.max(LOTE, items.length)) }} />}
       {band.preciosFemedics && <div role="status" style={{ position: 'fixed', left: '50%', bottom: 14, transform: 'translateX(-50%)', zIndex: 40, background: '#0cc4cf', color: '#fff', font: '700 11px/1.2 Inter,sans-serif', padding: '7px 14px', borderRadius: 999, boxShadow: '0 6px 18px rgba(12,196,207,.35)', pointerEvents: 'none' }}>PVP Femedics +11,11 % aplicado automáticamente</div>}
       {papelera && <PapeleraProductos cerrar={() => setPapelera(false)} restaurado={() => cargar(Math.max(LOTE, items.length))} />}
-      {gestionCat && <GestionCategorias cerrar={() => setGestionCat(false)} actualizado={cargarCategorias} />}
+      {gestionCat && <GestionCategorias cerrar={() => setGestionCat(false)} actualizado={cargarCategorias} ordenar={puedeOrdenar} />}
       {verOfertas && (
         <Suspense fallback={<div className="io-ovl"><p className="io-cargando">Abriendo ofertas…</p></div>}>
           <OfertasVigentes perfil={perfil} femedics={!!band.preciosFemedics} ambas={!!band.ambas} cerrar={() => setVerOfertas(false)} />
@@ -1146,7 +1221,7 @@ function PapeleraProductos({ cerrar, restaurado }: { cerrar: () => void; restaur
 /* ---------- Gestión de categorías del catálogo: imagen, texto, orden y activo ---------- */
 type CatFila = { id: string; nombre: string; imagen_url: string | null; texto: string | null; orden: number | null; activo: boolean }
 
-function GestionCategorias({ cerrar, actualizado }: { cerrar: () => void; actualizado: () => void }) {
+function GestionCategorias({ cerrar, actualizado, ordenar }: { cerrar: () => void; actualizado: () => void; ordenar: boolean }) {
   const [lista, setLista] = useState<CatFila[] | null>(null)
   const [error, setError] = useState('')
   const cargarLista = useCallback(() => {
@@ -1195,10 +1270,10 @@ function GestionCategorias({ cerrar, actualizado }: { cerrar: () => void; actual
           {lista && !lista.length && <p className="text-xs text-slate-400 py-6 text-center">No hay categorías todavía.</p>}
           {lista?.map((c, i) => (
             <div key={c.id} className={'flex gap-3 p-2.5 rounded-xl border border-slate-200' + (c.activo ? '' : ' opacity-50')}>
-              <div className="flex flex-col gap-1 shrink-0">
+              {ordenar && <div className="flex flex-col gap-1 shrink-0">
                 <button type="button" disabled={i === 0} onClick={() => mover(i, -1)} className="w-6 h-6 rounded border border-slate-200 flex items-center justify-center disabled:opacity-30"><ChevronUp className="w-3.5 h-3.5" /></button>
                 <button type="button" disabled={i === lista.length - 1} onClick={() => mover(i, 1)} className="w-6 h-6 rounded border border-slate-200 flex items-center justify-center disabled:opacity-30"><ChevronDown className="w-3.5 h-3.5" /></button>
-              </div>
+              </div>}
               <div className="min-w-0 flex-1 space-y-1.5">
                 <b className="text-xs text-slate-800">{c.nombre}</b>
                 <input type="text" placeholder="Enlace de imagen de la categoría" defaultValue={c.imagen_url ?? ''} onBlur={(e) => guardarCampo(c.id, 'imagen_url', e.target.value)} className="pf-in text-[11px]" />
