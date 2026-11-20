@@ -41,6 +41,9 @@ verify_jwt = false
 [functions.meta-leads-poll]
 verify_jwt = false
 
+[functions.lead-contacto]
+verify_jwt = false
+
 # Ofertas para la web pública (vimedic.com.ec): sin login; solo campaña, producto visible, imagen y % de descuento.
 [functions.ofertas-web]
 verify_jwt = false

@@ -5,6 +5,7 @@
 import { armarLead, CAMPOS_LEAD, GRAPH, type LeadMeta } from './metaLeads.ts'
 import { correoLeadAsesor, type DatosCorreoLead } from './correoLeads.ts'
 import { enviarGmail } from './gmail.ts'
+import { enlaceContacto, firmarContacto } from './contactoLead.ts'
 
 // deno-lint-ignore no-explicit-any
 type Cualquiera = any
@@ -95,7 +96,18 @@ export function servicioMeta(admin: Admin) {
   const ajustesCorreo = (c: ConfMeta) => {
     const k = (c.config.correo ?? {}) as { activo?: boolean; diseno?: number; copia?: string }
     const copia = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(String(k.copia || '').trim()) ? String(k.copia).trim() : ''
-    return { activo: k.activo !== false, diseno: [1, 2, 3].includes(Number(k.diseno)) ? Number(k.diseno) : 1, copia, crmUrl: (/^https:\/\/[\w.-]+/.test(String(c.config.appUrl || '')) ? String(c.config.appUrl).replace(/\/+$/, '') : 'https://qa.vimedic.com.ec') + '/#crm' }
+    const appUrl = /^https:\/\/[\w.-]+/.test(String(c.config.appUrl || '')) ? String(c.config.appUrl).replace(/\/+$/, '') : 'https://qa.vimedic.com.ec'
+    return { activo: k.activo !== false, diseno: [1, 2, 3].includes(Number(k.diseno)) ? Number(k.diseno) : 1, copia, appUrl, crmUrl: appUrl + '/#crm' }
+  }
+  /** Enlaces de WhatsApp y Llamar que pasan por /contacto-lead/ (registran el contacto en el CRM). Sin clave: directos. */
+  let claveContacto: string | null = null
+  const accionesContacto = async (appUrl: string, leadId: string, asesorId: string): Promise<{ wa?: string; tel?: string } | undefined> => {
+    try {
+      if (claveContacto === null) { const { data } = await admin.rpc('lead_contacto_clave'); claveContacto = String(data || '') }
+      if (!claveContacto) return undefined
+      const t = await firmarContacto(claveContacto, leadId, asesorId)
+      return { wa: enlaceContacto(appUrl, t, 'wa'), tel: enlaceContacto(appUrl, t, 'tel') }
+    } catch { return undefined }
   }
   let ultimoErrorCorreo = ''
   /** Correo URGENTE al asesor que recibió el lead. Si no sale, el lead igual queda en el CRM y con aviso en la campana. */
@@ -110,6 +122,7 @@ export function servicioMeta(admin: Admin) {
       respuestas: Array.isArray(md.respuestas) ? md.respuestas : [], red: String(fila.canal || 'Facebook/Instagram'), organico: md.is_organic === true,
       anuncio: md.ad_name ?? null, campana: md.campaign_name ?? null, formulario: md.formulario ?? null, fecha: String(fila.fecha || new Date().toISOString()),
       idCrm: lead.codigo, metaId: String(fila.meta_lead_id || ''), asesor: String(as.nombre || ''), existente: lead.asignacion === 'cliente existente',
+      accion: await accionesContacto(k.appUrl, lead.id, lead.asesor_id),
     }
     const m = correoLeadAsesor(d, k.diseno, k.crmUrl)
     try { await enviarGmail(admin, { para: String(as.email), cc: k.copia && k.copia.toLowerCase() !== String(as.email).toLowerCase() ? k.copia : undefined, asunto: m.asunto, html: m.html, texto: m.texto }) }

@@ -9,27 +9,34 @@ export type DatosCorreoLead = {
   nombre: string; telefono?: string | null; email?: string | null; ciudad?: string | null; respuestas: { t: string; v: string }[]
   red: string; organico: boolean; anuncio?: string | null; campana?: string | null; formulario?: string | null; fecha: string
   idCrm: string; metaId: string; asesor: string; existente: boolean
+  /** Botones que registran el contacto en el CRM antes de abrir WhatsApp o la llamada (página /contacto-lead/). */
+  accion?: { wa?: string; tel?: string }
 }
 
 const sinEmojis = (v: unknown) => String(v ?? '').replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{2190}-\u{21FF}\u{FE0F}\u{200D}\u{20E3}]/gu, '').replace(/\s{2,}/g, ' ').trim()
 const e = (v: unknown) => sinEmojis(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string))
-const waNumero = (tel: unknown) => { let d = String(tel ?? '').replace(/\D/g, ''); if (/^0\d{9}$/.test(d)) d = '593' + d.slice(1); return d }
+export const waNumero = (tel: unknown) => { let d = String(tel ?? '').replace(/\D/g, ''); if (/^0\d{9}$/.test(d)) d = '593' + d.slice(1); return d }
 const iniciales = (n: string) => String(n || '?').trim().split(/\s+/).slice(0, 2).map((x) => x.charAt(0)).join('').toUpperCase() || '?'
 const primero = (n: string) => String(n || '').trim().split(/\s+/)[0] || ''
 
+/** Saludo sugerido para escribirle al cliente por WhatsApp (el mismo del correo y de la página /contacto-lead/). */
+export function saludoLead(nombre: string, asesor: string, respuestas: { t: string; v: string }[]): string {
+  const area = (respuestas ?? []).find((r) => /area/i.test(String(r?.t ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '')))
+  return 'Hola ' + primero(nombre) + ', le saluda ' + primero(asesor) + ' de VIMEDIC. Recibimos su solicitud' +
+    (area ? ' sobre ' + String(area.v).toLowerCase() : '') + '. ¿Le parece si conversamos unos minutos para entender lo que necesita y enviarle una propuesta?'
+}
+
 /** Datos listos para el correo (saludo sugerido y enlaces de WhatsApp, llamada, correo y CRM). */
 function preparar(d: DatosCorreoLead, crmUrl: string) {
-  const area = d.respuestas.find((r) => /area/i.test(r.t.normalize('NFD').replace(/[̀-ͯ]/g, '')))
-  const saludo = 'Hola ' + primero(d.nombre) + ', le saluda ' + primero(d.asesor) + ' de VIMEDIC. Recibimos su solicitud' +
-    (area ? ' sobre ' + String(area.v).toLowerCase() : '') + '. ¿Le parece si conversamos unos minutos para entender lo que necesita y enviarle una propuesta?'
+  const saludo = saludoLead(d.nombre, d.asesor, d.respuestas)
   const wa = waNumero(d.telefono)
   const f = new Date(d.fecha)
   const fecha = isNaN(+f) ? '' : f.toLocaleDateString('es-EC', { timeZone: 'America/Guayaquil', day: '2-digit', month: '2-digit', year: 'numeric' }) + ' a las ' + f.toLocaleTimeString('es-EC', { timeZone: 'America/Guayaquil', hour: '2-digit', minute: '2-digit', hour12: false })
   return {
     ...d, nombre: sinEmojis(d.nombre) || 'Cliente sin nombre', telefono: d.telefono || '', email: d.email || '', ciudad: d.ciudad || '', anuncio: d.anuncio || '', campana: d.campana || '', formulario: d.formulario || '',
     fecha, saludo, iniciales: iniciales(d.nombre),
-    waUrl: wa ? 'https://wa.me/' + wa + '?text=' + encodeURIComponent(saludo) : '',
-    telUrl: d.telefono ? 'tel:' + String(d.telefono).replace(/[^\d+]/g, '') : '',
+    waUrl: wa ? (d.accion?.wa || 'https://wa.me/' + wa + '?text=' + encodeURIComponent(saludo)) : '',
+    telUrl: d.telefono ? (d.accion?.tel || 'tel:' + String(d.telefono).replace(/[^\d+]/g, '')) : '',
     mailUrl: d.email ? 'mailto:' + d.email + '?subject=' + encodeURIComponent('VIMEDIC · Su solicitud de información') : '',
     crmUrl,
   }

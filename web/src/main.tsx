@@ -10,11 +10,14 @@ const EncuestaPublica = lazy(() => import('./EncuestaPublica'))
 const ServicioPublico = lazy(() => import('./ServicioPublico'))
 const MaterialPublico = lazy(() => import('./MaterialPublico'))
 const SeguimientoPublico = lazy(() => import('./SeguimientoPublico'))
+// Botones «WhatsApp» y «Llamar» del correo del lead: registran el contacto en el CRM y abren el chat o la llamada.
+const ContactoLead = lazy(() => import('./ContactoLead'))
 const ruta = window.location.pathname
 const esEncuesta = /^\/encuesta\/?$/.test(ruta)
 const esServicio = /^\/servicio\/?$/.test(ruta)
 const esMaterial = /^\/material\/?$/.test(ruta)
 const esSeguimiento = /^\/seguimiento\/?$/.test(ruta)
+const esContactoLead = /^\/contacto-lead\/?$/.test(ruta)
 // Enlace directo al escáner de pedidos (se puede guardar como ícono en el celular): /escanear abre la app en esa vista.
 // Con ?c=<código> (botón "Registrar avance" de la página pública) busca ese pedido de una vez.
 if (/^\/escanear\/?$/.test(ruta)) {
@@ -32,6 +35,7 @@ createRoot(document.getElementById('root')!).render(
       : esServicio ? <Suspense fallback={null}><ServicioPublico /></Suspense>
       : esMaterial ? <Suspense fallback={null}><MaterialPublico /></Suspense>
       : esSeguimiento ? <Suspense fallback={null}><SeguimientoPublico /></Suspense>
+      : esContactoLead ? <Suspense fallback={null}><ContactoLead /></Suspense>
       : <App />}
     </ErrorPantalla>
   </StrictMode>,
