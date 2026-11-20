@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CalendarClock, ChevronLeft, ChevronRight, ExternalLink, Pencil, Plug, RefreshCw, RotateCcw, Send, Sparkles, Trash2, Upload, X } from 'lucide-react'
+import { CalendarClock, Check, ChevronLeft, ChevronRight, ExternalLink, LayoutGrid, Pencil, Plug, RefreshCw, RotateCcw, Search, Send, Sparkles, Trash2, Upload, X } from 'lucide-react'
 import { MiniProducto } from './inventarioUtil'
 import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
@@ -12,7 +12,7 @@ import { llamar } from './MarketingIntegraciones'
    subido directo a Zernio); borradores; redacción con IA. Lo que publica Asistente o Audiovisual
    espera al coordinador (pestaña Revisión). Las cargas siguen en segundo plano. */
 
-export type PiezaMin = { id: string; titulo: string; tipo: string; estado: string; url: string; producto: string; mime?: string; notas?: string; productoId?: string; enlace?: string; mini?: string }
+export type PiezaMin = { id: string; titulo: string; tipo: string; estado: string; url: string; producto: string; mime?: string; notas?: string; productoId?: string; enlace?: string; mini?: string; campana?: string; fecha?: string }
 type Detalle = { plataforma: string; estado: string; url: string; error: string }
 type Post = {
   id: string; contenido: string; estado: string; fecha: string; programada: string; creado: string; publicado: string; plataformas: string[]
@@ -53,6 +53,7 @@ const hm = (h: number, m: number) => pad(h) + ':' + pad(m)
 const httpsUrl = (v: string) => { try { return new URL(v).protocol === 'https:' ? v : '' } catch { return '' } }
 const largo = (t: string) => [...t].length
 const fechaCorta = (iso: string) => { const d = ecDate(iso); return d ? keyLabel(d.key, { day: 'numeric', month: 'short', year: 'numeric' }) + ' · ' + hm(d.h, d.m) : '' }
+const fechaDia = (iso: string) => { const d = ecDate(iso); return d ? keyLabel(d.key, { day: 'numeric', month: 'short', year: 'numeric' }) : '' }
 const esVideoPieza = (p: PiezaMin) => /^video\//.test(p.mime || '') || (!p.mime && /video|reel/i.test(p.tipo))
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 14) + '-x')
 const leerVista = (): Vista => { try { const v = localStorage.getItem('vm_mk_vista'); if (v === 'week' || v === 'month' || v === 'list') return v } catch { /* sin almacenamiento */ } return window.innerWidth < 640 ? 'list' : 'week' }
@@ -356,6 +357,7 @@ export function Planificador({ perfil, piezas, piezaInicial, limpiarPieza, irCon
 
       {detalle && <DetallePost p={detalle} crear={crear} cerrar={() => setDetalle(null)} borrar={() => borrar(detalle)} editar={() => { setComposer({ modo: 'edit', post: detalle }); setDetalle(null) }} />}
       {composer && <Composer {...composer} cuentas={cuentas} piezas={piezas} rol={rol} aviso={aviso} encolar={encolar}
+        posts={posts ?? []} hayMas={pagina < paginas} cargandoPosts={cargando} cargarMas={() => cargar(true)}
         cerrar={() => { setComposer(null); limpiarPieza() }}
         enviado={(fecha) => { setComposer(null); limpiarPieza(); if (fecha) setCursor(fecha.slice(0, 10)) }}
         terminado={() => { cargar(); alSincronizar() }} />}
@@ -423,11 +425,102 @@ function DetallePost({ p, crear, cerrar, borrar, editar }: { p: Post; crear: boo
 }
 
 /* ---------- Nueva publicación / editar ---------- */
-function Composer({ modo, post, dia, hora, pieza: piezaIni, cuentas, piezas, rol, aviso, encolar, cerrar, enviado, terminado }: {
+/* ============ Elegir material de Audiovisual: cuadrícula con filtros, y si ya se publicó, cuándo y en qué redes ============
+   La fecha y las redes salen de las publicaciones de Zernio ligadas a la pieza (las ya cargadas en el Planificador). */
+type UsoPieza = { estado: 'publicado' | 'programado' | 'nunca'; fecha: string; redes: string[]; veces: number }
+const USO_TXT: Record<UsoPieza['estado'], string> = { publicado: 'Publicado', programado: 'Programado', nunca: 'Sin publicar' }
+const USO_COLOR: Record<UsoPieza['estado'], string> = { publicado: '#04896f', programado: '#055c9d', nunca: '#b45309' }
+function usoPieza(pz: PiezaMin, posts: Post[]): UsoPieza {
+  const ps = posts.filter((p) => p.avId === pz.id)
+  const t = (p: Post) => Date.parse(p.publicado || p.fecha) || 0
+  const pub = ps.filter((p) => p.estado === 'published' || p.estado === 'partial').sort((a, b) => t(b) - t(a))
+  if (pub.length) return { estado: 'publicado', fecha: pub[0].publicado || pub[0].fecha, redes: [...new Set(pub.flatMap((p) => p.plataformas))], veces: pub.length }
+  const prog = ps.filter((p) => p.estado === 'scheduled').sort((a, b) => t(a) - t(b))
+  if (prog.length) return { estado: 'programado', fecha: prog[0].programada || prog[0].fecha, redes: [...new Set(prog.flatMap((p) => p.plataformas))], veces: 0 }
+  // Su publicación no está entre las cargadas: se muestra el estado de la pieza, sin fecha.
+  if (pz.estado === 'Publicado') return { estado: 'publicado', fecha: '', redes: [], veces: 1 }
+  if (pz.estado === 'Programado') return { estado: 'programado', fecha: '', redes: [], veces: 0 }
+  return { estado: 'nunca', fecha: '', redes: [], veces: 0 }
+}
+const sinTildes = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+
+function ElegirPieza({ piezas, posts, actual, hayMas, cargando, cargarMas, elegir, cerrar }: {
+  piezas: PiezaMin[]; posts: Post[]; actual: string; hayMas: boolean; cargando: boolean; cargarMas: () => void; elegir: (p: PiezaMin) => void; cerrar: () => void
+}) {
+  const [q, setQ] = useState('')
+  const [fUso, setFUso] = useState<'' | UsoPieza['estado']>('')
+  const [fTipo, setFTipo] = useState<'' | 'video' | 'imagen'>('')
+  const [fCamp, setFCamp] = useState('')
+  const [orden, setOrden] = useState<'recomendado' | 'recientes' | 'publicacion'>('recomendado')
+  const filas = useMemo(() => piezas.map((pz) => ({ pz, uso: usoPieza(pz, posts), video: esVideoPieza(pz) })), [piezas, posts])
+  const campanas = useMemo(() => [...new Set(piezas.map((p) => p.campana || '').filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es')), [piezas])
+  const fPz = (p: PiezaMin) => Date.parse(p.fecha || '') || 0
+  // Recomendación: listas y nunca publicadas, las más nuevas primero.
+  const sugeridas = useMemo(() => new Set(filas.filter((f) => f.uso.estado === 'nunca' && f.pz.estado === 'Listo').sort((a, b) => fPz(b.pz) - fPz(a.pz)).slice(0, 3).map((f) => f.pz.id)), [filas])
+  const cuenta = (e: string) => filas.filter((f) => !e || f.uso.estado === e).length
+  const lista = useMemo(() => {
+    const palabras = sinTildes(q).split(/\s+/).filter(Boolean)
+    const rango = { nunca: 0, programado: 1, publicado: 2 }
+    const tUso = (f: { uso: UsoPieza }) => Date.parse(f.uso.fecha) || 0
+    return filas
+      .filter((f) => (!fUso || f.uso.estado === fUso) && (!fTipo || (fTipo === 'video') === f.video) && (!fCamp || f.pz.campana === fCamp)
+        && (!palabras.length || palabras.every((w) => sinTildes([f.pz.titulo, f.pz.producto, f.pz.campana, f.pz.tipo].join(' ')).includes(w))))
+      .sort((a, b) => orden === 'recientes' ? fPz(b.pz) - fPz(a.pz)
+        : orden === 'publicacion' ? (tUso(b) - tUso(a)) || (fPz(b.pz) - fPz(a.pz))
+        // Recomendado: sin publicar (sugeridas y más nuevas primero) → programadas (la más próxima) → publicadas hace más tiempo (para reutilizar)
+        : (rango[a.uso.estado] - rango[b.uso.estado]) || (Number(sugeridas.has(b.pz.id)) - Number(sugeridas.has(a.pz.id)))
+          || (a.uso.estado === 'nunca' ? fPz(b.pz) - fPz(a.pz) : tUso(a) - tUso(b)))
+  }, [filas, q, fUso, fTipo, fCamp, orden, sugeridas])
+  return (
+    <Ventana ancho={1040} cerrar={cerrar}
+      titulo={<span className="flex items-center gap-2"><LayoutGrid className="w-4 h-4" style={{ color: 'var(--primary)' }} />Material de Audiovisual<span className="text-[11px] font-normal text-slate-400">{lista.length} de {filas.length}</span></span>}
+      pie={<>
+        <span className="text-[11px] text-slate-500 flex-1 min-w-0">{hayMas ? <>Las fechas salen de las publicaciones de Zernio ya cargadas. <button type="button" className="font-bold" style={{ color: 'var(--primary)' }} onClick={cargarMas} disabled={cargando}>{cargando ? 'Cargando…' : 'Cargar publicaciones anteriores'}</button></> : 'Toca una pieza para usarla en la publicación.'}</span>
+        <button type="button" className="btn" onClick={cerrar}>Cerrar</button>
+      </>}>
+      <div className="mkav-filtros">
+        <div className="relative mkav-buscar"><Search /><input type="search" className="inp w-full" style={{ paddingLeft: 32 }} placeholder="Buscar por título, producto o campaña…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <div className="seg">{([['', 'Todos'], ['nunca', 'Sin publicar'], ['programado', 'Programados'], ['publicado', 'Publicados']] as const).map(([k, t]) => (
+          <button key={k} type="button" className={fUso === k ? 'active' : ''} onClick={() => setFUso(k)}>{t}<span className="mkav-n">{cuenta(k)}</span></button>))}</div>
+        <div className="seg">{([['', 'Todo'], ['video', 'Videos'], ['imagen', 'Imágenes']] as const).map(([k, t]) => (
+          <button key={k} type="button" className={fTipo === k ? 'active' : ''} onClick={() => setFTipo(k)}>{t}</button>))}</div>
+        {campanas.length > 0 && <select className="inp" value={fCamp} onChange={(e) => setFCamp(e.target.value)} aria-label="Campaña"><option value="">Todas las campañas</option>{campanas.map((c) => <option key={c}>{c}</option>)}</select>}
+        <select className="inp" value={orden} onChange={(e) => setOrden(e.target.value as typeof orden)} aria-label="Orden">
+          <option value="recomendado">Recomendado primero</option><option value="recientes">Más recientes</option><option value="publicacion">Publicados hace poco</option></select>
+      </div>
+      {orden === 'recomendado' && !fUso && sugeridas.size > 0 && (
+        <p className="mkav-ayuda"><Sparkles /><span><b>Sugeridas:</b> listas y nunca publicadas, las más nuevas primero. Después van las programadas y al final las publicadas hace más tiempo, que sirven para reutilizar.</span></p>)}
+      {lista.length ? (
+        <div className="mkav-grid">{lista.map(({ pz, uso, video }) => (
+          <button key={pz.id} type="button" className={'mkav-card' + (actual === pz.id ? ' on' : '')} onClick={() => elegir(pz)} title={pz.titulo}>
+            <div className="mkav-mini">
+              {pz.mini && <img src={pz.mini} alt="" loading="lazy" onError={(e) => { e.currentTarget.style.display = 'none' }} />}
+              {video && <span className="mkav-play">▶</span>}
+              <span className="mkav-tipo">{video ? 'Video' : 'Imagen'}</span>
+              {sugeridas.has(pz.id) && <span className="mkav-sug"><Sparkles />Sugerida</span>}
+              {actual === pz.id && <span className="mkav-ok"><Check /></span>}
+            </div>
+            <div className="mkav-cuerpo">
+              <p className="mkav-titulo">{pz.titulo}</p>
+              <p className="mkav-sub">{[pz.producto, pz.campana].filter(Boolean).join(' · ') || pz.tipo || '—'}</p>
+              <p className="mkav-uso" style={{ color: USO_COLOR[uso.estado] }}><i style={{ background: USO_COLOR[uso.estado] }} />
+                <span>{USO_TXT[uso.estado]}{uso.fecha ? ' · ' + (uso.estado === 'programado' ? fechaCorta(uso.fecha) : fechaDia(uso.fecha)) : uso.estado === 'nunca' ? ' · ' + pz.estado : ''}{uso.veces > 1 ? ' · ' + uso.veces + ' veces' : ''}</span></p>
+              {uso.redes.length > 0 && <div className="mkav-redes">{uso.redes.map((r) => <Punto key={r} p={r} />)}</div>}
+            </div>
+          </button>))}
+        </div>
+      ) : <p className="text-center text-sm text-slate-400" style={{ padding: '40px 0' }}>No hay material con estos filtros.</p>}
+    </Ventana>
+  )
+}
+
+function Composer({ modo, post, dia, hora, pieza: piezaIni, cuentas, piezas, rol, aviso, encolar, cerrar, enviado, terminado, posts, hayMas, cargandoPosts, cargarMas }: {
   modo: 'new' | 'edit'; post?: Post; dia?: string; hora?: number; pieza?: PiezaMin | null; cuentas: Cuenta[]; piezas: PiezaMin[]; rol: Rol; aviso: (t: string) => void
   encolar: (titulo: string, fn: (p: Progreso) => Promise<unknown>, alTerminar?: (r: unknown) => void) => void
   cerrar: () => void; enviado: (fecha: string) => void; terminado: () => void
+  posts: Post[]; hayMas: boolean; cargandoPosts: boolean; cargarMas: () => void
 }) {
+  const [verPiezas, setVerPiezas] = useState(false)
   const editar = modo === 'edit' && !!post
   const fechaIni = () => {
     if (editar) { const d = ecDate(post!.fecha); return d && d.t > Date.now() ? d.key + 'T' + hm(d.h, d.m) : '' }
@@ -590,10 +683,21 @@ function Composer({ modo, post, dia, hora, pieza: piezaIni, cuentas, piezas, rol
           {!editar && <div className="grid sm:grid-cols-2 gap-3">
             <label className="block text-[11px] font-bold text-slate-500">Formato
               <select value={formato} onChange={(e) => setFormato(e.target.value)} className="inp w-full mt-1">{FORMATOS.map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select></label>
-            <label className="block text-[11px] font-bold text-slate-500">Material de Audiovisual
-              <select value={piezaId} onChange={(e) => { setPiezaId(e.target.value); setArchivo(null); const pz = piezas.find((x) => x.id === e.target.value); if (pz && esVideoPieza(pz) && formato === 'feed') setFormato('reel') }} className="inp w-full mt-1">
-                <option value="">— Ninguno —</option>{elegibles.map((x) => <option key={x.id} value={x.id}>{(esVideoPieza(x) ? '🎬 ' : '🖼 ') + x.titulo} · {x.estado}</option>)}</select></label>
+            <div className="block text-[11px] font-bold text-slate-500">Material de Audiovisual
+              <div className="flex items-center gap-1.5 mt-1">
+                <button type="button" className="mkav-campo" onClick={() => setVerPiezas(true)} title="Ver el material en cuadrícula">
+                  {pieza ? <>
+                    <span className="mini" style={pieza.mini ? { backgroundImage: `url("${pieza.mini}")` } : undefined}>{esVideoPieza(pieza) && '▶'}</span>
+                    <span className="t">{pieza.titulo}</span>
+                  </> : <span className="ph">Elegir de Audiovisual…</span>}
+                  <LayoutGrid />
+                </button>
+                {pieza && <button type="button" className="btn" style={{ padding: '8px 9px' }} aria-label="Quitar el material" title="Quitar el material" onClick={() => setPiezaId('')}><X /></button>}
+              </div>
+            </div>
           </div>}
+          {verPiezas && <ElegirPieza piezas={elegibles} posts={posts} actual={piezaId} hayMas={hayMas} cargando={cargandoPosts} cargarMas={cargarMas} cerrar={() => setVerPiezas(false)}
+            elegir={(pz) => { setPiezaId(pz.id); setArchivo(null); if (esVideoPieza(pz) && formato === 'feed') setFormato('reel'); setVerPiezas(false) }} />}
           {!editar && <label className="btn" style={{ display: 'inline-flex', cursor: 'pointer' }}><Upload />{archivo ? archivo.name.slice(0, 40) : '…o sube una imagen o video'}
             <input type="file" hidden accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime,video/webm" onChange={(e) => { const f = e.target.files?.[0] ?? null; setArchivo(f); if (f) { setPiezaId(''); if (f.type.startsWith('video/') && formato === 'feed') setFormato('reel') } }} /></label>}
           {!editar && archivo && <p className="text-[10.5px] text-slate-400 -mt-1">{(archivo.size / 1048576).toFixed(1)} MB · se sube directo a Zernio (temporal: programable hasta 6 días). Para programar con más anticipación, súbelo en Audiovisual.</p>}

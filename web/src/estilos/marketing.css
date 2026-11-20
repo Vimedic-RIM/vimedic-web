@@ -944,3 +944,37 @@ body.vm-con-rail .vm-mkt #sideNav{left:calc(var(--vr-w) + 10px)}
 .vm-mkt .mkf-tarea .paso{display:inline-flex;align-items:center;gap:5px;border:1px solid #e2e8f0;background:#fff;border-radius:99px;padding:3px 9px;font-size:11px;font-weight:600;color:#475569;cursor:pointer}
 .vm-mkt .mkf-tarea .paso.ok{border-color:#bfe6da;background:#f3fbf8;color:#04896f}
 .vm-mkt .mkf-tarea .paso input{width:13px;height:13px;margin:0}
+
+/* Planificador › nueva publicación: elegir material de Audiovisual en cuadrícula (ElegirPieza) */
+.vm-mkt .mkav-campo{display:flex;align-items:center;gap:8px;flex:1;min-width:0;min-height:40px;padding:5px 10px 5px 5px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;text-align:left;cursor:pointer;font-size:12px;color:#0b2545}
+.vm-mkt .mkav-campo:hover{border-color:var(--cyan)}
+.vm-mkt .mkav-campo .mini{width:48px;height:30px;border-radius:6px;background:#e2e8f0 center/cover no-repeat;flex-shrink:0;display:grid;place-items:center;color:#fff;font-size:10px;text-shadow:0 1px 3px #000a}
+.vm-mkt .mkav-campo .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:700}
+.vm-mkt .mkav-campo .ph{flex:1;padding-left:6px;color:#94a3b8;font-weight:600}
+.vm-mkt .mkav-campo > svg{width:16px;height:16px;color:#94a3b8;flex-shrink:0}
+.vm-mkt .mkav-filtros{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
+.vm-mkt .mkav-buscar{flex:1 1 220px;min-width:180px}
+.vm-mkt .mkav-buscar > svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);width:14px;height:14px;color:#94a3b8;pointer-events:none}
+.vm-mkt .mkav-n{font-weight:600;color:#94a3b8;margin-left:4px}
+.vm-mkt .mkav-filtros .seg button{white-space:nowrap}
+.vm-mkt .mkav-ayuda{display:flex;gap:6px;align-items:flex-start;font-size:11px;color:#64748b;background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:7px 10px;margin-bottom:10px}
+.vm-mkt .mkav-ayuda svg{width:13px;height:13px;color:#c2410c;flex-shrink:0;margin-top:1px}
+.vm-mkt .mkav-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(178px,1fr));gap:10px}
+.vm-mkt .mkav-card{display:flex;flex-direction:column;text-align:left;background:#fff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;cursor:pointer;padding:0;font:inherit;transition:box-shadow .15s,border-color .15s}
+.vm-mkt .mkav-card:hover{box-shadow:0 8px 18px -12px rgba(11,37,69,.5);border-color:#cfe3f5}
+.vm-mkt .mkav-card.on{border-color:var(--primary);box-shadow:0 0 0 2px var(--primary)}
+.vm-mkt .mkav-mini{position:relative;aspect-ratio:16/9;background:#f1f5f9}
+.vm-mkt .mkav-mini img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.vm-mkt .mkav-play{position:absolute;inset:0;display:grid;place-items:center;color:#fff;font-size:18px;text-shadow:0 1px 4px #000a}
+.vm-mkt .mkav-tipo{position:absolute;left:6px;bottom:6px;background:#0b2545cc;color:#fff;font-size:9.5px;font-weight:700;border-radius:6px;padding:1px 6px}
+.vm-mkt .mkav-sug{position:absolute;left:6px;top:6px;display:inline-flex;align-items:center;gap:3px;background:#fff7ed;color:#9a3412;border:1px solid #fed7aa;font-size:9.5px;font-weight:800;border-radius:99px;padding:1px 7px}
+.vm-mkt .mkav-sug svg{width:10px;height:10px}
+.vm-mkt .mkav-ok{position:absolute;right:6px;top:6px;width:22px;height:22px;border-radius:50%;background:var(--primary);color:#fff;display:grid;place-items:center}
+.vm-mkt .mkav-ok svg{width:13px;height:13px}
+.vm-mkt .mkav-cuerpo{padding:8px 9px 9px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.vm-mkt .mkav-titulo{font-size:12px;font-weight:700;color:#0b2545;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.vm-mkt .mkav-sub{font-size:10.5px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vm-mkt .mkav-uso{font-size:10.5px;font-weight:700;display:flex;align-items:center;gap:5px;margin-top:3px}
+.vm-mkt .mkav-uso i{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.vm-mkt .mkav-redes{display:flex;gap:3px;margin-top:2px}
+@media(max-width:560px){.vm-mkt .mkav-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.vm-mkt .mkav-filtros .seg{overflow-x:auto;max-width:100%}}
