@@ -43,6 +43,17 @@ Deno.serve(async (req) => {
       if (!clave || !igual(claveCron, String(clave))) return responder({ error: 'Clave del cron no válida.' }, 401)
       // Quien tiene la clave (el cron o una prueba desde la base) puede marcar la ejecución como manual.
       source = (b as { source?: string }).source === 'manual' ? 'manual' : 'cron'
+      /* Reenviar el correo del asesor de leads que ya están en el CRM (solo con la clave; máx. 50). */
+      if (b.accion === 'reenviar_correos') {
+        const codigos = Array.isArray((b as { codigos?: unknown }).codigos) ? ((b as { codigos: unknown[] }).codigos).map(String).filter((x) => /^META-\d{5,30}$/.test(x)).slice(0, 50) : []
+        if (!codigos.length) throw new Falla('Indica los códigos de los leads (META-…).')
+        const m = servicioMeta(admin)
+        const c = await m.conf()
+        const resultado: { codigo: string; resultado: string }[] = []
+        for (const codigo of codigos) resultado.push({ codigo, resultado: await m.reenviarCorreo(c, codigo) })
+        console.log('[meta-leads-poll] reenvío de correos: ' + JSON.stringify(resultado))
+        return responder({ ok: resultado.every((x) => x.resultado.startsWith('enviado')), resultado })
+      }
     } else {
       const usuario = createClient(url, anon, { global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } } })
       const { data: us } = await usuario.auth.getUser()

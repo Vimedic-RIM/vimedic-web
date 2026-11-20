@@ -111,11 +111,12 @@ export function servicioMeta(admin: Admin) {
   }
   let ultimoErrorCorreo = ''
   /** Correo URGENTE al asesor que recibió el lead. Si no sale, el lead igual queda en el CRM y con aviso en la campana. */
-  const correoAsesor = async (c: ConfMeta, lead: { id: string; codigo: string; asesor_id: string | null; asignacion: string | null }, fila: Record<string, unknown>) => {
+  const correoAsesor = async (c: ConfMeta, lead: { id: string; codigo: string; asesor_id: string | null; asignacion: string | null }, fila: Record<string, unknown>): Promise<string> => {
     const k = ajustesCorreo(c)
-    if (!k.activo || !lead.asesor_id) return
+    if (!k.activo) return 'correo apagado en Marketing › Configuración'
+    if (!lead.asesor_id) return 'sin asesor asignado'
     const { data: as } = await admin.from('empleados').select('nombre,email').eq('id', lead.asesor_id).maybeSingle()
-    if (!as?.email) return
+    if (!as?.email) return 'el asesor no tiene correo en Empleados'
     const md = (fila.meta_datos ?? {}) as Cualquiera
     const d: DatosCorreoLead = {
       nombre: String(fila.nombre || ''), telefono: fila.telefono as string | null, email: fila.email as string | null, ciudad: fila.ciudad as string | null,
@@ -125,8 +126,16 @@ export function servicioMeta(admin: Admin) {
       accion: await accionesContacto(k.appUrl, lead.id, lead.asesor_id),
     }
     const m = correoLeadAsesor(d, k.diseno, k.crmUrl)
-    try { await enviarGmail(admin, { para: String(as.email), cc: k.copia && k.copia.toLowerCase() !== String(as.email).toLowerCase() ? k.copia : undefined, asunto: m.asunto, html: m.html, texto: m.texto }) }
-    catch (e) { ultimoErrorCorreo = (e as Error).message; console.error('[meta] correo al asesor: ' + ultimoErrorCorreo) }
+    try { await enviarGmail(admin, { para: String(as.email), cc: k.copia && k.copia.toLowerCase() !== String(as.email).toLowerCase() ? k.copia : undefined, asunto: m.asunto, html: m.html, texto: m.texto }); return 'enviado a ' + String(as.nombre || 'el asesor') }
+    catch (e) { ultimoErrorCorreo = (e as Error).message; console.error('[meta] correo al asesor: ' + ultimoErrorCorreo); return 'error: ' + ultimoErrorCorreo }
+  }
+  /** Volver a enviar el correo del asesor de un lead de Meta que ya está en el CRM (p. ej. si Gmail estaba apagado). */
+  const reenviarCorreo = async (c: ConfMeta, codigo: string): Promise<string> => {
+    const { data: l } = await admin.from('leads')
+      .select('id,codigo,asesor_id,asignacion,nombre,telefono,email,ciudad,canal,meta_datos,fecha,meta_lead_id')
+      .eq('codigo', codigo).not('meta_lead_id', 'is', null).is('deleted_at', null).maybeSingle()
+    if (!l) return 'no está en el CRM'
+    return await correoAsesor(c, l, l)
   }
   /** PROCESAR UN LEAD (webhook y sincronización): lo crea en el CRM si no estaba (meta_lead_id único), deja la
       interacción y avisa por correo al asesor. Los de la herramienta de prueba de Meta no entran. */
@@ -144,5 +153,5 @@ export function servicioMeta(admin: Admin) {
     await correoAsesor(c, nuevo, fila)
     return 'nuevo'
   }
-  return { conf, graph, graphSistema, graphPagina, getPageAccessToken, formularios, leadsDesde, estado, nombreFormulario, ajustesCorreo, procesarLead, errorCorreo: () => ultimoErrorCorreo }
+  return { conf, graph, graphSistema, graphPagina, getPageAccessToken, formularios, leadsDesde, estado, nombreFormulario, ajustesCorreo, procesarLead, reenviarCorreo, errorCorreo: () => ultimoErrorCorreo }
 }
