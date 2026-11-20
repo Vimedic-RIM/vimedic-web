@@ -5,6 +5,7 @@ import {
 import { supabase, type Perfil } from '../supabase'
 import { agrupar } from '../tiempoReal'
 import { IconoRed } from '../redes'
+import { VisorMedios } from '../VisorMedios'
 import { puede } from '../permisos'
 import { imagen, Interruptor } from './inventarioUtil'
 import { leerAjustesFicha, type AjustesFicha } from './MarketingRevision'
@@ -550,6 +551,7 @@ export function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso
   const [nuevoTipo, setNuevoTipo] = useState<'imagen' | 'video'>('imagen')
   const [nuevoUrl, setNuevoUrl] = useState('')
   const [avPicker, setAvPicker] = useState(false)
+  const [visor, setVisor] = useState<number | null>(null) // galería ampliada (índice)
   const [avLista, setAvLista] = useState<{ id: string; titulo: string; archivo_url: string; tipo: string }[]>([])
   const [sinNuevo, setSinNuevo] = useState(prod.sin_etiqueta_nuevo)
   const [docs, setDocs] = useState<DocTecnico[]>([])
@@ -998,11 +1000,11 @@ export function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso
           <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
             {galeria.map((g, i) => (
               <div key={g.id} className="rounded-xl border border-slate-200 overflow-hidden bg-slate-50">
-                <div className="aspect-square grid place-items-center bg-slate-100">
+                <button type="button" className="aspect-square w-full grid place-items-center bg-slate-100 relative" style={{ cursor: 'zoom-in', padding: 0, border: 0 }} onClick={() => setVisor(i)} title="Ver en grande">
                   {g.tipo === 'video'
                     ? <Video className="w-6 h-6 text-slate-400" />
                     : <img src={imagen(g.archivo_url, 200)} alt="" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} />}
-                </div>
+                </button>
                 <input type="text" defaultValue={g.descripcion ?? ''} onBlur={(e) => galDescripcion(g.id, e.target.value)} placeholder="Descripción" className="w-full text-[9px] px-1.5 py-1 border-t border-slate-200 bg-white" />
                 {g.tipo === 'video' && <select value={g.tipo_video ?? ''} onChange={(e) => galTipoVideo(g.id, e.target.value)} className="w-full text-[9px] px-1 py-1 border-t border-slate-200 bg-white" aria-label="Tipo de video"><option value="">Tipo de video…</option>{TIPOS_VIDEO.map((t) => <option key={t}>{t}</option>)}</select>}
                 <div className="flex items-center gap-0.5 px-1 pb-1">
@@ -1021,6 +1023,7 @@ export function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso
           <button type="button" className="btn" onClick={abrirAvPicker}><Film className="w-3.5 h-3.5" />Desde Audiovisual</button>
           <label className="btn" style={{ cursor: 'pointer' }}><Upload className="w-3.5 h-3.5" />{subiendoGal || 'Subir fotos o videos'}<input type="file" multiple hidden accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime" disabled={!!subiendoGal} onChange={(e) => { galSubir(e.target.files); e.target.value = '' }} /></label>
         </div>
+        {visor !== null && galeria.length > 0 && <VisorMedios medios={galeria.map((g) => ({ tipo: g.tipo, url: g.archivo_url, descripcion: g.descripcion }))} inicio={visor} cerrar={() => setVisor(null)} />}
         {avPicker && (
           <div className="rounded-xl border border-slate-200 p-2 space-y-1">
             {!avLista.length && <p className="text-[11px] text-slate-400 text-center py-2">Sin piezas de Audiovisual para este producto.</p>}

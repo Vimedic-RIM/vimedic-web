@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ArrowDown, ArrowUp, ImagePlus, Link2, Trash2, Upload, Video, X } from 'lucide-react'
 import { supabase } from '../supabase'
 import { imagenWebp, subirCatalogo } from './audiovisualMedios'
+import { VisorMedios } from '../VisorMedios'
 
 /* Inventario › "Editar multimedia" (getProductoRawMultimedia, actualizarMultimediaProducto, guardarGaleriaProducto
    del original): imagen principal, ficha técnica, carpeta de multimedia y galería (fotos y videos, orden, texto
@@ -31,6 +32,7 @@ export function EditarMultimedia({ producto, cerrar, guardado }: { producto: { i
   const [ficha, setFicha] = useState('')
   const [carpeta, setCarpeta] = useState('')
   const [items, setItems] = useState<ItemG[] | null>(null)
+  const [visor, setVisor] = useState<number | null>(null) // galería ampliada (índice)
   const [nuevoUrl, setNuevoUrl] = useState('')
   const [nuevoTipo, setNuevoTipo] = useState<'imagen' | 'video'>('imagen')
   const [subiendo, setSubiendo] = useState('')
@@ -121,15 +123,16 @@ export function EditarMultimedia({ producto, cerrar, guardado }: { producto: { i
                   <label className="pf-f pf-full"><span>Carpeta de multimedia</span><input type="text" className="pf-in" placeholder="https://drive.google.com/drive/folders/…" value={carpeta} onChange={(e) => setCarpeta(e.target.value)} /></label>
                 </div>
               </Seccion>
+              {visor !== null && items.length > 0 && <VisorMedios medios={items.map((x) => ({ tipo: x.tipo, url: x.archivo_url, descripcion: x.descripcion }))} inicio={visor} cerrar={() => setVisor(null)} />}
               <Seccion n={3} t={`Galería del catálogo (${items.length} de ${MAX})`}>
                 <p className="text-[11px] text-slate-500 mb-2">Fotos y videos que se ven en el catálogo después de la imagen principal.</p>
                 <div className="space-y-2">
                   {items.map((x, i) => (
                     <div key={(x.id ?? '') + x.archivo_url + i} className="flex gap-2 items-start rounded-xl border border-slate-200 bg-white p-2">
-                      <span className="w-14 h-14 rounded-lg bg-slate-100 overflow-hidden grid place-items-center shrink-0 text-slate-400">
+                      <button type="button" onClick={() => setVisor(i)} title="Ver en grande" style={{ cursor: 'zoom-in', padding: 0, border: 0 }} className="w-14 h-14 rounded-lg bg-slate-100 overflow-hidden grid place-items-center shrink-0 text-slate-400">
                         {x.tipo === 'video' ? (ytMini(x.archivo_url) ? <img src={ytMini(x.archivo_url)} alt="" className="w-full h-full object-cover" /> : <Video className="w-5 h-5" />)
                           : <img src={miniatura(x.archivo_url, 160)} alt="" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} />}
-                      </span>
+                      </button>
                       <div className="min-w-0 flex-1 space-y-1">
                         <input type="text" className="pf-in" placeholder="Texto alternativo (qué se ve)" value={x.descripcion} onChange={(e) => cambiar(i, { descripcion: e.target.value })} />
                         {x.tipo === 'video' && <select className="pf-in" value={x.tipo_video} onChange={(e) => cambiar(i, { tipo_video: e.target.value })}><option value="">Tipo de video…</option>{TIPOS_VIDEO.map((t) => <option key={t}>{t}</option>)}</select>}

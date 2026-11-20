@@ -3,13 +3,14 @@ import {
   BadgePercent, GripVertical, Move, RotateCcw, Ship, ArrowDownAZ, ArrowRight, BadgeCheck, CircleCheck, ClipboardList, PlusCircle, ShoppingCart, BadgeDollarSign, Barcode, Boxes, Check, ChevronDown, ChevronUp,
   ChevronsUpDown, ClipboardCopy, Download, Eraser, Eye, EyeOff, FileText, Flame, Hash, ImagePlus, Images, LayoutGrid, Menu,
   Package, PackagePlus, PackageX, PanelsTopLeft, Pencil, Plus, RefreshCw, Search, SlidersHorizontal, Table2, Tag,
-  Trash2, TriangleAlert, Video, X,
+  Maximize2, Trash2, TriangleAlert, Video, X,
 } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
 import '../estilos/inventario-original.css'
 import { EditarMultimedia } from './InventarioMultimedia'
+import { VisorMedios } from '../VisorMedios'
 import { imagenWebp, subirCatalogo } from './audiovisualMedios'
 import { aFemedics, cargarOfertasInv, dineroUsd, etiquetaOferta, fechaCorta, hoyEC, ofertaActiva, type OfertaInv } from './ofertasInv'
 import { ofertaDeLinea, pctTexto } from './ofertaLinea'
@@ -397,8 +398,9 @@ function Panel({ p, editar, abrirEditar, car }: { p: Fila; editar: boolean; abri
   const ofP = useOferta(p.id), ofD = useOfertaDis(p.id), bp = ofertaCopiaPvp(ofP, p), bd = ofertaCopiaDis(ofD, p)
   const nCot = car?.cant(p.id) ?? 0
   const [descripcion, setDescripcion] = useState<string | null>(null)
+  const [verGrande, setVerGrande] = useState(false)
   useEffect(() => {
-    setDescripcion(null)
+    setDescripcion(null); setVerGrande(false)
     supabase.from('productos').select('descripcion').eq('id', p.id).single().then(({ data }) => setDescripcion((data as { descripcion: string | null } | null)?.descripcion ?? ''))
   }, [p.id])
 
@@ -412,13 +414,15 @@ function Panel({ p, editar, abrirEditar, car }: { p: Fila; editar: boolean; abri
   return (
     <>
       <div className="inv-hero">
-        {p.imagen_url && <img src={imagen(p.imagen_url, 800)} onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} alt={p.nombre} onClick={() => window.open(imagen(p.imagen_url, 1600), '_blank')} title="Ver imagen en grande" />}
+        {p.imagen_url && <img src={imagen(p.imagen_url, 800)} onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} alt={p.nombre} onClick={() => setVerGrande(true)} style={{ cursor: 'zoom-in' }} title="Ver en grande" />}
         {p.imagen_url && (
           <div className="inv-hero-tools">
+            <button type="button" onClick={() => setVerGrande(true)} title="Ver en grande (con la galería)" aria-label="Ver en grande"><Maximize2 /></button>
             <a href={p.imagen_url} download target="_blank" rel="noopener noreferrer" title="Descargar imagen"><Download /></a>
           </div>
         )}
       </div>
+      {verGrande && <VisorProducto productoId={p.id} principal={p.imagen_url} cerrar={() => setVerGrande(false)} />}
       <div className="inv-title">
         <p className="text-[10px] font-mono-spec text-slate-400">{p.codigo}{p.codigo_unico ? ' - ' + p.codigo_unico : ''}{p.categoria ? ' · ' + p.categoria.nombre : ''}</p>
         <h3 className="font-display font-bold text-lg leading-snug text-slate-800">{p.nombre}</h3>
@@ -1211,6 +1215,17 @@ function GestionCategorias({ cerrar, actualizado }: { cerrar: () => void; actual
 type InfoExtra = { descripcion: string | null; caracteristicas: string | null; especificaciones: string | null; accesorios: string | null; certificaciones: string | null }
 type GaleriaItem = { tipo: 'imagen' | 'video'; archivo_url: string; descripcion: string | null }
 
+/** Vista ampliada desde el panel lateral: la imagen principal y, en cuanto carga, la galería del producto. */
+function VisorProducto({ productoId, principal, cerrar }: { productoId: string; principal: string | null; cerrar: () => void }) {
+  const [gal, setGal] = useState<GaleriaItem[]>([])
+  useEffect(() => {
+    supabase.from('producto_galeria').select('tipo,archivo_url,descripcion').eq('producto_id', productoId).is('deleted_at', null).order('orden')
+      .then(({ data }) => setGal((data as GaleriaItem[]) ?? []))
+  }, [productoId])
+  const medios = useMemo(() => [...(principal ? [{ tipo: 'imagen' as const, url: principal, descripcion: null }] : []), ...gal.map((g) => ({ tipo: g.tipo, url: g.archivo_url, descripcion: g.descripcion }))], [principal, gal])
+  return medios.length ? <VisorMedios medios={medios} cerrar={cerrar} /> : null
+}
+
 function urlVideoEmbed(url: string): string | null {
   const yt = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([a-zA-Z0-9_-]{6,})/)
   if (yt) return 'https://www.youtube.com/embed/' + yt[1]
@@ -1278,9 +1293,10 @@ function DetalleProducto({ p, editar, eliminar, verMovimientos, irAMovimientos, 
   const [galeria, setGaleria] = useState<GaleriaItem[]>([])
   const [verDis, setVerDis] = useState(false)
   const [imgSel, setImgSel] = useState(0)
+  const [visor, setVisor] = useState(false)
   const descripcion = info?.descripcion ?? null
   useEffect(() => {
-    setImgSel(0)
+    setImgSel(0); setVisor(false)
     Promise.all([
       supabase.from('productos').select('descripcion,caracteristicas,especificaciones,accesorios,certificaciones').eq('id', p.id).single(),
       supabase.from('producto_galeria').select('tipo,archivo_url,descripcion').eq('producto_id', p.id).is('deleted_at', null).order('orden'),
@@ -1347,16 +1363,18 @@ function DetalleProducto({ p, editar, eliminar, verMovimientos, irAMovimientos, 
                         ? <iframe src={urlVideoEmbed(actual.archivo_url)!} className="w-full aspect-square rounded-lg bg-black" allow="autoplay; fullscreen; picture-in-picture" title="Video del producto" />
                         : <video src={actual.archivo_url} controls className="w-full aspect-square rounded-lg bg-black object-contain" />)
                     : actual
-                      ? <img decoding="async" src={imagen(actual.archivo_url, 600)} onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} className="w-full aspect-square object-contain p-1.5 rounded-lg bg-white" alt="" />
+                      ? <img decoding="async" src={imagen(actual.archivo_url, 600)} onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} onClick={() => setVisor(true)} style={{ cursor: 'zoom-in' }} title="Ver en grande" className="w-full aspect-square object-contain p-1.5 rounded-lg bg-white" alt="" />
                       : <div className="w-full aspect-square rounded-lg bg-white" />}
-                  {actual && actual.tipo === 'imagen' && (
+                  {actual && (
                     <div className="inv-hero-tools">
-                      <a href={imagen(actual.archivo_url, 1600)} target="_blank" rel="noopener noreferrer" title="Descargar imagen"><Download /></a>
+                      <button type="button" onClick={() => setVisor(true)} title="Ver en grande" aria-label="Ver en grande"><Maximize2 /></button>
+                      {actual.tipo === 'imagen' && <a href={imagen(actual.archivo_url, 1600)} target="_blank" rel="noopener noreferrer" title="Descargar imagen"><Download /></a>}
                     </div>
                   )}
                 </div>
                 {actual?.descripcion && <p className="text-[10px] text-slate-500 mt-1 px-1 leading-snug">{actual.descripcion}</p>}
               </div>
+              {visor && media.length > 0 && <VisorMedios medios={media.map((x) => ({ tipo: x.tipo, url: x.archivo_url, descripcion: x.descripcion }))} inicio={imgSel} cerrar={() => setVisor(false)} />}
               {media.length > 1 && (
                 <div className="flex gap-1.5 overflow-x-auto mt-2 pb-1 max-w-[220px] mx-auto sm:max-w-none">
                   {media.map((m, i) => (
