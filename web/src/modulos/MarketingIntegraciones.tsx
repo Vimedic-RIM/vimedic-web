@@ -1238,7 +1238,7 @@ export function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso
                 <button type="button" className="aspect-square w-full grid place-items-center bg-slate-100 relative" style={{ cursor: 'zoom-in', padding: 0, border: 0 }} onClick={() => setVisor(i)} title="Ver en grande">
                   {g.tipo === 'video'
                     ? <Video className="w-6 h-6 text-slate-400" />
-                    : <img src={imagen(g.archivo_url, 200)} alt="" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} />}
+                    : <img loading="lazy" decoding="async" src={imagen(g.archivo_url, 200)} alt="" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} />}
                 </button>
                 <input type="text" defaultValue={g.descripcion ?? ''} onBlur={(e) => galDescripcion(g.id, e.target.value)} placeholder="Descripción" className="w-full text-[9px] px-1.5 py-1 border-t border-slate-200 bg-white" />
                 {g.tipo === 'video' && <select value={g.tipo_video ?? ''} onChange={(e) => galTipoVideo(g.id, e.target.value)} className="w-full text-[9px] px-1 py-1 border-t border-slate-200 bg-white" aria-label="Tipo de video"><option value="">Tipo de video…</option>{TIPOS_VIDEO.map((t) => <option key={t}>{t}</option>)}</select>}

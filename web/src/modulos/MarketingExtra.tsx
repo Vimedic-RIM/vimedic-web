@@ -185,7 +185,7 @@ function DetalleSolicitud({ s, arch, editar, cerrar, cambiar, aviso }: { s: Sol;
         return (
           <div key={p.clave} className="rounded-xl border border-slate-200 p-3" style={cerrado ? { opacity: 0.7 } : undefined}>
             <div className="flex gap-2 items-start">
-              {p.imagen ? <img src={imgUrl(p.imagen, 96)} alt="" className="w-10 h-10 rounded-lg object-contain bg-slate-50" /> : null}
+              {p.imagen ? <img loading="lazy" decoding="async" src={imgUrl(p.imagen, 96)} alt="" className="w-10 h-10 rounded-lg object-contain bg-slate-50" /> : null}
               <div style={{ flex: 1, minWidth: 0 }}><p className="text-xs font-bold text-slate-800">{p.nombre || p.codigo || p.clave}</p>
                 <p className="text-[11px] text-slate-500">{[p.codigo, p.modelo ? 'Modelo ' + p.modelo : '', p.codInterno ? 'Código interno ' + p.codInterno : '', p.marca].filter(Boolean).join(' · ')}</p></div>
               {editar && <><button className="btn" onClick={() => cambiar(s, { productos: [{ clave: p.clave, abierto: cerrado }] })}>{cerrado ? 'Abrir' : 'Cerrar'}</button>

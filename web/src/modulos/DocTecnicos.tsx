@@ -164,7 +164,7 @@ function Panel({ f, req, editar, cerrar, aviso, guardado }: { f: Fila; req?: Req
       <div className="dt-velo" onClick={cerrar} />
       <aside className="dt-panel" ref={ref}>
         <div className="dt-panel-h">
-          <span className="th th-lg">{f.imagen_url ? <img alt="" src={imagen(f.imagen_url, 160)} onError={(e) => e.currentTarget.remove()} /> : <Package />}</span>
+          <span className="th th-lg">{f.imagen_url ? <img loading="lazy" decoding="async" alt="" src={imagen(f.imagen_url, 160)} onError={(e) => e.currentTarget.remove()} /> : <Package />}</span>
           <div className="min-w-0 flex-1"><p className="font-display font-bold leading-tight">{f.nombre}</p><p className="text-[11px] text-white/70 mono">{f.codigo}{f.codigo_unico ? ' · interno ' + f.codigo_unico : ''}</p><p className="text-[11px] text-white/80 mt-0.5">{f.cumple} de 4 requisitos{f.catalogo ? ' · Catálogo' : ''}{f.importado ? ' · Importado' : ''}</p></div>
           <button className="btn btn-g !px-2" onClick={cerrar} aria-label="Cerrar"><X /></button>
         </div>

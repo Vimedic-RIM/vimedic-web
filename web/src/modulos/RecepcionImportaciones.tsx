@@ -483,7 +483,7 @@ function Identificar({ l, categorias, cerrar, listo }: { l: Linea; categorias: s
       <div className="rc-seg rc-seg-g"><button type="button" className={modo === 'existente' ? 'on' : ''} onClick={() => setModo('existente')}>Producto existente</button><button type="button" className={modo === 'nuevo' ? 'on' : ''} onClick={() => setModo('nuevo')}>Producto nuevo</button></div>
       {modo === 'existente' ? <>
         <div className="rc-buscar"><Search /><input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Código, nombre o código interno" /></div>
-        <div className="rc-res">{res.map((p) => <button key={p.codigo} type="button" className={'rc-resp' + (sel === p.codigo ? ' on' : '')} onClick={() => setSel(p.codigo)}>{p.imagen_url ? <img src={p.imagen_url} alt="" /> : <PackageOpen />}<span><b>{p.nombre}</b><small>{p.codigo}</small></span></button>)}
+        <div className="rc-res">{res.map((p) => <button key={p.codigo} type="button" className={'rc-resp' + (sel === p.codigo ? ' on' : '')} onClick={() => setSel(p.codigo)}>{p.imagen_url ? <img loading="lazy" decoding="async" src={p.imagen_url} alt="" /> : <PackageOpen />}<span><b>{p.nombre}</b><small>{p.codigo}</small></span></button>)}
           {busca.trim().length >= 2 && !res.length && <p className="rc-nota">Sin resultados. Si es un producto nuevo, elige "Producto nuevo".</p>}</div>
       </> : <>
         <div className="rc-fila2">

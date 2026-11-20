@@ -1548,7 +1548,7 @@ function ModalObsequio({ r, cerrar, aviso, guardado }: { r: Fila; cerrar: () => 
                     className={'rounded-xl border p-2 text-left relative' + (actual ? ' border-emerald-400' : ' border-slate-200 bg-white hover:border-slate-300')}
                     style={actual ? { background: '#ecfdf5' } : undefined}>
                     <div className="aspect-square rounded-lg bg-slate-100 overflow-hidden mb-1.5 flex items-center justify-center">
-                      {o.imagen_url ? <img src={imagen(o.imagen_url, 200)} alt="" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} /> : <Gift className="w-5 h-5 text-slate-300" />}
+                      {o.imagen_url ? <img loading="lazy" decoding="async" src={imagen(o.imagen_url, 200)} alt="" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} /> : <Gift className="w-5 h-5 text-slate-300" />}
                     </div>
                     <p className="text-[11px] font-semibold text-slate-700 leading-snug line-clamp-2">{o.nombre}</p>
                     {repetido && <span className="absolute top-1 right-1 text-[8.5px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: '#fef3c7', color: '#92400e' }}>Ya entregado</span>}

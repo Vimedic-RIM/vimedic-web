@@ -4,12 +4,7 @@ import {
   GalleryHorizontal as Gallery, Image as ImageIcon, Images, LayoutDashboard, Lightbulb, ListChecks, Megaphone, PenLine, PieChart, Receipt, RefreshCw, Search, Send, ShoppingBag, Smartphone, Palette,
   Target, TrendingUp, Trash2, UploadCloud, UserCheck, Users, Video, X, Settings, Copy,
 } from 'lucide-react'
-import { Configuracion, Biblioteca } from './MarketingIntegraciones'
-import { Revision } from './MarketingRevision'
-import { PlanTrabajo, type PendientePlan } from './MarketingPlan'
-import { AgendaMarketing } from './MarketingAgenda'
-import { Planificador } from './MarketingPlanificador'
-import { Anuncios, Material, Promociones } from './MarketingExtra'
+import type { PendientePlan } from './MarketingPlan'
 import { SubirMaterial, PapeleraAv, BuscadorProducto, useEquipo, type ProdBusq } from './MarketingArchivos'
 import { miniaturaAv, enlaceZernio, esVideoAv, idDrive, fotogramaVideo, guardarMiniatura, prepararPortada, subirArchivoAv } from './audiovisualMedios'
 import { Chart, registerables, type ChartConfiguration } from 'chart.js'
@@ -20,6 +15,16 @@ import '../estilos/marketing.css'
 import { PackageSearch } from 'lucide-react'
 // Productos nuevos de las importaciones por identificar (vmRecIdentificar): se carga solo al abrirla
 const Recepcion = lazy(() => import('./RecepcionImportaciones'))
+// Pestañas: cada una se descarga cuando se abre.
+const Configuracion = lazy(() => import('./MarketingIntegraciones').then((m) => ({ default: m.Configuracion })))
+const Biblioteca = lazy(() => import('./MarketingIntegraciones').then((m) => ({ default: m.Biblioteca })))
+const Revision = lazy(() => import('./MarketingRevision').then((m) => ({ default: m.Revision })))
+const PlanTrabajo = lazy(() => import('./MarketingPlan').then((m) => ({ default: m.PlanTrabajo })))
+const AgendaMarketing = lazy(() => import('./MarketingAgenda').then((m) => ({ default: m.AgendaMarketing })))
+const Planificador = lazy(() => import('./MarketingPlanificador').then((m) => ({ default: m.Planificador })))
+const Anuncios = lazy(() => import('./MarketingExtra').then((m) => ({ default: m.Anuncios })))
+const Material = lazy(() => import('./MarketingExtra').then((m) => ({ default: m.Material })))
+const Promociones = lazy(() => import('./MarketingExtra').then((m) => ({ default: m.Promociones })))
 
 Chart.register(...registerables)
 Chart.defaults.font.family = 'Inter'; Chart.defaults.font.size = 10; Chart.defaults.color = '#64748b'
@@ -420,6 +425,8 @@ export default function Marketing({ perfil, aviso, accion, limpiarAccion }: { pe
 
         {tab === 'audiovisual' && <Audiovisual piezas={av} cargando={cargando} puedeCrear={puedeCrear} puedeEliminar={puede(perfil, 'marketing', 'eliminar')} recargar={cargarDatos} abrirIdea={() => setNuevaIdea(true)} abrir={setPiezaAbierta} aviso={aviso} subir={() => setSubir(true)} papelera={() => setPapelera(true)} />}
 
+        {/* Cada pestaña se descarga al abrirla (antes venían todas juntas: ~400 kB al entrar a Marketing). */}
+        <Suspense fallback={<div className="card p-10 text-center text-slate-400">Cargando…</div>}>
         {tab === 'planificador' && <Planificador perfil={perfil} piezas={(av ?? []).map((a) => ({ id: a.id, titulo: a.titulo, tipo: a.tipo, estado: a.estado, url: a.url, producto: a.producto, mime: a.mime, notas: a.notas, productoId: a.productoId ?? undefined, enlace: enlaceZernio(a), mini: miniaturaAv(a, 480), campana: a.campana, fecha: a.fecha }))} piezaInicial={piezaProgramar ? { id: piezaProgramar.id, titulo: piezaProgramar.titulo, tipo: piezaProgramar.tipo, estado: piezaProgramar.estado, url: piezaProgramar.url, producto: piezaProgramar.producto, mime: piezaProgramar.mime, notas: piezaProgramar.notas, productoId: piezaProgramar.productoId ?? undefined, enlace: enlaceZernio(piezaProgramar), mini: miniaturaAv(piezaProgramar, 480), campana: piezaProgramar.campana, fecha: piezaProgramar.fecha } : null} limpiarPieza={() => setPiezaProgramar(null)} irConfig={() => setTab('configuracion')} aviso={aviso} alSincronizar={cargarDatos} abrirAlEntrar={abrirPublicacion} consumirAbrir={() => setAbrirPublicacion(false)} />}
         {tab === 'biblioteca' && <Biblioteca perfil={perfil} aviso={aviso} asignar={coordina ? (p) => { setPendientePlan(p); setTab('plan') } : undefined} />}
         {tab === 'agenda' && <AgendaMarketing aviso={aviso} irA={setTab} />}
@@ -430,6 +437,7 @@ export default function Marketing({ perfil, aviso, accion, limpiarAccion }: { pe
         {tab === 'anuncios' && <Anuncios perfil={perfil} desde={desde} hasta={hasta} aviso={aviso} />}
         {tab === 'material' && <Material perfil={perfil} aviso={aviso} />}
         {tab === 'promociones' && <Promociones perfil={perfil} aviso={aviso} />}
+        </Suspense>
         {tab === 'importacion' && <Suspense fallback={<div className="card p-10 text-center text-slate-400">Cargando…</div>}><Recepcion perfil={perfil} aviso={aviso} area="marketing" /></Suspense>}
 
         {false && (

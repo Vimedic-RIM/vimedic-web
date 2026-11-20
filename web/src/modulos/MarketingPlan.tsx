@@ -263,8 +263,9 @@ function EditorDesdePlan({ t, plan, perfil, nombre, aviso, cerrar, verTarea, rec
     supabase.from('productos').select('id,codigo,nombre,descripcion,imagen_url,marca,drive_carpeta_url,ficha_tecnica_url,fecha_creacion,sin_etiqueta_nuevo,en_catalogo,categoria:categorias(nombre)').eq('id', pid).single()
       .then(({ data, error: e }) => { if (e || !data) setError('No se pudo abrir el producto: ' + (e?.message ?? 'no existe')); else setProd(data as unknown as Prod) })
     supabase.from('categorias').select('nombre').is('deleted_at', null).order('nombre').then(({ data }) => setCategorias(((data as { nombre: string }[] | null) ?? []).map((x) => x.nombre)))
-    supabase.from('productos').select('marca').not('marca', 'is', null).is('deleted_at', null).limit(1000)
-      .then(({ data }) => setMarcas([...new Set(((data as { marca: string }[] | null) ?? []).map((x) => x.marca.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'))))
+    // Marcas distintas desde la base (antes solo llegaban las de los primeros 1.000 productos).
+    supabase.rpc('productos_marcas')
+      .then(({ data }) => setMarcas([...new Set(((data as string[] | null) ?? []).map((x) => String(x).trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'))))
   }, [pid])
   useEffect(() => { if (error) { aviso(error); cerrar() } }, [error]) // eslint-disable-line react-hooks/exhaustive-deps
   if (!prod) return <div className="mkp-fondo"><p className="text-sm font-semibold text-white">Abriendo el producto…</p></div>
@@ -317,7 +318,7 @@ function DetalleTarea({ t, plan, nombre, cerrar, aviso, irA, recargar }: {
         <div className="cuerpo">
           {t.producto && (
             <div className="mkp-prod">
-              {t.producto.imagen ? <img src={imagen(t.producto.imagen, 120)} alt="" onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} /> : <span className="ph" style={{ display: 'grid', placeItems: 'center' }}><ImageOff className="w-4 h-4 text-slate-300" /></span>}
+              {t.producto.imagen ? <img loading="lazy" decoding="async" src={imagen(t.producto.imagen, 120)} alt="" onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} /> : <span className="ph" style={{ display: 'grid', placeItems: 'center' }}><ImageOff className="w-4 h-4 text-slate-300" /></span>}
               <div className="min-w-0 flex-1"><p className="text-[10.5px] font-mono-spec text-slate-400">{t.producto.codigo}{t.producto.publico ? ' · visible al público' : ''}</p><p className="text-[12.5px] font-bold text-slate-800">{t.producto.nombre}</p></div>
             </div>
           )}

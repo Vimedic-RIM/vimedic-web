@@ -6,6 +6,7 @@ import {
   Maximize2, Trash2, TriangleAlert, Video, X,
 } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
+import { traerTodo } from '../traerTodo'
 import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
 import '../estilos/inventario-original.css'
@@ -724,9 +725,13 @@ export default function Inventario({ perfil, irAMovimientos }: { perfil: Perfil;
   async function iniciarOrden() {
     setVista('tarjetas'); setMenu(null); setCargando(true)
     reordRef.current = true; peticion.current++
-    let q = supabase.from('productos').select(COLUMNAS).is('deleted_at', null)
-    if (!mostrarInactivos) q = q.or('estado.is.null,estado.not.ilike.inactivo')
-    const { data, error } = await q.order('en_vista_publica', { ascending: false }).order('orden', { ascending: true, nullsFirst: false }).order('nombre').limit(3000)
+    // Todos de verdad: en tandas de 1.000 (Supabase corta cada respuesta en 1.000 aunque se pida más).
+    const base = () => {
+      let q = supabase.from('productos').select(COLUMNAS).is('deleted_at', null)
+      if (!mostrarInactivos) q = q.or('estado.is.null,estado.not.ilike.inactivo')
+      return q.order('en_vista_publica', { ascending: false }).order('orden', { ascending: true, nullsFirst: false }).order('nombre').order('id')
+    }
+    const { data, error } = await traerTodo((a, z) => base().range(a, z))
     setCargando(false)
     if (error) { reordRef.current = false; alert('No se pudo cargar el catálogo: ' + error.message); return }
     const lista = ((data as unknown as Fila[]) ?? []).slice().sort((a, b) => (a.categoria?.nombre ?? '').localeCompare(b.categoria?.nombre ?? '', 'es'))
@@ -1563,8 +1568,9 @@ function FormularioProducto({ id, categorias, cerrar, guardado }: {
 
   // Sugerencias de marca con lo que ya existe en el inventario.
   useEffect(() => {
-    supabase.from('productos').select('marca').not('marca', 'is', null).is('deleted_at', null).limit(3000)
-      .then(({ data }) => setMarcas([...new Set(((data as { marca: string }[]) ?? []).map((x) => x.marca.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'))))
+    // Marcas distintas desde la base (antes se bajaban miles de productos y solo llegaban 1.000).
+    supabase.rpc('productos_marcas')
+      .then(({ data }) => setMarcas([...new Set(((data as string[]) ?? []).map((x) => String(x).trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'))))
   }, [])
 
   function set<K extends keyof Campos>(k: K, v: Campos[K]) { setF((x) => (x ? { ...x, [k]: v } : x)); if (k === 'imagen_url') setImgError(false) }

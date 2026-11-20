@@ -2,6 +2,7 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } fro
 import { Archive, BookOpen, Calendar, CalendarCheck, CalendarPlus, Check, CheckCheck, ChevronLeft, ChevronRight, ClipboardList, Cpu, FileCheck2, FileText, Gauge, GraduationCap, Hammer, History, Hourglass, Lightbulb, List, ListChecks, MapPin, MessageCircle, PackageOpen, Package, Pencil, Phone, Play, Plus, PlugZap, RefreshCw, RotateCcw, Save, ScanSearch, Search, ShieldAlert, Stethoscope, User, UserPlus, Users, Wrench, X, XCircle, BadgeCheck, Camera } from 'lucide-react'
 import { MiniProducto } from './inventarioUtil'
 import { supabase, type Perfil } from '../supabase'
+import { traerTodo } from '../traerTodo'
 import { palabras } from '../busqueda'
 import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
@@ -606,7 +607,8 @@ function PanelOrden({ id, perfil, externo, editar, tecnicos, aviso, cerrar, abri
   }
   async function buscarProductos() {
     if (productos) return
-    const { data } = await supabase.from('productos').select('codigo,nombre,stock,imagen_url').is('deleted_at', null).order('en_vista_publica', { ascending: false }).order('nombre').limit(3000)
+    // Todos los productos (en tandas de 1.000: Supabase corta cada respuesta en 1.000 aunque se pida más).
+    const { data } = await traerTodo((a, z) => supabase.from('productos').select('codigo,nombre,stock,imagen_url').is('deleted_at', null).order('en_vista_publica', { ascending: false }).order('nombre').order('id').range(a, z))
     setProductos(((data ?? []) as { codigo: string; nombre: string; stock: number; imagen_url: string | null }[]).map((p) => ({ id: p.codigo, nombre: p.nombre, stock: p.stock, imagen: p.imagen_url })))
   }
   async function descargar(variante: 'informe' | 'recepcion') {

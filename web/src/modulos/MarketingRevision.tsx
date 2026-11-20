@@ -84,14 +84,14 @@ function VistaCambio({ it }: { it: Item }) {
   const a = it.anterior ?? '', b = it.nuevo ?? ''
   if (it.campo === 'publico') return <div className="rv-diff"><del>{a === 'SI' ? 'Visible al público' : 'Oculto'}</del> → <ins>{b === 'SI' ? 'Visible al público' : 'Oculto'}</ins></div>
   if (it.campo === 'nuevo') return <div className="rv-diff">{b === 'SI' ? 'Quitar la etiqueta "Nuevo"' : 'Mostrar la etiqueta "Nuevo"'}</div>
-  if (['imagen', 'imagen_url', 'album', 'ficha'].includes(it.campo)) return <div className="rv-thumbs">{a && <img className="del" src={driveImg(a)} alt="" onError={(e) => { e.currentTarget.style.display = 'none' }} />}<img className="add" src={driveImg(b)} alt="" onError={(e) => { e.currentTarget.style.display = 'none' }} />
+  if (['imagen', 'imagen_url', 'album', 'ficha'].includes(it.campo)) return <div className="rv-thumbs">{a && <img loading="lazy" decoding="async" className="del" src={driveImg(a)} alt="" onError={(e) => { e.currentTarget.style.display = 'none' }} />}<img loading="lazy" decoding="async" className="add" src={driveImg(b)} alt="" onError={(e) => { e.currentTarget.style.display = 'none' }} />
     {['album', 'ficha'].includes(it.campo) && b && <a href={b} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold self-center" style={{ color: 'var(--primary)' }}>Abrir ↗</a>}</div>
   if (it.campo === 'galeria') {
     let A: { archivo: string; tipo?: string; tipoVideo?: string }[] = [], B: typeof A = []
     try { A = JSON.parse(a || '[]'); B = JSON.parse(b || '[]') } catch { /* dato viejo */ }
     const k = (x: { archivo: string }) => String(x.archivo).split('?')[0], ka = new Set(A.map(k)), kb = new Set(B.map(k))
     const add = B.filter((x) => !ka.has(k(x))), del = A.filter((x) => !kb.has(k(x)))
-    const th = (x: { archivo: string; tipo?: string; tipoVideo?: string }, c: string, i: number) => (x.tipo === 'video' ? <span key={c + i} className={'rv-tag ' + (c === 'add' ? 'ok' : 'mal')}>▶ {x.tipoVideo || 'video'}</span> : <img key={c + i} className={c} src={driveImg(x.archivo)} alt="" onError={(e) => { e.currentTarget.style.display = 'none' }} />)
+    const th = (x: { archivo: string; tipo?: string; tipoVideo?: string }, c: string, i: number) => (x.tipo === 'video' ? <span key={c + i} className={'rv-tag ' + (c === 'add' ? 'ok' : 'mal')}>▶ {x.tipoVideo || 'video'}</span> : <img loading="lazy" decoding="async" key={c + i} className={c} src={driveImg(x.archivo)} alt="" onError={(e) => { e.currentTarget.style.display = 'none' }} />)
     return <><p className="text-[11px] text-slate-500 mt-1">{[add.length ? add.length + ' agregado' + (add.length === 1 ? '' : 's') : '', del.length ? del.length + ' quitado' + (del.length === 1 ? '' : 's') : ''].filter(Boolean).join(' · ') || 'Orden o textos cambiados'}</p>
       <div className="rv-thumbs">{add.map((x, i) => th(x, 'add', i))}{del.map((x, i) => th(x, 'del', i))}</div></>
   }
@@ -108,7 +108,7 @@ function Cabecera({ l, abrir }: { l: Item[]; abrir: (id: string) => void }) {
   const it = l[0]
   return (
     <div className="rv-grupo-h">
-      {it.imagen ? <img src={driveImg(it.imagen, 120)} alt="" onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} /> : <span className="ph">{it.accion ? <Megaphone className="w-4 h-4" /> : <Package className="w-4 h-4" />}</span>}
+      {it.imagen ? <img loading="lazy" decoding="async" src={driveImg(it.imagen, 120)} alt="" onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} /> : <span className="ph">{it.accion ? <Megaphone className="w-4 h-4" /> : <Package className="w-4 h-4" />}</span>}
       <div className="min-w-0 flex-1"><p className="font-bold text-[13px] text-slate-800 truncate">{it.producto || (it.accion ? 'Publicación en redes' : '—')}</p></div>
       {it.productoId && <button type="button" className="btn" style={{ padding: '4px 9px', fontSize: 11 }} onClick={() => abrir(it.productoId!)}><ExternalLink />Abrir</button>}
     </div>

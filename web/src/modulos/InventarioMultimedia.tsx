@@ -130,8 +130,8 @@ export function EditarMultimedia({ producto, cerrar, guardado }: { producto: { i
                   {items.map((x, i) => (
                     <div key={(x.id ?? '') + x.archivo_url + i} className="flex gap-2 items-start rounded-xl border border-slate-200 bg-white p-2">
                       <button type="button" onClick={() => setVisor(i)} title="Ver en grande" style={{ cursor: 'zoom-in', padding: 0, border: 0 }} className="w-14 h-14 rounded-lg bg-slate-100 overflow-hidden grid place-items-center shrink-0 text-slate-400">
-                        {x.tipo === 'video' ? (ytMini(x.archivo_url) ? <img src={ytMini(x.archivo_url)} alt="" className="w-full h-full object-cover" /> : <Video className="w-5 h-5" />)
-                          : <img src={miniatura(x.archivo_url, 160)} alt="" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} />}
+                        {x.tipo === 'video' ? (ytMini(x.archivo_url) ? <img loading="lazy" decoding="async" src={ytMini(x.archivo_url)} alt="" className="w-full h-full object-cover" /> : <Video className="w-5 h-5" />)
+                          : <img loading="lazy" decoding="async" src={miniatura(x.archivo_url, 160)} alt="" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} />}
                       </button>
                       <div className="min-w-0 flex-1 space-y-1">
                         <input type="text" className="pf-in" placeholder="Texto alternativo (qué se ve)" value={x.descripcion} onChange={(e) => cambiar(i, { descripcion: e.target.value })} />

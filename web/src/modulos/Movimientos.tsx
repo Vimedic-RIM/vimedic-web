@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, ArrowLeftRight, BadgeCheck, Calculator, Download, ExternalLink, FileText, Layers, List, Package, Pencil, RefreshCw, Search, X } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
+import { traerTodo } from '../traerTodo'
 import { agrupar } from '../tiempoReal'
 import { puede } from '../permisos'
 import { imagen } from './inventarioUtil'
@@ -63,7 +64,8 @@ export default function Movimientos({ perfil, aviso, productoInicial, limpiarPro
   }, [productoInicial])
 
   useEffect(() => { const t = setTimeout(() => { setQDeb(q); setPagina(1) }, 200); return () => clearTimeout(t) }, [q])
-  useEffect(() => { supabase.from('v_movimientos').select('responsable').not('responsable', 'is', null).limit(5000).then(({ data }) => setResponsables([...new Set(((data ?? []) as { responsable: string }[]).map((x) => x.responsable).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es')))) }, [])
+  // Responsables distintos desde la base (antes se bajaban miles de movimientos y solo llegaban 1.000).
+  useEffect(() => { supabase.rpc('mov_responsables').then(({ data }) => setResponsables([...new Set(((data ?? []) as string[]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es')))) }, [])
 
   const aplicar = useCallback((c: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
     for (const w of limpiar(qDeb).split(/\s+/).filter(Boolean)) c = c.ilike('texto', `%${w}%`)
@@ -120,7 +122,8 @@ export default function Movimientos({ perfil, aviso, productoInicial, limpiarPro
   const limpiarTodo = () => { setQ(''); setQDeb(''); setTipo(''); setBodega(''); setProd(null); setResp(''); setDesde(''); setHasta(''); setPagina(1) }
 
   async function exportarCsv() {
-    const { data, error } = await aplicar(supabase.from('v_movimientos').select(COLS)).order('fecha', { ascending: false }).limit(5000)
+    // Hasta 5.000 de verdad (en tandas de 1.000: Supabase corta cada respuesta en 1.000 aunque se pida más).
+    const { data, error } = await traerTodo((a, z) => aplicar(supabase.from('v_movimientos').select(COLS)).order('fecha', { ascending: false }).order('id').range(a, z), 5000)
     if (error) { aviso('No se pudo exportar: ' + error.message); return }
     const cab = ['Fecha', 'Tipo', 'Bodega', 'Item', 'Producto', 'Cantidad', 'Cliente', 'Factura', 'Operacion', 'Responsable', 'Observacion']
     const filasCsv = ((data ?? []) as Record<string, any>[]).map(mapear).map((r) => [fFecha(r.fecha), r.cantidad < 0 ? 'Salida' : 'Ingreso', r.bodega, r.item, r.nombre, r.cantidad, r.cliente, r.factura, r.operacion, r.responsable, r.observacion]) // eslint-disable-line @typescript-eslint/no-explicit-any

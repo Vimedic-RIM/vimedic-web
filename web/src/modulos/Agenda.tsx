@@ -109,7 +109,10 @@ export default function Agenda({ perfil, aviso, accion, limpiarAccion }: { perfi
   useEffect(() => { try { localStorage.setItem('ag:kpis', JSON.stringify(kpiCfg)) } catch { /* nada */ } }, [kpiCfg])
   const [kpiArr, setKpiArr] = useState<string | null>(null)
   const soltarKpi = (sobreK: string) => { if (kpiArr && kpiArr !== sobreK) setKpiCfg((c) => { const l = c.filter((x) => x !== kpiArr); l.splice(Math.max(0, l.indexOf(sobreK)), 0, kpiArr); return l }); setKpiArr(null) }
-  useEffect(() => { const t = setInterval(() => setTick((n) => n + 1), 1000); return () => clearInterval(t) }, [])
+  // Reloj de las actividades «En marcha»: cada segundo solo si hay alguna corriendo (si no, cada minuto, para el día
+  // y los vencimientos). Antes redibujaba toda la Agenda cada segundo aunque nada cambiara.
+  const hayEnMarcha = !!acts?.some((a) => a.estado === 'En marcha' && !!a.sesion)
+  useEffect(() => { const t = setInterval(() => setTick((n) => n + 1), hayEnMarcha ? 1000 : 60000); return () => clearInterval(t) }, [hayEnMarcha])
   useEffect(() => { const c = () => setMenu(''); document.addEventListener('click', c); return () => document.removeEventListener('click', c) }, [])
 
   const cargar = useCallback(async () => {

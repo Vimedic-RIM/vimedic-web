@@ -717,7 +717,7 @@ function Drawer({ p, o, cfg, libre = false, puedeEditar, puedeCrear, puedeElimin
       <div className={'drw-v' + (on ? ' on' : '')} onClick={cerrar} />
       <aside className={'drw' + (on ? ' on' : '')} aria-hidden={!on}>
         <div className="drw-h"><button className="btn btn-sm btn-g" onClick={cerrar} aria-label="Cerrar"><X /></button>
-          <div className="w-11 h-11 rounded-xl bg-white overflow-hidden grid place-items-center text-slate-400 shrink-0">{p.img ? <img src={p.img} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : <Package />}</div>
+          <div className="w-11 h-11 rounded-xl bg-white overflow-hidden grid place-items-center text-slate-400 shrink-0">{p.img ? <img loading="lazy" decoding="async" src={p.img} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : <Package />}</div>
           <div className="min-w-0"><p className="font-display font-bold leading-tight truncate">{p.nombre}</p><p className="text-[11px] text-white/70 mono">{p.codigo} · {p.categoria}</p></div></div>
         <div className="drw-b">
           <div className="sec"><h3><Activity />Diagnóstico</h3>
