@@ -540,6 +540,15 @@ function construirFichaHtml(full: ProdFull, codigo: string, destacadosSel: strin
 const WEB = 'vimedic.com.ec'
 const money = (n: number) => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
+/* Completar con IA desde los documentos técnicos (ia_completar): la IA lee la hoja de datos / manuales y propone
+   los campos que necesita la web y la ficha técnica. Nada se guarda sin revisar: se aplica campo por campo (o a Revisión). */
+type PropuestaIA = { propuesta: Record<string, string>; notas: string; leidos: string[]; omitidos: string[] }
+const CAMPOS_IA: [string, keyof ProdFull, string][] = [
+  ['descripcion', 'descripcion', 'Descripción'], ['caracteristicas', 'caracteristicas', 'Características'], ['especificaciones', 'especificaciones', 'Especificaciones técnicas'],
+  ['destacados', 'destacados', 'Datos destacados de la ficha'], ['accesorios', 'accesorios', 'Accesorios incluidos'], ['certificaciones', 'certificaciones', 'Certificaciones'],
+  ['garantia', 'garantia', 'Garantía'], ['marca', 'marca', 'Marca'], ['modelo', 'codigo_unico', 'Modelo'],
+]
+
 export function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso, encabezado }: { perfil: Perfil; prod: Prod; categorias: string[]; marcas: string[]; cerrar: () => void; aviso: (t: string) => void; encabezado?: React.ReactNode }) {
   const [full, setFull] = useState<ProdFull | null>(null)
   const [base, setBase] = useState<Record<string, string>>({})
@@ -557,6 +566,9 @@ export function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso
   const [docs, setDocs] = useState<DocTecnico[]>([])
   const [docTipo, setDocTipo] = useState(DOC_TIPOS[0])
   const [docSubiendo, setDocSubiendo] = useState(false)
+  const [iaComp, setIaComp] = useState<(PropuestaIA & { sel: Record<string, boolean>; val: Record<string, string> }) | null>(null)
+  const [iaCompMsg, setIaCompMsg] = useState('')
+  const [aplicandoIa, setAplicandoIa] = useState(false)
   const [ficha, setFicha] = useState<Ficha | null>(null)
   const [ajustes, setAjustes] = useState<AjustesFicha | null>(null)
   useEffect(() => { leerAjustesFicha().then(setAjustes).catch(() => undefined) }, [])
@@ -684,6 +696,7 @@ export function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso
   async function docSubir(files: FileList | null) {
     if (!files || !files.length) return
     setDocSubiendo(true)
+    let ultimoPdf = ''
     try {
       for (const f of Array.from(files)) {
         if (f.size > 20 * 1024 * 1024) { aviso(f.name + ' supera los 20 MB.'); continue }
@@ -696,12 +709,36 @@ export function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso
         const { resp: data, error } = await drive({ accion: 'subir', modulo: 'documentos_tecnicos', carpeta: 'documentos_tecnicos/' + prod.codigo, nombre: f.name, mime: f.type || 'application/octet-stream', base64 })
         const resp = data as { id?: string; enlace?: string; error?: string } | null
         if (error || resp?.error) { aviso('No se pudo subir ' + f.name + ': ' + (resp?.error || error?.message)); continue }
-        await supabase.from('documentos_tecnicos').insert({ id: crypto.randomUUID(), producto_id: prod.id, tipo: docTipo, nombre: f.name, drive_id: resp?.id, url: resp?.enlace, subido_por: perfil.id })
+        const idDoc = crypto.randomUUID()
+        const { error: eIns } = await supabase.from('documentos_tecnicos').insert({ id: idDoc, producto_id: prod.id, tipo: docTipo, nombre: f.name, drive_id: resp?.id, url: resp?.enlace, subido_por: perfil.id })
+        if (!eIns && (f.type === 'application/pdf' || /\.pdf$/i.test(f.name))) ultimoPdf = idDoc
       }
       cargarDocs()
     } finally {
       setDocSubiendo(false)
     }
+    // Con un PDF nuevo, la IA lo lee y propone los campos del producto (se revisan antes de guardar).
+    if (ultimoPdf) completarIA(ultimoPdf)
+  }
+  async function completarIA(docId?: string) {
+    setIaCompMsg('La IA está leyendo los documentos técnicos… (puede tardar hasta un minuto)')
+    try {
+      const r = await llamar<PropuestaIA>('ia_completar', { id: prod.id, docId: docId || null })
+      const actual = (k: keyof ProdFull) => String(full?.[k] ?? '').trim()
+      const sel: Record<string, boolean> = {}, val: Record<string, string> = {}
+      for (const [c, k] of CAMPOS_IA) { const v = String(r.propuesta?.[c] ?? '').trim(); val[c] = v; sel[c] = !!v && !actual(k) && v !== actual(k) }
+      setIaComp({ ...r, sel, val })
+    } catch (e) { aviso('IA: ' + (e as Error).message) }
+    setIaCompMsg('')
+  }
+  async function aplicarIA() {
+    if (!iaComp) return
+    const campos = CAMPOS_IA.filter(([c]) => iaComp.sel[c] && iaComp.val[c].trim())
+    if (!campos.length) { aviso('Marca al menos un campo.'); return }
+    setAplicandoIa(true)
+    for (const [c, k] of campos) { const v = iaComp.val[c].trim(); set(k, v as never); await guardarCampo(c, v) }
+    setAplicandoIa(false); setIaComp(null)
+    aviso(campos.length + ' campo' + (campos.length === 1 ? '' : 's') + ' completado' + (campos.length === 1 ? '' : 's') + ' con IA' + (aprobar ? '.' : ' (los cambios que requieren aprobación quedan en Revisión).'))
   }
 
   const listaGal = (l: GalItem[]) => JSON.stringify(l.map((g) => ({ archivo: g.archivo_url, tipo: g.tipo, tipoVideo: g.tipo_video ?? '', texto: g.descripcion ?? '' })))
@@ -1116,6 +1153,45 @@ export function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso
             <label className="btn cursor-pointer !py-1.5"><Upload className="w-3.5 h-3.5" />{docSubiendo ? 'Subiendo…' : 'Elegir archivos'}
               <input type="file" multiple className="hidden" disabled={docSubiendo} onChange={(e) => { docSubir(e.target.files); e.target.value = '' }} /></label>
           </div>
+        )}
+        {(docs.length > 0 || !!full?.ficha_tecnica_url) && (
+          <div className="mkia-caja">
+            <button type="button" className="btn" onClick={() => completarIA()} disabled={!!iaCompMsg}><Sparkles />{iaCompMsg ? 'Leyendo documentos…' : 'Completar campos con IA'}</button>
+            <span>{iaCompMsg || 'La IA lee la hoja de datos y los manuales y propone descripción, características, especificaciones, accesorios, certificaciones y más. Al subir un PDF lo hace sola.'}</span>
+          </div>
+        )}
+        {iaComp && (
+          <Ventana titulo="Completar con IA · revisa antes de guardar" ancho="sm:max-w-6xl" cerrar={() => setIaComp(null)} pie={<>
+            <p className="text-[11px] text-slate-500 flex-1">Se guardan solo los campos marcados. {aprobar ? '' : 'Los cambios que requieren aprobación pasan a Revisión.'}</p>
+            <button type="button" className="btn" onClick={() => setIaComp(null)}>Cancelar</button>
+            <button type="button" className="btn btn-primary" onClick={aplicarIA} disabled={aplicandoIa}><Check />{aplicandoIa ? 'Guardando…' : 'Aplicar ' + CAMPOS_IA.filter(([c]) => iaComp.sel[c] && iaComp.val[c].trim()).length + ' campos'}</button>
+          </>}>
+            <div className="mkia-info">
+              <p><Sparkles /><b>Leyó:</b> {iaComp.leidos.join(' · ')}</p>
+              {iaComp.omitidos.length > 0 && <p className="omit">No pudo leer: {iaComp.omitidos.join(' · ')}</p>}
+              {iaComp.notas && <p className="nota">{iaComp.notas}</p>}
+            </div>
+            {CAMPOS_IA.map(([c, k, t]) => {
+              const ahora = String(full?.[k] ?? '').trim(), prop = iaComp.val[c] ?? ''
+              if (!String(iaComp.propuesta?.[c] ?? '').trim()) return null
+              const igual = prop.trim() === ahora
+              return (
+                <div key={c} className={'mkia-campo' + (iaComp.sel[c] ? ' on' : '')}>
+                  <label className="mkia-h">
+                    <input type="checkbox" checked={!!iaComp.sel[c]} disabled={igual} onChange={(e) => setIaComp((x) => x && { ...x, sel: { ...x.sel, [c]: e.target.checked } })} />
+                    <b>{t}</b>
+                    <span className={'mkia-tag ' + (igual ? 'igual' : ahora ? 'reemplaza' : 'nuevo')}>{igual ? 'Sin cambios' : ahora ? 'Reemplaza lo actual' : 'Campo vacío: se llena'}</span>
+                  </label>
+                  <div className="mkia-cols">
+                    <div><small>Ahora</small><div className="mkia-ahora">{ahora || '—'}</div></div>
+                    <div><small>Propuesta de la IA (puedes editarla)</small>
+                      <textarea className="inp w-full" rows={Math.min(12, Math.max(2, prop.split('\n').length + 1))} value={prop}
+                        onChange={(e) => { const v = e.target.value; setIaComp((x) => x && { ...x, val: { ...x.val, [c]: v }, sel: { ...x.sel, [c]: true } }) }} /></div>
+                  </div>
+                </div>
+              )
+            })}
+          </Ventana>
         )}
       </div>
 

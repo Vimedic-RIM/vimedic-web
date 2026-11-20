@@ -45,7 +45,7 @@ export function contenidoClaude(partes: ParteIA[]): Anthropic.Beta.BetaContentBl
 }
 
 /** Un pedido a Claude (Messages API). Errores en español y con el motivo real. */
-export async function generarClaude(cred: CredClaude, partes: ParteIA[], esfuerzo: Esfuerzo = 'medium'): Promise<{ texto: string; modelo: string }> {
+export async function generarClaude(cred: CredClaude, partes: ParteIA[], esfuerzo: Esfuerzo = 'medium', esquema?: Record<string, unknown>): Promise<{ texto: string; modelo: string }> {
   if (!cred.secreto) throw new Error('Claude no está conectado. Ve a Marketing › Configuración.')
   const modelo = modeloClaude(cred.config)
   const client = new Anthropic({ apiKey: cred.secreto, timeout: 90_000, maxRetries: 1 })
@@ -54,7 +54,8 @@ export async function generarClaude(cred: CredClaude, partes: ParteIA[], esfuerz
     r = await client.beta.messages.create({
       model: modelo,
       max_tokens: CLAUDE_MAX_TOKENS,
-      output_config: { effort: esfuerzo },
+      // esquema = respuesta en JSON con esa forma exacta (structured outputs)
+      output_config: { effort: esfuerzo, ...(esquema ? { format: { type: 'json_schema' as const, schema: esquema } } : {}) },
       // Si el filtro de seguridad rechaza, Anthropic reintenta solo con otro modelo (Haiku no lo admite).
       ...(CON_RESPALDO_ANTHROPIC.test(modelo) ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const } : {}),
       messages: [{ role: 'user', content: contenidoClaude(partes) }],
@@ -77,9 +78,9 @@ export async function generarClaude(cred: CredClaude, partes: ParteIA[], esfuerz
 }
 
 /** La IA de la plataforma: Claude si está conectado; si no, Gemini (respaldo). `gemini` = ajustes de Gemini, solo para el respaldo. */
-export async function generarIA(admin: Admin, partes: ParteIA[], opciones: { esfuerzo?: Esfuerzo; gemini?: Record<string, unknown> } = {}): Promise<{ texto: string; modelo: string; proveedor: 'claude' | 'gemini' }> {
+export async function generarIA(admin: Admin, partes: ParteIA[], opciones: { esfuerzo?: Esfuerzo; gemini?: Record<string, unknown>; esquema?: Record<string, unknown> } = {}): Promise<{ texto: string; modelo: string; proveedor: 'claude' | 'gemini' }> {
   const claude = await credencialClaude(admin)
-  if (claude.secreto) return { ...(await generarClaude(claude, partes, opciones.esfuerzo)), proveedor: 'claude' }
+  if (claude.secreto) return { ...(await generarClaude(claude, partes, opciones.esfuerzo, opciones.esquema)), proveedor: 'claude' }
   const g = await credencialGemini(admin)
   if (g.secreto) return { ...(await generarGemini(admin, g, { contents: [{ role: 'user', parts: partes }], generationConfig: opciones.gemini ?? {} })), proveedor: 'gemini' }
   throw new Error('La IA no está conectada. Conecta Claude en Marketing › Configuración.')

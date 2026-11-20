@@ -84,8 +84,8 @@ Deno.serve(async (req) => {
     }
     // La IA de la plataforma: Claude si está conectado; si no, Gemini de respaldo (../_shared/ia.ts).
     // gen = ajustes de Gemini (solo se usan en el respaldo); esfuerzo = cuánto razona Claude.
-    const ia = async (partes: ParteIA[], gen: Record<string, unknown>, esfuerzo: Esfuerzo = 'medium') => {
-      try { return (await generarIA(admin, partes, { esfuerzo, gemini: gen })).texto } catch (e) { throw new Falla((e as Error).message) }
+    const ia = async (partes: ParteIA[], gen: Record<string, unknown>, esfuerzo: Esfuerzo = 'medium', esquema?: Record<string, unknown>) => {
+      try { return (await generarIA(admin, partes, { esfuerzo, gemini: gen, esquema })).texto } catch (e) { throw new Falla((e as Error).message) }
     }
     const json = (t: string) => { const l = t.replace(/^```(?:json)?\s*|\s*```$/g, ''); try { return JSON.parse(l) } catch { const m = l.match(/\{[\s\S]*\}/); if (m) return JSON.parse(m[0]); throw new Falla('La IA no devolvió un resultado válido.') } }
 
@@ -571,6 +571,98 @@ Deno.serve(async (req) => {
       const limpiar = (t: unknown, max: number) => String(t || '').replace(/[<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, max)
       const car = (Array.isArray(o.caracteristicas) ? o.caracteristicas : String(o.caracteristicas || '').split('\n')).map((x: unknown) => limpiar(x, 120).replace(/^[-•·*✓✔\d.)\s]+/, '')).filter(Boolean).slice(0, 15)
       return responder({ descripcion: limpiar(o.descripcion, 1200), caracteristicas: car, conFicha })
+    }
+    /* Completar el producto con IA leyendo sus documentos técnicos (hoja de datos, manuales, certificados):
+       propone descripción para la web, características, especificaciones, destacados, accesorios, certificaciones,
+       garantía, marca y modelo. No guarda nada: la pantalla muestra la propuesta y se aplica campo por campo
+       (mkt_cambiar_campo: directo o a Revisión, como cualquier cambio). */
+    if (accion === 'ia_completar') {
+      // deno-lint-ignore no-explicit-any
+      type Cualquiera = any
+      if (!(await puede('crear')) && !(await puede('editar'))) throw new Falla('No tienes permiso para usar la IA.', 403)
+      const { data: p } = await admin.from('productos').select('nombre,marca,codigo_unico,descripcion,caracteristicas,especificaciones,accesorios,certificaciones,garantia,ficha_tecnica_url,categoria:categorias(nombre)').eq('id', b.id).maybeSingle()
+      if (!p) throw new Falla('No se encontró el producto.')
+      const { data: docs } = await admin.from('documentos_tecnicos').select('id,tipo,nombre,url,drive_id').eq('producto_id', b.id).is('deleted_at', null).order('created_at', { ascending: false })
+      // Primero el documento recién subido; luego hoja de datos, manuales, certificados.
+      const ORDEN = ['Hoja de datos del fabricante', 'Manual de usuario', 'Manual de servicio', 'Certificado', 'Registro sanitario', 'Otro']
+      const pos = (t: string) => { const i = ORDEN.indexOf(t); return i < 0 ? ORDEN.length : i }
+      const lista = ((docs ?? []) as Cualquiera[]).sort((a, z) => (Number(z.id === b.docId) - Number(a.id === b.docId)) || (pos(a.tipo) - pos(z.tipo)))
+      const idDrive = (v: unknown) => { const s = String(v || ''); return s.match(/\/d\/([\w-]{20,})/)?.[1] ?? s.match(/[?&]id=([\w-]{20,})/)?.[1] ?? '' }
+      // Los archivos de la unidad son privados: los baja la función drive con la sesión de quien pide (respeta sus permisos).
+      const bajar = async (modulo: string, id: string) => {
+        const r = await fetch(url + '/functions/v1/drive', { method: 'POST', headers: { Authorization: auth, apikey: anon, 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'descargar', modulo, id }) })
+        const j = await r.json().catch(() => ({}))
+        if (!r.ok || j?.error) throw new Error(String(j?.error || 'código ' + r.status))
+        return j as { base64: string; tamano: number; nombre: string }
+      }
+      const partes: ParteIA[] = [], leidos: string[] = [], omitidos: string[] = []
+      let total = 0
+      for (const d of lista) {
+        if (leidos.length >= 3) break
+        const id = String(d.drive_id || '') || idDrive(d.url)
+        if (!/^[\w-]{10,}$/.test(id)) { omitidos.push(d.nombre + ' (no está en Drive)'); continue }
+        try {
+          const f = await bajar('documentos_tecnicos', id)
+          if (total + f.tamano > 18 * 1048576) { omitidos.push(d.nombre + ' (no entra junto a los demás)'); continue }
+          total += f.tamano; partes.push({ inline_data: { mime_type: 'application/pdf', data: f.base64 } }); leidos.push(d.tipo + ' · ' + d.nombre)
+        } catch (e) { omitidos.push(d.nombre + ' (' + (e as Error).message + ')') }
+      }
+      // Sin documentos técnicos legibles: la ficha técnica en PDF que tenga el producto.
+      if (!leidos.length && p.ficha_tecnica_url) {
+        const id = idDrive(p.ficha_tecnica_url)
+        let pdf = ''
+        if (id) { try { pdf = (await bajar('marketing', id)).base64 } catch { /* se intenta como enlace público */ } }
+        if (!pdf) pdf = await fichaPdf(String(p.ficha_tecnica_url))
+        if (pdf) { partes.push({ inline_data: { mime_type: 'application/pdf', data: pdf } }); leidos.push('Ficha técnica del producto') }
+      }
+      if (!leidos.length) throw new Falla('La IA no tiene documentos técnicos en PDF para leer' + (omitidos.length ? ': ' + omitidos.join('; ') + '.' : '. Sube la hoja de datos o el manual del fabricante en «Documentos técnicos».'))
+      // deno-lint-ignore no-explicit-any
+      const cat = (p as any).categoria?.nombre
+      const corto = (v: unknown, n: number) => String(v ?? '').replace(/[<>]/g, '').slice(0, n)
+      partes.push({ text: [
+        'Eres el redactor técnico de VIMEDIC, importadora y distribuidora de equipos médicos en Ecuador. Adjuntos van los documentos técnicos del fabricante de este producto.',
+        'Producto: ' + p.nombre + (cat ? '\nCategoría: ' + cat : '') + (p.marca ? '\nMarca registrada en la app: ' + p.marca : '') + (p.codigo_unico ? '\nModelo registrado en la app: ' + p.codigo_unico : ''),
+        '\nDatos que ya tiene en la app (pueden estar incompletos o con errores):',
+        'Descripción: ' + (corto(p.descripcion, 1200) || '—'), 'Características: ' + (corto(p.caracteristicas, 1500) || '—'), 'Especificaciones: ' + (corto(p.especificaciones, 2500) || '—'),
+        'Accesorios: ' + (corto(p.accesorios, 600) || '—'), 'Certificaciones: ' + (corto(p.certificaciones, 300) || '—'), 'Garantía: ' + (corto(p.garantia, 100) || '—'),
+        '\nTarea: con los documentos, prepara los datos del producto para la página web y la ficha técnica en PDF. Todo en español de Ecuador, claro y profesional; traduce si el documento está en otro idioma.',
+        'Reglas:',
+        '- Usa solo datos que estén en los documentos (o los de la app si los documentos no los contradicen). Si algo no aparece, deja ese campo vacío. Nunca inventes certificaciones, registros sanitarios, garantías ni cifras.',
+        '- descripcion: 2 a 4 frases: qué es, para qué sirve, en qué área se usa y su principal beneficio. Sin precios.',
+        '- caracteristicas: 5 a 10 beneficios o funciones concretas, cada una de máximo 90 caracteres y empezando con un emoji relacionado (ej. «💡 Iluminación regulable de 40.000 a 160.000 lux»).',
+        '- especificaciones: todos los datos técnicos medibles (hasta 40), cada uno con dato y valor con su unidad (ej. dato «Voltaje», valor «220 V · 60 Hz»). Nombres de dato cortos, sin repetir.',
+        '- destacados: los 3 «dato» de especificaciones que más le importan a un comprador, copiados exactamente como están en especificaciones.',
+        '- accesorios: lo que viene incluido según el documento, uno por elemento.',
+        '- certificaciones: normas o certificados que el documento declare (ej. ISO 13485, CE, FDA, IEC 60601-1).',
+        '- garantia, marca y modelo: solo si el documento los indica.',
+        '- notas: una o dos frases sobre lo que no encontraste o conviene revisar (ej. datos que no coinciden con la app).',
+      ].join('\n') })
+      const ESQ = {
+        type: 'object', additionalProperties: false,
+        required: ['descripcion', 'caracteristicas', 'especificaciones', 'destacados', 'accesorios', 'certificaciones', 'garantia', 'marca', 'modelo', 'notas'],
+        properties: {
+          descripcion: { type: 'string' }, caracteristicas: { type: 'array', items: { type: 'string' } },
+          especificaciones: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['dato', 'valor'], properties: { dato: { type: 'string' }, valor: { type: 'string' } } } },
+          destacados: { type: 'array', items: { type: 'string' } }, accesorios: { type: 'array', items: { type: 'string' } }, certificaciones: { type: 'array', items: { type: 'string' } },
+          garantia: { type: 'string' }, marca: { type: 'string' }, modelo: { type: 'string' }, notas: { type: 'string' },
+        },
+      }
+      const o = json(await ia(partes, { temperature: 0.2, maxOutputTokens: 8192, responseMimeType: 'application/json' }, 'medium', ESQ))
+      const lim = (t: unknown, n: number) => String(t ?? '').replace(/[<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, n)
+      const arr = (v: unknown, n: number, max: number) => (Array.isArray(v) ? v : []).map((x) => lim(x, n)).filter(Boolean).slice(0, max)
+      const vistos = new Set<string>()
+      const esp = (Array.isArray(o.especificaciones) ? o.especificaciones : []).map((x: Cualquiera) => [lim(x?.dato, 60).replace(/:+$/, ''), lim(x?.valor, 140)])
+        .filter(([d, v]: string[]) => d && v && !vistos.has(d.toLowerCase()) && vistos.add(d.toLowerCase())).slice(0, 40) as string[][]
+      const dest = arr(o.destacados, 60, 3).map((d) => esp.find(([x]) => x.toLowerCase() === d.toLowerCase())?.[0]).filter(Boolean) as string[]
+      return responder({
+        propuesta: {
+          descripcion: lim(o.descripcion, 1200), caracteristicas: arr(o.caracteristicas, 110, 12).join('\n'),
+          especificaciones: esp.map(([d, v]) => d + ': ' + v).join('\n'), destacados: dest.join('|'),
+          accesorios: arr(o.accesorios, 140, 20).join('\n'), certificaciones: arr(o.certificaciones, 60, 10).join(', '),
+          garantia: lim(o.garantia, 80), marca: lim(o.marca, 60), modelo: lim(o.modelo, 60),
+        },
+        notas: lim(o.notas, 500), leidos, omitidos,
+      })
     }
     if (accion === 'ia_alt_texto') {
       if (!(await puede('crear'))) throw new Falla('No tienes permiso para usar la IA.', 403)

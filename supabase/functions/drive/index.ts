@@ -184,6 +184,21 @@ Deno.serve(async (req) => {
       const f = await g('/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,webViewLink,size', { method: 'POST', headers: { 'Content-Type': 'multipart/related; boundary=x' }, body: cuerpo })
       return responder({ ok: true, id: f.id, nombre: f.name, enlace: f.webViewLink })
     }
+    /* Descarga de un PDF (documentos técnicos, ficha) para que la IA lo lea en el servidor (marketing-integraciones › ia_completar).
+       Los archivos de la unidad son privados: se bajan con la conexión de Drive, solo con permiso de ver ese módulo. Máx. 12 MB. */
+    if (accion === 'descargar') {
+      if (!(await puede(modulo, 'ver'))) throw new Falla('Sin acceso a ese módulo.', 403)
+      const id = String(b.id || '')
+      if (!/^[\w-]{10,120}$/.test(id)) throw new Falla('Archivo inválido.')
+      const f = await g(`/drive/v3/files/${id}?fields=id,name,mimeType,size&supportsAllDrives=true`)
+      if (f.mimeType !== 'application/pdf') throw new Falla('«' + f.name + '» no es un PDF.')
+      if (Number(f.size) > 12 * 1024 * 1024) throw new Falla('«' + f.name + '» pesa más de 12 MB.')
+      const r = await fetch(`https://www.googleapis.com/drive/v3/files/${id}?alt=media&supportsAllDrives=true`, { headers: { Authorization: 'Bearer ' + tk } })
+      if (!r.ok) throw new Falla('Drive no entregó «' + f.name + '» (código ' + r.status + ').')
+      const bytes = new Uint8Array(await r.arrayBuffer())
+      let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+      return responder({ ok: true, nombre: f.name, mime: f.mimeType, tamano: bytes.length, base64: btoa(s) })
+    }
     /* Archivos grandes (videos de Audiovisual hasta 2 GB, como avIniciarSubida del original): el servidor
        abre una subida reanudable en Drive y el navegador envía el archivo directo a Google, por partes. */
     if (accion === 'subida_iniciar') {
