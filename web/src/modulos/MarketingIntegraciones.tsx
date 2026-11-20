@@ -91,7 +91,12 @@ export function Configuracion({ aviso, alCambiar }: { aviso: (t: string) => void
 /* Meta Lead Ads → CRM: los formularios de Facebook e Instagram entran solos como leads y se reparten entre los
    asesores (Edge Function meta-leads). Token y clave secreta de la app cifrados en Vault. */
 function TarjetaMetaLeads({ est, aviso, cambio }: { est: Estado; aviso: (t: string) => void; cambio: () => void }) {
-  const cfg = est.config as { paginaId?: string; empresa?: string; verifyToken?: string }
+  const cfg = est.config as { paginaId?: string; empresa?: string; verifyToken?: string; correo?: { activo?: boolean; diseno?: number; copia?: string } }
+  const [correoActivo, setCorreoActivo] = useState(cfg.correo?.activo !== false)
+  const [diseno, setDiseno] = useState([1, 2, 3].includes(Number(cfg.correo?.diseno)) ? Number(cfg.correo?.diseno) : 1)
+  const [copia, setCopia] = useState(cfg.correo?.copia ?? '')
+  const [vista, setVista] = useState<{ n: number; nombre: string; html: string }[] | null>(null)
+  const [vistaSel, setVistaSel] = useState(1)
   const [paginaId, setPaginaId] = useState(cfg.paginaId ?? '')
   const [empresa, setEmpresa] = useState(cfg.empresa === 'FEMEDICS' ? 'FEMEDICS' : 'VIMEDIC')
   const [verifyToken] = useState(() => cfg.verifyToken || 'vm-' + crypto.randomUUID().replace(/-/g, '').slice(0, 24))
@@ -107,7 +112,7 @@ function TarjetaMetaLeads({ est, aviso, cambio }: { est: Estado; aviso: (t: stri
     if (!!token.trim() !== !!appSecret.trim()) { aviso('Pega el token y la clave secreta de la app juntos.'); return }
     if (!token.trim() && !est.configurado) { aviso('Pega el token de acceso y la clave secreta de la app.'); return }
     setOcupado('guardar')
-    const { error } = await supabase.rpc('integracion_guardar', { p_proveedor: 'meta_leads', p_secreto: token.trim() ? JSON.stringify({ token: token.trim(), appSecret: appSecret.trim() }) : null, p_config: { paginaId: paginaId.trim(), empresa, verifyToken } })
+    const { error } = await supabase.rpc('integracion_guardar', { p_proveedor: 'meta_leads', p_secreto: token.trim() ? JSON.stringify({ token: token.trim(), appSecret: appSecret.trim() }) : null, p_config: { paginaId: paginaId.trim(), empresa, verifyToken, appUrl: location.origin, correo: { activo: correoActivo, diseno, copia: copia.trim() } } })
     setOcupado('')
     if (error) { aviso('No se pudo guardar: ' + error.message); return }
     const nueva = !!token.trim(); setToken(''); setAppSecret(''); aviso(nueva ? 'Guardado. Probando y conectando la página…' : 'Configuración guardada.'); cambio()
@@ -124,6 +129,16 @@ function TarjetaMetaLeads({ est, aviso, cambio }: { est: Estado; aviso: (t: stri
       const r = await llamar<{ formularios: number; nuevos: number; ya: number; pruebas: number; fallos: number }>('traer', { dias }, 'meta-leads')
       aviso(`${r.formularios} formulario${r.formularios === 1 ? '' : 's'} revisado${r.formularios === 1 ? '' : 's'}: ${r.nuevos} lead${r.nuevos === 1 ? '' : 's'} nuevo${r.nuevos === 1 ? '' : 's'} en el CRM, ${r.ya} ya estaba${r.ya === 1 ? '' : 'n'}${r.pruebas ? ', ' + r.pruebas + ' de prueba' : ''}${r.fallos ? ', ' + r.fallos + ' con error' : ''}.`)
     } catch (e) { aviso((e as Error).message) }
+    setOcupado('')
+  }
+  async function verDisenos() {
+    setOcupado('vista')
+    try { const r = await llamar<{ disenos: { n: number; nombre: string; html: string }[] }>('correo_vista', {}, 'meta-leads'); setVista(r.disenos); setVistaSel(diseno) } catch (e) { aviso((e as Error).message) }
+    setOcupado('')
+  }
+  async function probarCorreo() {
+    setOcupado('correo')
+    try { const r = await llamar<{ para: string; enviados: number }>('correo_prueba', { diseno }, 'meta-leads'); aviso('Correo de prueba enviado a ' + r.para + '.') } catch (e) { aviso((e as Error).message) }
     setOcupado('')
   }
   async function quitar() {
@@ -159,6 +174,20 @@ function TarjetaMetaLeads({ est, aviso, cambio }: { est: Estado; aviso: (t: stri
           {fila('URL de devolución', webhook, 'URL')}
           {fila('Token de verificación', verifyToken, 'Token de verificación')}
           {!cfg.verifyToken && <p className="text-[10.5px] text-amber-700">Primero pulsa «Guardar»: Meta comprueba este token al guardar el webhook.</p>}
+          <div className="mkml-correo">
+            <div className="flex items-center gap-2 text-[11.5px] font-bold text-slate-700"><Interruptor activo={correoActivo} cambiar={() => setCorreoActivo((a) => !a)} />Correo urgente al asesor que recibe el lead</div>
+            {correoActivo && <>
+              <label className="block text-[11px] font-bold text-slate-500 mt-2">Diseño del correo
+                <select value={diseno} onChange={(e) => setDiseno(Number(e.target.value))} className="inp w-full mt-1"><option value={1}>1 · Alerta urgente</option><option value={2}>2 · Ficha del cliente</option><option value={3}>3 · Oscuro moderno</option></select></label>
+              <label className="block text-[11px] font-bold text-slate-500 mt-2">Copia a (administrador, opcional)
+                <input type="email" value={copia} onChange={(e) => setCopia(e.target.value)} className="inp w-full mt-1" placeholder="correo@vimedic.com.ec" /></label>
+              <div className="flex gap-2 flex-wrap mt-2">
+                <button type="button" className="btn" onClick={verDisenos} disabled={!!ocupado}><Eye />{ocupado === 'vista' ? 'Cargando…' : 'Ver los 3 diseños'}</button>
+                <button type="button" className="btn" onClick={probarCorreo} disabled={!!ocupado}><Check />{ocupado === 'correo' ? 'Enviando…' : 'Enviarme una prueba'}</button>
+              </div>
+              <p className="text-[10.5px] text-slate-500 mt-1.5">Sale del Gmail conectado en «Google Drive». La primera vez pulsa ahí otra vez «Conectar con Google» y acepta «Enviar correo». Guarda para aplicar el diseño.</p>
+            </>}
+          </div>
           <details className="mkml-pasos"><summary>Paso a paso en Meta</summary><ol>
             <li>En <b>developers.facebook.com</b> crea (o abre) la app de tipo Negocio de VIMEDIC.</li>
             <li>En <b>Webhooks</b> elige «Page», pega la URL de devolución y el token de verificación de aquí y suscríbete al campo <b>leadgen</b>.</li>
@@ -179,6 +208,14 @@ function TarjetaMetaLeads({ est, aviso, cambio }: { est: Estado; aviso: (t: stri
         </span>
         {est.configurado && <button type="button" className="btn ml-auto" style={{ color: '#b91c1c', borderColor: '#fecaca' }} onClick={quitar}><Trash2 />Desconectar</button>}
       </div>
+      {vista && (
+        <Ventana titulo="Correo al asesor · diseños" ancho="sm:max-w-6xl" cerrar={() => setVista(null)} pie={<>
+          <div className="seg flex-1">{vista.map((v) => <button key={v.n} type="button" className={vistaSel === v.n ? 'active' : ''} onClick={() => setVistaSel(v.n)}>{v.n} · {v.nombre}</button>)}</div>
+          <button type="button" className="btn btn-primary" onClick={() => { setDiseno(vistaSel); setVista(null); aviso('Diseño elegido. Pulsa «Guardar» para aplicarlo.') }}><Check />Usar este diseño</button>
+        </>}>
+          <iframe title="Vista del correo" srcDoc={vista.find((v) => v.n === vistaSel)?.html ?? ''} sandbox="" style={{ width: '100%', height: '70vh', border: '1px solid #e2e8f0', borderRadius: 12, background: '#fff' }} />
+        </Ventana>
+      )}
       <p className="text-[10.5px] text-slate-400 mt-2">«Traer leads» recupera los que no llegaron (Meta los guarda 90 días). No se duplican. Los de más de un día entran sin asesor: se asignan en CRM › Leads de Meta (reparto).</p>
     </article>
   )

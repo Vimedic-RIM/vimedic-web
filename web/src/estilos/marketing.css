@@ -1014,3 +1014,4 @@ body.vm-con-rail .vm-mkt #sideNav{left:calc(var(--vr-w) + 10px)}
 .vm-mkt .mkml-pasos ol{margin:8px 0 0 18px;display:flex;flex-direction:column;gap:5px;list-style:decimal}
 .vm-mkt .mkml-pasos code{font-size:10.5px;background:#eef2f7;border-radius:4px;padding:0 3px}
 @media(max-width:800px){.vm-mkt .mkml-grid{grid-template-columns:1fr}}
+.vm-mkt .mkml-correo{border:1px solid #bbf7d0;background:#f0fdf4;border-radius:12px;padding:10px 12px}

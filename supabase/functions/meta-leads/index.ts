@@ -8,6 +8,9 @@
 // El token y la clave secreta viven cifrados en Vault (integraciones 'meta_leads'); nunca van al navegador ni a los registros.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
 import { armarLead, CAMPOS_LEAD, GRAPH, type LeadMeta } from '../_shared/metaLeads.ts'
+import { correoLeadAsesor, DISENOS_CORREO, ejemploCorreoLead, type DatosCorreoLead } from '../_shared/correoLeads.ts'
+import { enviarGmail } from '../_shared/gmail.ts'
+import { LOGO_BLANCO_PNG, LOGO_COLOR_PNG } from '../_shared/logosCorreo.ts'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -62,18 +65,43 @@ Deno.serve(async (req) => {
     if (!formularios.has(id)) { try { formularios.set(id, String((await graph(c, `/${id}?fields=name`)).name || '')) } catch { formularios.set(id, '') } }
     return formularios.get(id) ?? ''
   }
-  /** Crea el lead en el CRM (si ya estaba, no hace nada). */
+  /** Ajustes del correo al asesor (Marketing › Configuración › Meta). Activo por defecto, diseño 1 «Alerta urgente». */
+  const ajustesCorreo = (c: Conf) => {
+    const k = (c.config.correo ?? {}) as { activo?: boolean; diseno?: number; copia?: string }
+    const copia = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(String(k.copia || '').trim()) ? String(k.copia).trim() : ''
+    return { activo: k.activo !== false, diseno: [1, 2, 3].includes(Number(k.diseno)) ? Number(k.diseno) : 1, copia, crmUrl: (/^https:\/\/[\w.-]+/.test(String(c.config.appUrl || '')) ? String(c.config.appUrl).replace(/\/+$/, '') : 'https://qa.vimedic.com.ec') + '/#crm' }
+  }
+  let ultimoErrorCorreo = ''
+  /** Correo URGENTE al asesor que recibió el lead (CorreoLeadsMeta.gs). Si no sale, el lead igual queda en el CRM y con aviso en la campana. */
+  const correoAsesor = async (c: Conf, lead: { id: string; codigo: string; asesor_id: string | null; asignacion: string | null }, fila: Record<string, unknown>) => {
+    const k = ajustesCorreo(c)
+    if (!k.activo || !lead.asesor_id) return
+    const { data: as } = await admin.from('empleados').select('nombre,email').eq('id', lead.asesor_id).maybeSingle()
+    if (!as?.email) return
+    const md = (fila.meta_datos ?? {}) as Cualquiera
+    const d: DatosCorreoLead = {
+      nombre: String(fila.nombre || ''), telefono: fila.telefono as string | null, email: fila.email as string | null, ciudad: fila.ciudad as string | null,
+      respuestas: Array.isArray(md.respuestas) ? md.respuestas : [], red: String(fila.canal || 'Facebook/Instagram'), organico: md.is_organic === true,
+      anuncio: md.ad_name ?? null, campana: md.campaign_name ?? null, formulario: md.formulario ?? null, fecha: String(fila.fecha || new Date().toISOString()),
+      idCrm: lead.codigo, metaId: String(fila.meta_lead_id || ''), asesor: String(as.nombre || ''), existente: lead.asignacion === 'cliente existente',
+    }
+    const m = correoLeadAsesor(d, k.diseno, k.crmUrl)
+    try { await enviarGmail(admin, { para: String(as.email), cc: k.copia && k.copia.toLowerCase() !== String(as.email).toLowerCase() ? k.copia : undefined, asunto: m.asunto, html: m.html, texto: m.texto }) }
+    catch (e) { ultimoErrorCorreo = (e as Error).message; console.error('[meta-leads] correo al asesor: ' + ultimoErrorCorreo) }
+  }
+  /** Crea el lead en el CRM (si ya estaba, no hace nada) y avisa por correo al asesor. */
   const registrar = async (c: Conf, L: LeadMeta, formulario: string): Promise<'nuevo' | 'ya' | 'prueba'> => {
     const { esPrueba, fila, resumen } = armarLead(L, formulario, c.empresa)
     if (esPrueba) return 'prueba'
-    const { data, error } = await admin.from('leads').upsert(fila, { onConflict: 'meta_lead_id', ignoreDuplicates: true }).select('id,codigo')
+    const { data, error } = await admin.from('leads').upsert(fila, { onConflict: 'meta_lead_id', ignoreDuplicates: true }).select('id,codigo,asesor_id,asignacion')
     if (error) throw new Falla('No se pudo guardar el lead: ' + error.message, 500)
-    const nuevo = (data ?? [])[0] as { id: string; codigo: string } | undefined
+    const nuevo = (data ?? [])[0] as { id: string; codigo: string; asesor_id: string | null; asignacion: string | null } | undefined
     if (!nuevo) return 'ya'
     await admin.from('interacciones').insert({
       codigo: 'INT-' + crypto.randomUUID().replace(/-/g, '').slice(0, 8), ref_tipo: 'Contacto', ref_codigo: nuevo.codigo, lead_id: nuevo.id,
       tipo: 'Sistema', nota: resumen.slice(0, 3000), usuario_texto: 'Leads Meta',
     })
+    await correoAsesor(c, nuevo, fila)
     return 'nuevo'
   }
 
@@ -109,7 +137,7 @@ Deno.serve(async (req) => {
         } catch (e) { fallos++; console.error('[meta-leads] lead ' + a.id + ': ' + (e as Error).message) }
       }
       if (pruebas) await estado('ok: Lead de prueba de Meta recibido el ' + fechaEc() + ' (no entra al CRM).')
-      else if (nuevos) await estado('ok: Último lead recibido el ' + fechaEc() + '.')
+      else if (nuevos) await estado('ok: Último lead recibido el ' + fechaEc() + '.' + (ultimoErrorCorreo ? ' El correo al asesor no salió: ' + ultimoErrorCorreo : ''))
       else if (fallos) await estado('error: No se pudo leer un lead de Meta (' + fechaEc() + '). Revisa el token y el acceso a clientes potenciales.')
       // Si alguno falló, Meta lo vuelve a enviar (no se duplica: meta_lead_id es único).
       return responder({ ok: fallos === 0, recibidos: avisos.length, nuevos }, fallos ? 500 : 200)
@@ -123,6 +151,27 @@ Deno.serve(async (req) => {
     const b = await req.json().catch(() => ({}))
     const accion = String(b.accion || '')
     const c = await conf()
+
+    /* Correo al asesor: ver los 3 diseños (con un cliente de ejemplo) y enviarse uno de prueba. No necesitan Meta conectado. */
+    if (accion === 'correo_vista' || accion === 'correo_prueba') {
+      const { data: yo } = await admin.from('empleados').select('nombre,email').eq('auth_user_id', us.user.id).is('deleted_at', null).maybeSingle()
+      const ej = ejemploCorreoLead(String(yo?.nombre || ''))
+      const k = ajustesCorreo(c)
+      if (accion === 'correo_vista') {
+        const logos = { color: 'data:image/png;base64,' + LOGO_COLOR_PNG, blanco: 'data:image/png;base64,' + LOGO_BLANCO_PNG }
+        return responder({ disenos: [1, 2, 3].map((n) => ({ n, nombre: DISENOS_CORREO[n], ...correoLeadAsesor(ej, n, k.crmUrl, logos) })) })
+      }
+      const para = String(yo?.email || us.user.email || '')
+      if (!para) throw new Falla('Tu usuario no tiene correo en Empleados.')
+      const disenos = [1, 2, 3].includes(Number(b.diseno)) ? [Number(b.diseno)] : [1, 2, 3]
+      for (const n of disenos) {
+        const m = correoLeadAsesor(ej, n, k.crmUrl)
+        try { await enviarGmail(admin, { para, asunto: '[Prueba · diseño ' + n + ' · ' + DISENOS_CORREO[n] + '] ' + m.asunto, html: m.html, texto: m.texto }) }
+        catch (e) { throw new Falla((e as Error).message) }
+      }
+      return responder({ ok: true, para, enviados: disenos.length })
+    }
+
     if (!c.token || !c.appSecret) throw new Falla('Falta guardar el token y la clave secreta de la app.')
     if (!/^\d{5,30}$/.test(c.paginaId)) throw new Falla('Falta el ID de la página de Facebook.')
 

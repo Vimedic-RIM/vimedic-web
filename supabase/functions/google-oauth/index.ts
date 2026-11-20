@@ -7,7 +7,8 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' }
-const ALCANCES = ['https://www.googleapis.com/auth/drive', 'openid', 'email']
+// gmail.send (20-nov): los correos de los leads de Meta al asesor salen de esta misma cuenta (como GmailApp en la app original).
+const ALCANCES = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/gmail.send', 'openid', 'email']
 const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { ...CORS, 'Content-Type': 'application/json' } })
 class Falla extends Error { constructor(m: string, public status = 400) { super(m) } }
 

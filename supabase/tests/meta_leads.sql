@@ -32,12 +32,20 @@ insert into r select 4, 'reenvío de Meta: sigue habiendo un solo lead y un solo
   (select count(*)::text from notificaciones n join empleados e on e.id = n.para_id where e.email = 't.meta.ase@vimedic.test' and n.evento = 'lead_meta');
 
 -- 4) Cliente que ya existe con asesor: se respeta su asesor
-insert into empleados (email, nombre, empresa, estado, cargo) values ('t.meta.otro@vimedic.test', 'T Asesor Del Cliente', 'VIMEDIC', 'activo', 'Asesor comercial');
+insert into empleados (email, nombre, empresa, estado, cargo, recibe_clientes_meta) values ('t.meta.otro@vimedic.test', 'T Asesor Del Cliente', 'VIMEDIC', 'activo', 'Asesor comercial', true);
 insert into clientes (nombre, empresa, telefono, asesor_id) select 'Cliente Meta Existente', 'VIMEDIC', '0990000002', id from empleados where email = 't.meta.otro@vimedic.test';
 insert into leads (codigo, meta_lead_id, origen_tipo, empresa, fecha, nombre, telefono) values ('META-T9000002', 'T9000002', 'meta', 'VIMEDIC', now(), 'Cliente Meta Existente', '+593 99 000 0002')
 on conflict (meta_lead_id) do nothing;
 insert into r select 5, 'si ya era cliente, va a su asesor', 'T Asesor Del Cliente · cliente existente',
   (select e.nombre || ' · ' || l.asignacion from leads l join empleados e on e.id = l.asesor_id where l.meta_lead_id = 'T9000002');
+
+-- 4b) Cliente cuyo asesor NO tiene el permiso (o está inactivo): entra al reparto, no a ese asesor
+insert into empleados (email, nombre, empresa, estado, cargo, recibe_clientes_meta) values ('t.meta.sin@vimedic.test', 'T Asesor Sin Permiso', 'VIMEDIC', 'activo', 'Asesor comercial', false);
+insert into clientes (nombre, empresa, telefono, asesor_id) select 'Cliente De Asesor Sin Permiso', 'VIMEDIC', '0990000004', id from empleados where email = 't.meta.sin@vimedic.test';
+insert into leads (codigo, meta_lead_id, origen_tipo, empresa, fecha, nombre, telefono) values ('META-T9000004', 'T9000004', 'meta', 'VIMEDIC', now(), 'Cliente De Asesor Sin Permiso', '0990000004')
+on conflict (meta_lead_id) do nothing;
+insert into r select 7, 'si su asesor no tiene el permiso, va al reparto (solo con permiso)', 'reparto · con permiso',
+  (select l.asignacion || ' · ' || case when e.recibe_clientes_meta and e.estado = 'activo' then 'con permiso' else 'SIN permiso' end from leads l join empleados e on e.id = l.asesor_id where l.meta_lead_id = 'T9000004');
 
 -- 5) Un lead viejo (traído días después) entra sin asesor, para asignarlo a mano
 insert into leads (codigo, meta_lead_id, origen_tipo, empresa, fecha, nombre) values ('META-T9000003', 'T9000003', 'meta', 'VIMEDIC', now() - interval '3 days', 'Lead Viejo Meta')
