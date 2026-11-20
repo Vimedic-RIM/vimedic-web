@@ -1230,9 +1230,14 @@ function GestionCategorias({ cerrar, actualizado, ordenar }: { cerrar: () => voi
   }, [])
   useEffect(() => { cargarLista() }, [cargarLista])
 
+  const [abierta, setAbierta] = useState<string | null>(null)
+  const [buscar, setBuscar] = useState('')
   async function guardarCampo(id: string, campo: 'imagen_url' | 'texto', valor: string) {
-    const { error } = await supabase.from('categorias').update({ [campo]: valor.trim() || null }).eq('id', id)
+    const v = valor.trim() || null
+    if ((lista ?? []).find((x) => x.id === id)?.[campo] === v) return
+    const { error } = await supabase.from('categorias').update({ [campo]: v }).eq('id', id)
     if (error) { setError(error.message); return }
+    setLista((a) => (a ?? []).map((x) => (x.id === id ? { ...x, [campo]: v } : x)))
     actualizado()
   }
   async function alternarActivo(c: CatFila) {
@@ -1257,34 +1262,62 @@ function GestionCategorias({ cerrar, actualizado, ordenar }: { cerrar: () => voi
     setLista(copia); actualizado()
   }
 
+  // Lista compacta: una fila por categoría; al hacer clic se despliegan imagen, texto y activar/ocultar.
+  const normal = (t: string) => t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  const q = normal(buscar.trim())
+  const visibles = (lista ?? []).map((c, i) => ({ c, i })).filter(({ c }) => !q || normal(c.nombre).includes(q))
+  const ocultas = (lista ?? []).filter((c) => !c.activo).length
+  const conFlechas = ordenar && !q // con búsqueda no se ordena (las posiciones no serían las reales)
+
   return (
-    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-[2px] z-[70] flex items-center justify-center p-4" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[86vh] flex flex-col overflow-hidden">
-        <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100">
-          <div className="flex-1 min-w-0"><b className="block text-base text-slate-800">Categorías del catálogo</b><small className="text-xs text-slate-500">Imagen, texto y orden con el que se muestran en el catálogo público y los catálogos de asesor.</small></div>
-          <button type="button" onClick={cerrar} className="w-9 h-9 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center" aria-label="Cerrar"><X className="w-4 h-4" /></button>
+    <div className="gcat-fondo" onClick={(e) => { if (e.target === e.currentTarget) cerrar() }}>
+      <div className="gcat-ven" role="dialog" aria-label="Categorías del catálogo">
+        <div className="gcat-cab">
+          <div className="tit"><b>Categorías del catálogo</b>
+            <small>{lista ? `${lista.length} categoría${lista.length === 1 ? '' : 's'}${ocultas ? ` · ${ocultas} oculta${ocultas === 1 ? '' : 's'}` : ''} · ` : ''}Toca una categoría para ver su imagen, texto y si se muestra en el catálogo.</small></div>
+          {lista && lista.length > 6 && <input type="search" className="gcat-buscar" placeholder="Buscar categoría…" value={buscar} onChange={(e) => setBuscar(e.target.value)} />}
+          <button type="button" onClick={cerrar} className="gcat-cerrar" aria-label="Cerrar"><X className="w-4 h-4" /></button>
         </div>
-        <div className="overflow-y-auto px-4 py-3 space-y-2.5">
-          {error && <p className="text-xs text-red-600">{error}</p>}
-          {!lista && !error && <p className="text-xs text-slate-400 py-6 text-center">Cargando…</p>}
-          {lista && !lista.length && <p className="text-xs text-slate-400 py-6 text-center">No hay categorías todavía.</p>}
-          {lista?.map((c, i) => (
-            <div key={c.id} className={'flex gap-3 p-2.5 rounded-xl border border-slate-200' + (c.activo ? '' : ' opacity-50')}>
-              {ordenar && <div className="flex flex-col gap-1 shrink-0">
-                <button type="button" disabled={i === 0} onClick={() => mover(i, -1)} className="w-6 h-6 rounded border border-slate-200 flex items-center justify-center disabled:opacity-30"><ChevronUp className="w-3.5 h-3.5" /></button>
-                <button type="button" disabled={i === lista.length - 1} onClick={() => mover(i, 1)} className="w-6 h-6 rounded border border-slate-200 flex items-center justify-center disabled:opacity-30"><ChevronDown className="w-3.5 h-3.5" /></button>
-              </div>}
-              <div className="min-w-0 flex-1 space-y-1.5">
-                <b className="text-xs text-slate-800">{c.nombre}</b>
-                <input type="text" placeholder="Enlace de imagen de la categoría" defaultValue={c.imagen_url ?? ''} onBlur={(e) => guardarCampo(c.id, 'imagen_url', e.target.value)} className="pf-in text-[11px]" />
-                <input type="text" placeholder="Texto o descripción corta" defaultValue={c.texto ?? ''} onBlur={(e) => guardarCampo(c.id, 'texto', e.target.value)} className="pf-in text-[11px]" />
+        <div className="gcat-lista">
+          {error && <p className="gcat-error">{error}</p>}
+          {!lista && !error && <p className="gcat-aviso">Cargando…</p>}
+          {lista && !lista.length && <p className="gcat-aviso">No hay categorías todavía.</p>}
+          {lista && lista.length > 0 && !visibles.length && <p className="gcat-aviso">Ninguna categoría coincide con «{buscar}».</p>}
+          {visibles.map(({ c, i }) => {
+            const abiertaEsta = abierta === c.id
+            return (
+              <div key={c.id} className={'gcat-fila' + (abiertaEsta ? ' abierta' : '') + (c.activo ? '' : ' gcat-oculta')}>
+                <div className={'gcat-res' + (conFlechas ? '' : ' sin-orden')} role="button" tabIndex={0} aria-expanded={abiertaEsta}
+                  onClick={() => setAbierta(abiertaEsta ? null : c.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setAbierta(abiertaEsta ? null : c.id) } }}>
+                  {conFlechas && <span className="gcat-flechas" onClick={(e) => e.stopPropagation()}>
+                    <button type="button" disabled={i === 0} onClick={() => mover(i, -1)} aria-label={'Subir ' + c.nombre}><ChevronUp className="w-3.5 h-3.5" /></button>
+                    <button type="button" disabled={i === lista!.length - 1} onClick={() => mover(i, 1)} aria-label={'Bajar ' + c.nombre}><ChevronDown className="w-3.5 h-3.5" /></button>
+                  </span>}
+                  <span className="gcat-num">{i + 1}</span>
+                  {c.imagen_url ? <img loading="lazy" decoding="async" className="gcat-mini" src={imagen(c.imagen_url, 80)} alt="" onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} /> : <span className="gcat-mini" />}
+                  <span className="gcat-nom">{c.nombre}</span>
+                  <span className="gcat-txt">{c.texto || 'Sin texto'}</span>
+                  <span className={'gcat-pill ' + (c.activo ? 'on' : 'off')}>{c.activo ? 'Activa' : 'Oculta'}</span>
+                  <ChevronDown className="w-4 h-4 gcat-flecha" />
+                </div>
+                {abiertaEsta && (
+                  <div className="gcat-mas">
+                    <div className="gcat-vista">{c.imagen_url ? <img src={imagen(c.imagen_url, 400)} alt={'Imagen de ' + c.nombre} onError={(e) => { e.currentTarget.style.display = 'none' }} /> : <span>Sin imagen</span>}</div>
+                    <div>
+                      <label className="gcat-campo">Enlace de la imagen
+                        <input type="text" placeholder="Pega el enlace de la imagen (Drive o web)" defaultValue={c.imagen_url ?? ''} onBlur={(e) => guardarCampo(c.id, 'imagen_url', e.target.value)} /></label>
+                      <label className="gcat-campo">Texto o descripción corta
+                        <textarea rows={2} placeholder="Se muestra con la categoría en el catálogo" defaultValue={c.texto ?? ''} onBlur={(e) => guardarCampo(c.id, 'texto', e.target.value)} /></label>
+                    </div>
+                    <div className="gcat-act">
+                      <Interruptor activo={c.activo} cambiar={() => alternarActivo(c)} />
+                      <span>{c.activo ? 'Se muestra' : 'Oculta'}</span>
+                    </div>
+                  </div>
+                )}
               </div>
-              <div className="shrink-0 flex flex-col items-center gap-1">
-                <Interruptor activo={c.activo} cambiar={() => alternarActivo(c)} />
-                <small className="text-[10px] text-slate-400">{c.activo ? 'Activa' : 'Oculta'}</small>
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </div>
     </div>
