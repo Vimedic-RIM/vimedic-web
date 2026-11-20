@@ -1,7 +1,8 @@
-// Edge Function: puente seguro entre la app y Zernio (redes sociales) / Gemini (IA).
+// Edge Function: puente seguro entre la app y Zernio (redes sociales) / la IA (Claude; Gemini de respaldo).
 // Las claves viven cifradas en Supabase Vault; solo se descifran aquí, con service_role, vía integracion_secreto().
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
 import { credencialGemini, estadoModelos, generarGemini } from '../_shared/gemini.ts'
+import { credencialClaude, generarClaude, generarIA, type Esfuerzo, type ParteIA } from '../_shared/ia.ts'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -12,7 +13,7 @@ const ZERNIO = 'https://zernio.com/api/v1'
 
 const responder = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { ...CORS, 'Content-Type': 'application/json' } })
 class Falla extends Error { constructor(m: string, public status = 400) { super(m) } }
-const NOMBRE_PROVEEDOR: Record<string, string> = { zernio: 'Zernio', gemini: 'Gemini', drive: 'Drive', meta_pixel: 'Meta Pixel', tiktok_pixel: 'TikTok Pixel' }
+const NOMBRE_PROVEEDOR: Record<string, string> = { zernio: 'Zernio', claude: 'Claude', gemini: 'Gemini', drive: 'Drive', meta_pixel: 'Meta Pixel', tiktok_pixel: 'TikTok Pixel' }
 
 // Hash SHA-256 en minúsculas para datos de usuario (email/teléfono) — exigido por Meta y TikTok, nunca en texto plano.
 async function sha256Hex(texto: string): Promise<string> {
@@ -74,13 +75,17 @@ Deno.serve(async (req) => {
       const t = await r.text(); let j: any = null; try { j = t ? JSON.parse(t) : null } catch { /* texto */ } // deno-lint-ignore no-explicit-any
       return { ok: r.ok, status: r.status, data: j, texto: t }
     }
-    // Modelo guardado o «Automático»; si Google retiró el modelo, cambia solo y reintenta una vez (../_shared/gemini.ts).
+    // Solo para «Probar conexión» de la tarjeta de Gemini (modelo guardado o «Automático», con cambio si Google lo retira).
     const geminiConModelo = async (partes: unknown[], gen: Record<string, unknown>) => {
       const cred = await credencialGemini(admin)
       if (!cred.secreto) throw new Falla('Gemini no está conectado. Ve a Marketing › Configuración.')
       try { return await generarGemini(admin, cred, { contents: [{ role: 'user', parts: partes }], generationConfig: gen }) } catch (e) { throw new Falla((e as Error).message) }
     }
-    const gemini = async (partes: unknown[], gen: Record<string, unknown>) => (await geminiConModelo(partes, gen)).texto
+    // La IA de la plataforma: Claude si está conectado; si no, Gemini de respaldo (../_shared/ia.ts).
+    // gen = ajustes de Gemini (solo se usan en el respaldo); esfuerzo = cuánto razona Claude.
+    const ia = async (partes: ParteIA[], gen: Record<string, unknown>, esfuerzo: Esfuerzo = 'medium') => {
+      try { return (await generarIA(admin, partes, { esfuerzo, gemini: gen })).texto } catch (e) { throw new Falla((e as Error).message) }
+    }
     const json = (t: string) => { const l = t.replace(/^```(?:json)?\s*|\s*```$/g, ''); try { return JSON.parse(l) } catch { const m = l.match(/\{[\s\S]*\}/); if (m) return JSON.parse(m[0]); throw new Falla('La IA no devolvió un resultado válido.') } }
 
     /* ---------------- Probar conexiones (solo quien administra) ---------------- */
@@ -97,6 +102,8 @@ Deno.serve(async (req) => {
         extra = lista
       } else if (prov === 'gemini') {
         try { const r = await geminiConModelo([{ text: 'Responde solo con la palabra: listo' }], { temperature: 0, maxOutputTokens: 512 }); ok = true; mensaje = 'Conexión correcta · ' + r.modelo + ' respondió: ' + r.texto.slice(0, 40) } catch (e) { mensaje = (e as Error).message }
+      } else if (prov === 'claude') {
+        try { const r = await generarClaude(await credencialClaude(admin), [{ text: 'Responde solo con la palabra: listo' }], 'low'); ok = true; mensaje = 'Conexión correcta · ' + r.modelo + ' respondió: ' + r.texto.slice(0, 40) } catch (e) { mensaje = (e as Error).message }
       } else if (prov === 'meta_pixel') {
         try {
           const { secreto, config } = await credencial('meta_pixel')
@@ -424,7 +431,7 @@ Deno.serve(async (req) => {
       const { data: cfgG } = await admin.from('integraciones').select('config').eq('proveedor', 'gemini').is('deleted_at', null).maybeSingle()
       const web = /^https:\/\/[\w.-]+/.test(String((cfgG?.config as Record<string, unknown>)?.webUrl || '')) ? String((cfgG?.config as Record<string, unknown>).webUrl) : 'https://vimedic.com.ec'
       const idea = String(b.idea ?? b.indicaciones ?? '').slice(0, 600)
-      let t = await gemini([{ text: [
+      let t = await ia([{ text: [
         'Eres el community manager de VIMEDIC, importadora y distribuidora de equipos médicos en Quito, Ecuador.',
         'Escribe en español de Ecuador, tuteo profesional, sin exageraciones ni promesas médicas.',
         'Tarea: ' + TIPOS[tipo],
@@ -478,7 +485,7 @@ Deno.serve(async (req) => {
       if (!pdf) throw new Falla('No se pudo leer la ficha técnica: debe ser un PDF de Drive (o enlace https) de hasta 8 MB.')
       // deno-lint-ignore no-explicit-any
       const cat = (p as any).categoria?.nombre
-      const o = json(await gemini([{ inline_data: { mime_type: 'application/pdf', data: pdf } }, { text: [
+      const o = json(await ia([{ inline_data: { mime_type: 'application/pdf', data: pdf } }, { text: [
         'Producto: ' + p.nombre + (cat ? ' (' + cat + ')' : ''),
         'Del PDF adjunto (ficha técnica), extrae TODAS las especificaciones técnicas en español.',
         'Devuelve SOLO un JSON: {"especificaciones": ["Dato: valor", ...]}',
@@ -496,7 +503,7 @@ Deno.serve(async (req) => {
       if (!(await puede('crear'))) throw new Falla('No tienes permiso para usar la IA.', 403)
       const { data: p } = await admin.from('productos').select('nombre,descripcion,ficha_tecnica_url,categoria:categorias(nombre)').eq('id', b.id).maybeSingle()
       if (!p) throw new Falla('No se encontró el producto.')
-      const partes: unknown[] = []
+      const partes: ParteIA[] = []
       let conFicha = false
       const pdf = await fichaPdf(String(p.ficha_tecnica_url || ''))
       if (pdf) { partes.push({ inline_data: { mime_type: 'application/pdf', data: pdf } }); conFicha = true }
@@ -512,7 +519,7 @@ Deno.serve(async (req) => {
         '\nDevuelve SOLO un JSON: {"descripcion": "2 a 4 frases: qué es, para qué sirve y su principal beneficio", "caracteristicas": ["..."]}',
         'Entre 5 y 12 características de máximo 90 caracteres, sin viñetas. Usa solo datos presentes en el texto o la ficha: si falta un dato, NO lo inventes. Sin precios ni garantías.',
       ].join('\n') })
-      const o = json(await gemini(partes, { temperature: 0.4, maxOutputTokens: 2400, responseMimeType: 'application/json' }))
+      const o = json(await ia(partes, { temperature: 0.4, maxOutputTokens: 2400, responseMimeType: 'application/json' }))
       const limpiar = (t: unknown, max: number) => String(t || '').replace(/[<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, max)
       const car = (Array.isArray(o.caracteristicas) ? o.caracteristicas : String(o.caracteristicas || '').split('\n')).map((x: unknown) => limpiar(x, 120).replace(/^[-•·*✓✔\d.)\s]+/, '')).filter(Boolean).slice(0, 15)
       return responder({ descripcion: limpiar(o.descripcion, 1200), caracteristicas: car, conFicha })
@@ -525,13 +532,13 @@ Deno.serve(async (req) => {
       // deno-lint-ignore no-explicit-any
       const cat = (p as any).categoria?.nombre
       const tipos = Array.isArray(b.tipos) ? b.tipos.map((t: unknown) => (t === 'video' ? 'video' : 'imagen')) : Array(n).fill('imagen')
-      const o = json(await gemini([{ text: [
+      const o = json(await ia([{ text: [
         'Eres redactor de accesibilidad web para VIMEDIC, importadora de equipos médicos en Ecuador.',
         'Producto: ' + p.nombre + (p.marca ? ' · Marca ' + p.marca : '') + (cat ? ' · Categoría ' + cat : ''),
         'Escribe ' + n + ' textos alternativos (alt text) cortos en español, cada uno para un elemento distinto de la galería del catálogo, en este orden de tipo: ' + tipos.join(', ') + '.',
         'Cada texto describe de forma genérica y realista qué se vería en ' + (tipos.includes('video') ? 'esa foto o video' : 'esa foto') + ' del equipo (ej. "Vista frontal de ' + p.nombre + '", "Panel de control de ' + p.nombre + '"), sin inventar detalles que no puedas saber. Máximo 90 caracteres cada uno, sin numerar.',
         'Devuelve SOLO un JSON: {"textos": ["...", "..."]} con exactamente ' + n + ' elementos.',
-      ].join('\n') }], { temperature: 0.6, maxOutputTokens: 500, responseMimeType: 'application/json' }))
+      ].join('\n') }], { temperature: 0.6, maxOutputTokens: 500, responseMimeType: 'application/json' }, 'low'))
       const limpiar = (t: unknown) => String(t || '').replace(/[<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 90)
       const textos = (Array.isArray(o.textos) ? o.textos : []).map(limpiar).filter(Boolean)
       while (textos.length < n) textos.push((p.marca ? p.marca + ' ' : '') + p.nombre)

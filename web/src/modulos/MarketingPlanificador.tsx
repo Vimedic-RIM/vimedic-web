@@ -599,7 +599,7 @@ function Composer({ modo, post, dia, hora, pieza: piezaIni, cuentas, piezas, rol
           {!editar && archivo && <p className="text-[10.5px] text-slate-400 -mt-1">{(archivo.size / 1048576).toFixed(1)} MB · se sube directo a Zernio (temporal: programable hasta 6 días). Para programar con más anticipación, súbelo en Audiovisual.</p>}
 
           <div className="rounded-xl border border-violet-200 p-3 space-y-2" style={{ background: '#f5f3ffb3' }}>
-            <p className="text-[11px] font-bold text-violet-700 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" />Asistente de copy (Gemini)</p>
+            <p className="text-[11px] font-bold text-violet-700 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" />Asistente de copy (IA)</p>
             <div className="grid sm:grid-cols-2 gap-2">
               <div className="relative">
                 <input value={qProd} onChange={(e) => { setQProd(e.target.value); setProd(null); setVerOpc(true) }} onFocus={() => setVerOpc(true)} onBlur={() => setTimeout(() => setVerOpc(false), 180)} className="inp w-full" placeholder="Producto (código o nombre)…" />
@@ -615,7 +615,7 @@ function Composer({ modo, post, dia, hora, pieza: piezaIni, cuentas, piezas, rol
               <button type="button" className="btn" style={{ padding: '5px 9px', fontSize: 11 }} disabled={!!iaOcupada} onClick={() => poner(plantilla('promocional'))} title="Arma un texto al instante con los datos del producto">Plantilla rápida</button>
               {antesIa !== null && <button type="button" className="btn" style={{ padding: '5px 9px', fontSize: 11 }} onClick={() => { setTexto(antesIa); setAntesIa(null) }}><RotateCcw />Deshacer</button>}
             </div>
-            {iaOcupada && <p className="text-[10.5px] text-violet-700">Gemini está redactando… puedes seguir llenando lo demás.</p>}
+            {iaOcupada && <p className="text-[10.5px] text-violet-700">La IA está redactando… puedes seguir llenando lo demás.</p>}
           </div>
 
           <label className="block text-[11px] font-bold text-slate-500"><span className="flex items-center">Texto de la publicación<span className="ml-auto font-mono-spec" style={{ color: n > MAX_TEXTO ? '#dc2626' : n > 1800 ? '#d97706' : '#94a3b8', fontWeight: n > MAX_TEXTO ? 700 : 500 }}>{n} / {MAX_TEXTO}</span></span>

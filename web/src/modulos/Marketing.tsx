@@ -59,7 +59,7 @@ const TITLES: Record<string, [string, string]> = {
   revision: ['Revisión del equipo', 'Aprobaciones, cambios aplicados y trabajo de cada persona.'], promociones: ['Promociones', 'Campañas de descuento: Black Friday, liquidaciones y ofertas.'],
   plan: ['Plan de trabajo', 'Programa las actividades del equipo: fichas, fotos, videos, documentos del proveedor y publicaciones.'],
   agenda: ['Agenda', 'La semana por horas de quien coordina y su equipo: reuniones, tareas del plan, publicaciones y campañas.'],
-  configuracion: ['Configuración', 'Conecta Google Drive, Zernio (redes sociales), Gemini (inteligencia artificial) y los píxeles.'],
+  configuracion: ['Configuración', 'Conecta Google Drive, Zernio (redes sociales), Claude (inteligencia artificial) y los píxeles.'],
 }
 const NAV: [string, string, typeof LayoutDashboard][] = [
   ['resumen', 'Resumen', LayoutDashboard], ['planificador', 'Planificador', CalendarDays], ['audiovisual', 'Audiovisual', Clapperboard], ['plan', 'Plan de trabajo', ClipboardList], ['agenda', 'Agenda', CalendarClock], ['anuncios', 'Anuncios', Megaphone],

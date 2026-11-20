@@ -1,11 +1,11 @@
 // Edge Function: Mensajes del CRM (Messenger / Instagram / WhatsApp vía Zernio).
 // Equivale a "Mensajeria meta.gs" del original: bandeja, historial con adjuntos, responder
 // (con reintento HUMAN_AGENT fuera de la ventana de 24 h de Facebook), marcar leída,
-// reasignar conversaciones y redactar una respuesta con IA (Gemini).
-// La clave de Zernio y la de Gemini viven cifradas en Vault (se conectan en Marketing › Configuración).
+// reasignar conversaciones y redactar una respuesta con IA (Claude; Gemini de respaldo).
+// Las claves de Zernio y de la IA viven cifradas en Vault (se conectan en Marketing › Configuración).
 // También recibe el webhook de Zernio (firma HMAC-SHA256 en X-Zernio-Signature), cosa que Apps Script no podía verificar.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
-import { credencialGemini, generarGemini } from '../_shared/gemini.ts'
+import { generarIA } from '../_shared/ia.ts'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -36,7 +36,7 @@ Deno.serve(async (req) => {
       admin.from('integraciones').select('config').eq('proveedor', proveedor).is('deleted_at', null).maybeSingle(),
       admin.rpc('integracion_secreto', { p_proveedor: proveedor }),
     ])
-    if (!secreto) throw new Falla(proveedor === 'zernio' ? 'Zernio no está conectado. Pídele a Marketing que lo conecte en Marketing › Configuración.' : 'La IA (Gemini) no está conectada. Se conecta en Marketing › Configuración.')
+    if (!secreto) throw new Falla(proveedor === 'zernio' ? 'Zernio no está conectado. Pídele a Marketing que lo conecte en Marketing › Configuración.' : 'La IA no está conectada. Se conecta en Marketing › Configuración.')
     return { secreto: secreto as string, config: (config?.config ?? {}) as Record<string, unknown> }
   }
   const zernio = async (ruta: string, init: RequestInit = {}) => {
@@ -201,8 +201,6 @@ Deno.serve(async (req) => {
     }
 
     if (accion === 'sugerir') {
-      const cred = await credencialGemini(admin)
-      if (!cred.secreto) throw new Falla('La IA (Gemini) no está conectada. Se conecta en Marketing › Configuración.')
       const hilo = (Array.isArray(b.hilo) ? b.hilo : []).slice(-20).map((m: Cualquiera) => (m.saliente ? 'VIMEDIC: ' : 'Cliente: ') + String(m.texto || '').slice(0, 600)).join('\n')
       const tipos: Record<string, string> = {
         rapida: 'Responde de forma breve y directa (1 a 2 oraciones).',
@@ -210,8 +208,8 @@ Deno.serve(async (req) => {
         seguimiento: 'Escribe un mensaje de seguimiento cordial para retomar la conversación y pedir una respuesta concreta.',
       }
       const instruccion = `Eres asesor comercial de ${String(b.empresa || 'VIMEDIC')}, importador de equipos médicos en Ecuador. ${tipos[String(b.tipo)] ?? tipos.comercial} Usa español neutro y trato de usted, sin inventar precios, stock ni plazos. Devuelve solo el texto del mensaje.\n\nConversación con ${String(b.nombre || 'el cliente')}:\n${hilo}`
-      // Modelo guardado o «Automático», con cambio automático si Google lo retiró (../_shared/gemini.ts)
-      try { return responder({ texto: (await generarGemini(admin, cred, { contents: [{ role: 'user', parts: [{ text: instruccion }] }], generationConfig: { temperature: 0.6, maxOutputTokens: 400 } })).texto }) }
+      // La IA de la plataforma: Claude si está conectado; si no, Gemini de respaldo (../_shared/ia.ts). Respuesta corta: esfuerzo bajo.
+      try { return responder({ texto: (await generarIA(admin, [{ text: instruccion }], { esfuerzo: 'low', gemini: { temperature: 0.6, maxOutputTokens: 400 } })).texto }) }
       catch (e) { throw new Falla((e as Error).message, 502) }
     }
 

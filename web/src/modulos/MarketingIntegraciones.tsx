@@ -12,7 +12,7 @@ import { encabezadoDocHtml, pieDocHtml } from '../documentoMarca'
 import { PorCompletar, VideosPendientes, type DatosPendientes } from './MarketingPendientes'
 import type { PendientePlan } from './MarketingPlan'
 
-/* Conexiones de Marketing: Zernio (redes) y Gemini (IA). Las claves viven en el servidor (Edge Function): el navegador nunca las ve. */
+/* Conexiones de Marketing: Zernio (redes) y la IA (Claude; Gemini de respaldo). Las claves viven en el servidor (Edge Function): el navegador nunca las ve. */
 /** Llama a la función de Drive y devuelve el motivo real si falla (no el genérico "non-2xx status code"). */
 async function drive(body: Record<string, unknown>): Promise<{ resp: { id?: string; enlace?: string; error?: string } | null; error: { message: string } | null }> {
   try { return { resp: await llamar<{ id?: string; enlace?: string }>(String(body.accion), body, 'drive'), error: null } }
@@ -46,6 +46,14 @@ type Estado = { proveedor: string; configurado: boolean; vista: string; config: 
 /* Modelos de Gemini: la lista sale de Google (Edge Function, caché 24 h). El modelo de respaldo y las palabras
    que se excluyen están en un solo lugar: supabase/functions/_shared/gemini.ts. */
 type ModelosIA = { modelos: { id: string; nombre: string }[]; actualizado: string | null; origen: 'google' | 'cache' | 'respaldo'; falla?: string; guardado: string; auto: string; migrado: string | null }
+/* Claude (Anthropic): la IA de la plataforma. El primero es el de por defecto (igual que CLAUDE_MODELO en supabase/functions/_shared/ia.ts). */
+const MODELOS_CLAUDE: [string, string][] = [
+  ['claude-opus-5-5', 'Claude Opus 5.5 · máxima calidad (recomendado)'],
+  ['claude-sonnet-5-5', 'Claude Sonnet 5.5 · más rápido y económico'],
+  ['claude-haiku-5-5', 'Claude Haiku 5.5 · el más rápido, para textos cortos'],
+]
+const NOMBRE_TARJETA = { zernio: 'Zernio', claude: 'Claude', gemini: 'Gemini' } as const
+const COLOR_TARJETA = { zernio: '#e1306c', claude: '#d97757', gemini: '#7c3aed' } as const
 
 export function Configuracion({ aviso, alCambiar }: { aviso: (t: string) => void; alCambiar: () => void }) {
   const [estados, setEstados] = useState<Estado[] | null>(null)
@@ -64,7 +72,9 @@ export function Configuracion({ aviso, alCambiar }: { aviso: (t: string) => void
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <Tarjeta proveedor="zernio" titulo="Zernio · redes sociales" sub="Publica y programa en Facebook e Instagram desde el Planificador." est={ver('zernio')} aviso={aviso} cambio={() => { cargar(); alCambiar() }}
           ayuda="En el panel de Zernio crea una clave de API (API Keys) y pégala aquí. Es la misma que usaba la app anterior." />
-        <Tarjeta proveedor="gemini" titulo="Gemini · inteligencia artificial" sub="Redacta publicaciones y descripciones de producto." est={ver('gemini')} aviso={aviso} cambio={() => { cargar(); alCambiar() }}
+        <Tarjeta proveedor="claude" titulo="Claude · inteligencia artificial" sub="Redacta publicaciones, descripciones y especificaciones de producto, y sugiere respuestas en el CRM." est={ver('claude')} aviso={aviso} cambio={() => { cargar(); alCambiar() }}
+          ayuda="En console.anthropic.com entra a API Keys, crea una clave y pégala aquí. Mientras Claude esté conectado, toda la IA de la app usa Claude." modelosFijos={MODELOS_CLAUDE} />
+        <Tarjeta proveedor="gemini" titulo="Gemini · IA de respaldo" sub={ver('claude').configurado ? 'No se usa: la IA de la app es Claude. Solo entra si desconectas Claude.' : 'Se usa solo mientras Claude no esté conectado.'} est={ver('gemini')} aviso={aviso} cambio={() => { cargar(); alCambiar() }}
           ayuda="Crea una clave en Google AI Studio (aistudio.google.com/apikey) y pégala aquí." conModelo />
         <TarjetaDrive est={ver('drive')} estApp={ver('google_app')} aviso={aviso} cambio={() => { cargar(); alCambiar() }} />
         <TarjetaPixel proveedor="meta_pixel" titulo="Meta Conversions API" color="#1877f2" est={ver('meta_pixel')} aviso={aviso} cambio={() => { cargar(); alCambiar() }} />
@@ -127,9 +137,9 @@ function TarjetaPixel({ proveedor, titulo, color, est, aviso, cambio }: {
   )
 }
 
-function Tarjeta({ proveedor, titulo, sub, est, aviso, cambio, ayuda, conModelo }: { proveedor: 'zernio' | 'gemini'; titulo: string; sub: string; est: Estado; aviso: (t: string) => void; cambio: () => void; ayuda: string; conModelo?: boolean }) {
+function Tarjeta({ proveedor, titulo, sub, est, aviso, cambio, ayuda, conModelo, modelosFijos }: { proveedor: 'zernio' | 'claude' | 'gemini'; titulo: string; sub: string; est: Estado; aviso: (t: string) => void; cambio: () => void; ayuda: string; conModelo?: boolean; modelosFijos?: [string, string][] }) {
   const [clave, setClave] = useState('')
-  const [modelo, setModelo] = useState(est.config?.modelo || 'auto')
+  const [modelo, setModelo] = useState(est.config?.modelo || (modelosFijos ? modelosFijos[0][0] : 'auto'))
   const [ocupado, setOcupado] = useState('')
   const [cuentas, setCuentas] = useState<{ id: string; plataforma: string; nombre: string }[]>([])
   const [ia, setIa] = useState<ModelosIA | null>(null)
@@ -152,9 +162,9 @@ function Tarjeta({ proveedor, titulo, sub, est, aviso, cambio, ayuda, conModelo 
   }
   useEffect(() => { if (conModelo) cargarModelos(false, true) }, []) // eslint-disable-line react-hooks/exhaustive-deps
   async function guardar() {
-    if (!clave.trim() && !conModelo) { aviso('Pega la clave primero.'); return }
+    if (!clave.trim() && !conModelo && !(modelosFijos && est.configurado)) { aviso('Pega la clave primero.'); return }
     setOcupado('guardar')
-    const { error } = await supabase.rpc('integracion_guardar', { p_proveedor: proveedor, p_secreto: clave.trim() || null, p_config: conModelo ? { modelo } : {} })
+    const { error } = await supabase.rpc('integracion_guardar', { p_proveedor: proveedor, p_secreto: clave.trim() || null, p_config: conModelo || modelosFijos ? { modelo } : {} })
     setOcupado('')
     if (error) { aviso('No se pudo guardar: ' + error.message); return }
     const nueva = !!clave.trim(); setClave(''); aviso(nueva ? 'Clave guardada. Probando la conexión…' : 'Configuración guardada.'); cambio()
@@ -174,14 +184,14 @@ function Tarjeta({ proveedor, titulo, sub, est, aviso, cambio, ayuda, conModelo 
   const usando = modelo === 'auto' ? ia?.auto : modelo
   const fechaLista = ia?.actualizado ? new Date(ia.actualizado).toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' }) : ''
   async function quitar() {
-    if (!confirm('¿Desconectar ' + (proveedor === 'zernio' ? 'Zernio' : 'Gemini') + '? Dejará de funcionar hasta que pegues una clave nueva.')) return
+    if (!confirm('¿Desconectar ' + NOMBRE_TARJETA[proveedor] + '? ' + (proveedor === 'claude' ? 'La IA pasará a Gemini (si está conectado) hasta que pegues una clave nueva.' : 'Dejará de funcionar hasta que pegues una clave nueva.'))) return
     const { error } = await supabase.rpc('integracion_quitar', { p_proveedor: proveedor })
     if (error) aviso('No se pudo quitar: ' + error.message); else { setCuentas([]); aviso('Conexión eliminada.'); cambio() }
   }
   return (
     <article className="card p-5">
       <div className="flex items-start gap-3">
-        <span className="w-10 h-10 rounded-xl grid place-items-center shrink-0" style={{ background: proveedor === 'zernio' ? '#e1306c1A' : '#7c3aed1A', color: proveedor === 'zernio' ? '#e1306c' : '#7c3aed' }}>{proveedor === 'zernio' ? <Link2 className="w-5 h-5" /> : <Sparkles className="w-5 h-5" />}</span>
+        <span className="w-10 h-10 rounded-xl grid place-items-center shrink-0" style={{ background: COLOR_TARJETA[proveedor] + '1A', color: COLOR_TARJETA[proveedor] }}>{proveedor === 'zernio' ? <Link2 className="w-5 h-5" /> : <Sparkles className="w-5 h-5" />}</span>
         <div className="min-w-0 flex-1"><h3 className="font-display font-bold text-sm text-slate-800">{titulo}</h3><p className="text-[11px] text-slate-500">{sub}</p></div>
         <span className="pill shrink-0" style={est.configurado ? (prueba && !ok ? { background: '#fdecea', color: '#c0392b' } : { background: '#ecfaf5', color: '#04896f' }) : { background: '#f1f5f9', color: '#64748b' }}>
           {est.configurado ? (prueba ? (ok ? 'Conectado' : 'Con error') : 'Sin probar') : 'No conectado'}</span>
@@ -189,6 +199,13 @@ function Tarjeta({ proveedor, titulo, sub, est, aviso, cambio, ayuda, conModelo 
       <p className="text-[11px] text-slate-500 mt-3">{ayuda}</p>
       <label className="block text-[11px] font-bold text-slate-500 mt-3">Clave de API{est.configurado && <span className="font-mono-spec font-normal text-slate-400"> · actual {est.vista}</span>}
         <input type="password" autoComplete="off" value={clave} onChange={(e) => setClave(e.target.value)} className="inp w-full mt-1" placeholder={est.configurado ? 'Pega una nueva para reemplazarla' : 'Pega aquí la clave'} /></label>
+      {modelosFijos && (
+        <label className="block text-[11px] font-bold text-slate-500 mt-3">Modelo de IA
+          <select value={modelo} onChange={(e) => setModelo(e.target.value)} className="inp w-full mt-1">
+            {!modelosFijos.some(([v]) => v === modelo) && <option value={modelo}>{modelo}</option>}
+            {modelosFijos.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+          </select></label>
+      )}
       {conModelo && (<>
         <label className="block text-[11px] font-bold text-slate-500 mt-3">Modelo de IA
           <select value={modelo} onChange={(e) => setModelo(e.target.value)} className="inp w-full mt-1">
@@ -883,7 +900,7 @@ export function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso
 
       </div>
       <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-3 space-y-2">
-        <p className="text-[11px] font-bold text-violet-700 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" />Redactar con IA (Gemini)</p>
+        <p className="text-[11px] font-bold text-violet-700 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" />Redactar con IA</p>
         <input value={notas} onChange={(e) => setNotas(e.target.value)} className="inp w-full" placeholder="Indicaciones (opcional): enfoque, público, qué resaltar…" />
         <button type="button" className="btn" onClick={redactar} disabled={ia}><Sparkles />{ia ? 'Redactando…' : 'Redactar descripción y características'}</button>
         <p className="text-[10px] text-slate-500">Si el producto tiene ficha técnica en PDF, la IA la lee para no inventar datos.</p>
