@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { BarChart3, RefreshCw } from 'lucide-react'
 import { supabase } from '../supabase'
 import { llamar } from './MarketingIntegraciones'
+import { PuntoRed } from '../redes'
 
 /* Anuncios: inversión y resultados de cada anuncio en las redes (Zernio Ads) cruzados con los leads y las
    ventas del CRM atribuidos a ese anuncio (mkAnuncios + mkEstadisticas_ del original). */
@@ -9,7 +10,6 @@ import { llamar } from './MarketingIntegraciones'
 type Ad = { id: string; adId: string; nombre: string; campana: string; plataforma: string; estado: string; moneda: string; metricas: Record<string, number | null> }
 type Grupo = { clave: string; adId: string | null; campana: string; medio: string; leads: number; ventas: number; baseVentas: number }
 type Atribucion = { grupos: Grupo[]; leads: number; ventas: number; baseVentas: number; ventasSinFecha: number; criterio: string }
-const PLAT: Record<string, [string, string]> = { facebook: ['F', '#1877f2'], instagram: ['I', '#e1306c'], tiktok: ['T', '#111827'], linkedin: ['in', '#0a66c2'], youtube: ['Y', '#ff0000'], google: ['G', '#34a853'], googleads: ['G', '#34a853'], meta: ['M', '#0866ff'] }
 const money = (v: number) => Number(v || 0).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const n0 = (v: unknown) => (v == null || v === '' ? '—' : Number(v).toLocaleString('es-EC'))
 // Zernio guarda el anuncio como "ag:123…" en la atribución de algunos leads: se compara solo el número.
@@ -55,10 +55,10 @@ export function InversionAnuncios({ desde, hasta }: { desde: string; hasta: stri
         {ads && ads.length > 0 && (
           <div className="overflow-x-auto"><table className="tbl"><thead><tr><th>Anuncio</th><th>Estado</th><th className="num">Gasto</th><th className="num">Impresiones</th><th className="num">Clics</th><th className="num">Conv. red</th><th className="num">Leads CRM</th><th className="num">Ventas CRM</th><th className="num">Base ventas</th><th className="num">Costo / lead</th></tr></thead>
             <tbody>{ads.map((a) => {
-              const g = grupoDe(a), m = a.metricas || {}, gasto = m.spend == null ? null : Number(m.spend), d = PLAT[a.plataforma.toLowerCase()] ?? [a.plataforma.slice(0, 1).toUpperCase() || '?', '#64748b']
+              const g = grupoDe(a), m = a.metricas || {}, gasto = m.spend == null ? null : Number(m.spend)
               return (
                 <tr key={a.id}>
-                  <td><b className="text-slate-700">{a.nombre || '—'}</b><span className="flex items-center gap-1 text-[10px] text-slate-400 mt-0.5"><span className="pdot" style={{ background: d[1] }}>{d[0]}</span>{a.campana ? a.campana + ' · ' : ''}{a.adId || a.id}</span></td>
+                  <td><b className="text-slate-700">{a.nombre || '—'}</b><span className="flex items-center gap-1 text-[10px] text-slate-400 mt-0.5"><PuntoRed red={a.plataforma} size={15} />{a.campana ? a.campana + ' · ' : ''}{a.adId || a.id}</span></td>
                   <td><span className="pill" style={{ background: '#f1f5f9', color: '#475569' }}>{a.estado || '—'}</span></td>
                   <td className="num">{gasto == null ? '—' : money(gasto) + ' ' + a.moneda}</td>
                   <td className="num">{n0(m.impressions)}</td><td className="num">{n0(m.clicks)}</td><td className="num">{n0(m.conversions)}</td>

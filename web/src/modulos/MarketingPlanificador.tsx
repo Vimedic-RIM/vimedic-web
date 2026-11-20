@@ -4,6 +4,7 @@ import { MiniProducto } from './inventarioUtil'
 import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
 import { llamar } from './MarketingIntegraciones'
+import { PuntoRed } from '../redes'
 
 /* ============================ Planificador de contenido (Zernio) ============================
    Igual que el original (Marketing.html + Data Marketing.gs): calendario por semana (con horas), por
@@ -26,10 +27,6 @@ type Trabajo = { id: string; titulo: string; pct: number; texto: string; estado:
 type Vista = 'week' | 'month' | 'list'
 type ProdIa = { id: string; codigo: string; nombre: string; imagen_url?: string | null; marca: string | null; codigo_unico: string | null; descripcion: string | null; caracteristicas: string | null; especificaciones: string | null; garantia: string | null; categoria: { nombre: string } | null }
 
-const PLAT: Record<string, [string, string]> = {
-  facebook: ['F', '#1877f2'], instagram: ['I', '#e1306c'], tiktok: ['T', '#111827'], linkedin: ['in', '#0a66c2'], youtube: ['Y', '#ff0000'], twitter: ['X', '#111827'], x: ['X', '#111827'],
-  threads: ['@', '#111827'], pinterest: ['P', '#e60023'], googlebusiness: ['G', '#34a853'], bluesky: ['B', '#1185fe'], telegram: ['T', '#26a5e4'], reddit: ['R', '#ff4500'],
-}
 const ESTADO: Record<string, string> = { scheduled: 'Programada', published: 'Publicada', draft: 'Borrador', failed: 'Fallida', partial: 'Parcial', publishing: 'Publicando', cancelled: 'Cancelada' }
 const EDITABLE = ['draft', 'scheduled', 'failed', 'partial', 'cancelled']
 const BORRABLE = ['draft', 'scheduled', 'failed']
@@ -58,9 +55,9 @@ const esVideoPieza = (p: PiezaMin) => /^video\//.test(p.mime || '') || (!p.mime 
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 14) + '-x')
 const leerVista = (): Vista => { try { const v = localStorage.getItem('vm_mk_vista'); if (v === 'week' || v === 'month' || v === 'list') return v } catch { /* sin almacenamiento */ } return window.innerWidth < 640 ? 'list' : 'week' }
 
+/** Logotipo real de la red (../redes.tsx). */
 function Punto({ p }: { p: string }) {
-  const d = PLAT[String(p || '').toLowerCase()] ?? [String(p || '?').slice(0, 1).toUpperCase(), '#64748b']
-  return <span className="pdot" style={{ background: d[1] }} title={p}>{d[0]}</span>
+  return <PuntoRed red={p} />
 }
 
 function Ventana({ titulo, cerrar, children, pie, ancho = 640 }: { titulo: React.ReactNode; cerrar: () => void; children: React.ReactNode; pie?: React.ReactNode; ancho?: number }) {

@@ -15,6 +15,7 @@ import { MiniProducto } from './inventarioUtil'
 import { agrupar } from '../tiempoReal'
 import '../estilos/marketing-plan.css'
 import '../estilos/marketing-agenda.css'
+import { PuntoRed } from '../redes'
 
 type Persona = { id: string; nombre: string; foto: string | null; rol: string }
 type Evento = {
@@ -344,7 +345,7 @@ function DetalleCita({ it, datos, cerrar, aviso, irA, editar, recargar }: {
           </>}
           {p && <>
             <p className="text-[12.5px] text-slate-700 whitespace-pre-line" style={{ marginTop: 4 }}>{p.contenido}</p>
-            <div className="mka-dato"><Megaphone /><span>{(p.plataformas ?? []).join(', ') || 'Redes'} · {p.estado}</span></div>
+            <div className="mka-dato"><Megaphone /><span className="inline-flex items-center gap-1 flex-wrap">{(p.plataformas ?? []).length ? (p.plataformas ?? []).map((r) => <PuntoRed key={r} red={r} size={16} />) : 'Redes'}<span>· {p.estado}</span></span></div>
           </>}
         </div>
         <footer>

@@ -3,6 +3,7 @@ import { ArrowLeft, ExternalLink, Image as ImageIcon, MessageCircle, Paperclip, 
 import { supabase } from '../supabase'
 import { coincide } from '../busqueda'
 import '../estilos/crm-extra.css'
+import { IconoRed } from '../redes'
 
 /* =====================================================================
    CRM — Mensajes (Mensajeria meta.gs + bandeja del CRMDashboard original):
@@ -165,7 +166,7 @@ export default function CrmMensajes({ empresa, inicial, cerrar, aviso }: { empre
               <div className="relative"><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar contacto o mensaje…" className="ns-input pl-9" /><Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /></div>
               <div className="flex flex-wrap gap-1.5">
                 <button type="button" onClick={() => setCanal('')} className={'ns-chip' + (!canal ? ' active' : '')}>Todos</button>
-                {canales.map((c) => <button key={c} type="button" onClick={() => setCanal(canal === c ? '' : c)} className={'ns-chip' + (canal === c ? ' active' : '')}>{c}</button>)}
+                {canales.map((c) => <button key={c} type="button" onClick={() => setCanal(canal === c ? '' : c)} className={'ns-chip' + (canal === c ? ' active' : '')} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><IconoRed red={c} size={12} />{c}</button>)}
                 <button type="button" onClick={() => setSolo(solo === 'sinLeer' ? '' : 'sinLeer')} className={'ns-chip' + (solo === 'sinLeer' ? ' active' : '')}>Sin leer</button>
                 {veTodos && <button type="button" onClick={() => setSolo(solo === 'sinAsesor' ? '' : 'sinAsesor')} className={'ns-chip' + (solo === 'sinAsesor' ? ' active' : '')}>Sin asesor</button>}
               </div>
@@ -181,7 +182,7 @@ export default function CrmMensajes({ empresa, inicial, cerrar, aviso }: { empre
                     <div className="flex items-center gap-2"><p className="text-xs font-bold text-slate-800 truncate flex-1">{c.nombre}</p><span className="text-[10px] text-slate-400 shrink-0">{hora(c.fecha)}</span></div>
                     <p className={'text-[11px] truncate ' + (c.sinLeer ? 'text-slate-800 font-semibold' : 'text-slate-500')}>{c.ultimo || '—'}</p>
                     <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className="text-[9px] font-bold uppercase" style={{ color: COLOR_CANAL[c.canal] ?? '#055c9d' }}>{c.canal}</span>
+                      <span className="inline-flex items-center gap-1 text-[9px] font-bold uppercase" style={{ color: COLOR_CANAL[c.canal] ?? '#055c9d' }}><IconoRed red={c.canal} size={11} />{c.canal}</span>
                       <span className="text-[10px] text-slate-400 truncate flex-1">{c.asesor || (veTodos ? 'Sin asesor' : '')}</span>
                       {c.sinLeer > 0 && <span className="px-1 rounded-full text-[10px] font-bold text-white grid place-items-center" style={{ background: '#ef4444', minWidth: 18, height: 18 }}>{c.sinLeer > 9 ? '9+' : c.sinLeer}</span>}
                     </div>

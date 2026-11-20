@@ -4,6 +4,7 @@ import {
 } from 'lucide-react'
 import { supabase, type Perfil } from '../supabase'
 import { agrupar } from '../tiempoReal'
+import { IconoRed } from '../redes'
 import { puede } from '../permisos'
 import { imagen, Interruptor } from './inventarioUtil'
 import { leerAjustesFicha, type AjustesFicha } from './MarketingRevision'
@@ -277,7 +278,7 @@ function Tarjeta({ proveedor, titulo, sub, est, aviso, cambio, ayuda, conModelo,
         {ia?.falla && <p className="text-[10px] text-amber-700 mt-1">Google no entregó la lista ({ia.falla}): se usa {ia.origen === 'cache' ? 'la última lista guardada' : 'una lista mínima de respaldo'}.</p>}
       </>)}
       {prueba && <p className="text-[11px] mt-3 rounded-lg px-3 py-2" style={ok ? { background: '#ecfaf5', color: '#04896f' } : { background: '#fdecea', color: '#a3341f' }}>{prueba.replace(/^(ok|error): /, '')}{est.probado_en ? ' · ' + new Date(est.probado_en).toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' }) : ''}</p>}
-      {cuentas.length > 0 && <div className="flex flex-wrap gap-1.5 mt-3">{cuentas.map((c) => <span key={c.id} className="pill" style={{ background: '#eff6ff', color: '#055c9d' }}>{c.plataforma} · {c.nombre}</span>)}</div>}
+      {cuentas.length > 0 && <div className="flex flex-wrap gap-1.5 mt-3">{cuentas.map((c) => <span key={c.id} className="pill" style={{ background: '#eff6ff', color: '#055c9d', display: 'inline-flex', alignItems: 'center', gap: 5 }}><IconoRed red={c.plataforma} size={12} />{c.nombre}</span>)}</div>}
       <div className="flex gap-2 flex-wrap mt-4">
         <button type="button" className="btn btn-primary" onClick={guardar} disabled={!!ocupado}><Check />{ocupado === 'guardar' ? 'Guardando…' : 'Guardar'}</button>
         <button type="button" className="btn" onClick={probar} disabled={!!ocupado || !est.configurado}><Plug />{ocupado === 'probar' ? 'Probando…' : 'Probar conexión'}</button>
