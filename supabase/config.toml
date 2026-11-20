@@ -37,3 +37,7 @@ verify_jwt = false
 # (clave secreta de la app, en Vault). Las acciones desde la app validan la sesión dentro de la función.
 [functions.meta-leads]
 verify_jwt = false
+
+# Ofertas para la web pública (vimedic.com.ec): sin login; solo campaña, producto visible, imagen y % de descuento.
+[functions.ofertas-web]
+verify_jwt = false
