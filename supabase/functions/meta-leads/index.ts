@@ -50,20 +50,54 @@ Deno.serve(async (req) => {
     return { config, token: String(s.token || ''), appSecret: String(s.appSecret || ''), empresa: config.empresa === 'FEMEDICS' ? 'FEMEDICS' : 'VIMEDIC', paginaId: String(config.paginaId || '') }
   }
   type Conf = Awaited<ReturnType<typeof conf>>
-  /** Graph API con el token en el encabezado (no en la URL) y appsecret_proof (por si la app lo exige). */
-  const graph = async (c: Conf, ruta: string, init: RequestInit = {}) => {
-    const prueba = await hmacHex(c.appSecret, c.token)
-    const r = await fetch(GRAPH + ruta + (ruta.includes('?') ? '&' : '?') + 'appsecret_proof=' + prueba, { ...init, headers: { Authorization: 'Bearer ' + c.token, ...(init.headers ?? {}) } })
+  /** Graph API con el token que se indique, en el encabezado (no en la URL), y su appsecret_proof = HMAC-SHA256(ese token, app secret). */
+  const graph = async (token: string, appSecret: string, ruta: string, init: RequestInit = {}) => {
+    const prueba = await hmacHex(appSecret, token)
+    const r = await fetch(GRAPH + ruta + (ruta.includes('?') ? '&' : '?') + 'appsecret_proof=' + prueba, { ...init, headers: { Authorization: 'Bearer ' + token, ...(init.headers ?? {}) } })
     const j = await r.json().catch(() => ({}))
     if (!r.ok || j?.error) throw new Falla('Meta respondió: ' + String(j?.error?.message || 'código ' + r.status))
     return j as Cualquiera
   }
+  /** Llamadas con el token del USUARIO DEL SISTEMA (leer la página y pedir su token). */
+  const graphSistema = (c: Conf, ruta: string, init: RequestInit = {}) => graph(c.token, c.appSecret, ruta, init)
+  /** Token de la PÁGINA: Meta lo exige para subscribed_apps, leadgen_forms, /{form}/leads y /{leadgen_id}.
+      Se pide con el token del usuario del sistema en cada operación y no se guarda en ningún lado. */
+  let tokenPaginaCache = ''
+  const getPageAccessToken = async (c: Conf): Promise<string> => {
+    if (tokenPaginaCache) return tokenPaginaCache
+    const j = await graphSistema(c, `/${c.paginaId}?fields=access_token`)
+    if (!j?.access_token) throw new Falla('Meta no entregó el token de la página ' + c.paginaId + ': el usuario del sistema debe tener asignada esa página (con permiso para administrarla) y el token, los permisos pages_show_list y pages_manage_metadata.')
+    tokenPaginaCache = String(j.access_token)
+    return tokenPaginaCache
+  }
+  /** Llamadas con el token de la PÁGINA (appsecret_proof calculado con ese mismo token). */
+  const graphPagina = async (c: Conf, ruta: string, init: RequestInit = {}) => graph(await getPageAccessToken(c), c.appSecret, ruta, init)
   const estado = (texto: string) => admin.from('integraciones').update({ estado_prueba: texto, probado_en: new Date().toISOString() }).eq('proveedor', 'meta_leads')
   const formularios = new Map<string, string>()
   const nombreFormulario = async (c: Conf, id?: string) => {
     if (!id) return ''
-    if (!formularios.has(id)) { try { formularios.set(id, String((await graph(c, `/${id}?fields=name`)).name || '')) } catch { formularios.set(id, '') } }
+    if (!formularios.has(id)) { try { formularios.set(id, String((await graphPagina(c, `/${id}?fields=name`)).name || '')) } catch { formularios.set(id, '') } }
     return formularios.get(id) ?? ''
+  }
+  /** Suscribe la página a la app (campo leadgen) con el token de página y verifica que quedó. Devuelve el estado para la UI. */
+  const conectarPagina = async (c: Conf): Promise<{ ok: boolean; mensaje: string }> => {
+    let nombre = c.paginaId
+    try {
+      nombre = String((await graphSistema(c, `/${c.paginaId}?fields=id,name`)).name || c.paginaId)
+      // 1) Suscribir (parámetros en el cuerpo, como formulario)
+      await graphPagina(c, `/${c.paginaId}/subscribed_apps`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ subscribed_fields: 'leadgen' }).toString() })
+      // 2) Verificar: la app de este token debe aparecer suscrita con «leadgen»
+      let appId = '', appNombre = ''
+      try { const a = await graphSistema(c, '/app?fields=id,name'); appId = String(a?.id || ''); appNombre = String(a?.name || '') } catch { /* sin /app: se verifica por el campo */ }
+      const lista = ((await graphPagina(c, `/${c.paginaId}/subscribed_apps`)).data ?? []) as { id?: string; name?: string; subscribed_fields?: (string | { name?: string })[] }[]
+      const conLeadgen = (x: (typeof lista)[number]) => (x.subscribed_fields ?? []).some((f) => (typeof f === 'string' ? f : f?.name) === 'leadgen')
+      const nuestra = appId ? lista.find((x) => String(x.id) === appId) : lista.find(conLeadgen)
+      if (!nuestra) return { ok: false, mensaje: `Se suscribió la página «${nombre}», pero Meta no muestra ${appNombre ? 'la app «' + appNombre + '»' : 'la app'} en sus aplicaciones suscritas. Revisa que el usuario del sistema tenga asignada la app.` }
+      if (!conLeadgen(nuestra)) return { ok: false, mensaje: `La app «${nuestra.name || appNombre}» está suscrita a la página «${nombre}», pero sin el campo «leadgen». Vuelve a pulsar «Probar conexión».` }
+      return { ok: true, mensaje: `Conexión correcta · página «${nombre}» · la app «${nuestra.name || appNombre || 'de Meta'}» recibe los formularios (leadgen).` }
+    } catch (e) {
+      return { ok: false, mensaje: `Página «${nombre}»: ${(e as Error).message}` }
+    }
   }
   /** Ajustes del correo al asesor (Marketing › Configuración › Meta). Activo por defecto, diseño 1 «Alerta urgente». */
   const ajustesCorreo = (c: Conf) => {
@@ -131,7 +165,7 @@ Deno.serve(async (req) => {
       for (const a of avisos) {
         try {
           if (!/^\d{5,30}$/.test(a.id)) continue
-          const L = await graph(c, `/${a.id}?fields=${CAMPOS_LEAD}`) as LeadMeta
+          const L = await graphPagina(c, `/${a.id}?fields=${CAMPOS_LEAD}`) as LeadMeta
           const r = await registrar(c, L, await nombreFormulario(c, L.form_id || a.form))
           if (r === 'nuevo') nuevos++; else if (r === 'prueba') pruebas++
         } catch (e) { fallos++; console.error('[meta-leads] lead ' + a.id + ': ' + (e as Error).message) }
@@ -172,38 +206,76 @@ Deno.serve(async (req) => {
       return responder({ ok: true, para, enviados: disenos.length })
     }
 
+    /* Token de verificación del webhook: lo crea el servidor UNA sola vez y no cambia nunca (si cambiara, el webhook ya
+       configurado en Meta dejaría de verificar). La pantalla lo pide al abrirse. */
+    if (accion === 'preparar') {
+      let vt = String(c.config.verifyToken || '')
+      if (!vt) {
+        vt = 'vm-' + crypto.randomUUID().replace(/-/g, '').slice(0, 24)
+        const { data: fila } = await admin.from('integraciones').select('id,config').eq('proveedor', 'meta_leads').maybeSingle()
+        if (fila) {
+          const actual = (fila.config ?? {}) as Record<string, unknown>
+          if (actual.verifyToken) vt = String(actual.verifyToken) // otro guardado se adelantó: se respeta
+          else await admin.from('integraciones').update({ config: { ...actual, verifyToken: vt }, deleted_at: null }).eq('id', fila.id)
+        } else await admin.from('integraciones').insert({ proveedor: 'meta_leads', config: { verifyToken: vt } })
+      }
+      return responder({ verifyToken: vt })
+    }
+
+    /* Guardar: combina con lo que ya hay. Lo que no se envía se conserva: token y clave secreta (si los campos van vacíos),
+       token de verificación (nunca se cambia desde aquí), diseño y copia del correo. Después conecta y verifica la página. */
+    if (accion === 'guardar') {
+      const paginaId = String(b.paginaId ?? c.paginaId).replace(/\D/g, '')
+      if (!/^\d{5,30}$/.test(paginaId)) throw new Falla('Pon el ID de la página de Facebook (solo números).')
+      const tokenNuevo = String(b.token || '').trim(), secretoNuevo = String(b.appSecret || '').trim()
+      const token = tokenNuevo || c.token, appSecret = secretoNuevo || c.appSecret
+      if (!token || !appSecret) throw new Falla('Pega el token de acceso y la clave secreta de la app (la primera vez van los dos).')
+      const correoAntes = (c.config.correo ?? {}) as Record<string, unknown>, correoNuevo = (b.correo && typeof b.correo === 'object' ? b.correo : {}) as Record<string, unknown>
+      const correo = {
+        activo: typeof correoNuevo.activo === 'boolean' ? correoNuevo.activo : correoAntes.activo !== false,
+        diseno: [1, 2, 3].includes(Number(correoNuevo.diseno)) ? Number(correoNuevo.diseno) : [1, 2, 3].includes(Number(correoAntes.diseno)) ? Number(correoAntes.diseno) : 1,
+        copia: typeof correoNuevo.copia === 'string' ? correoNuevo.copia.trim().slice(0, 200) : String(correoAntes.copia ?? ''),
+      }
+      const config = {
+        ...c.config, paginaId,
+        empresa: b.empresa === 'FEMEDICS' ? 'FEMEDICS' : b.empresa === 'VIMEDIC' ? 'VIMEDIC' : c.empresa,
+        appUrl: /^https:\/\/[\w.-]+$/.test(String(b.appUrl || '')) ? String(b.appUrl) : c.config.appUrl,
+        verifyToken: c.config.verifyToken || 'vm-' + crypto.randomUUID().replace(/-/g, '').slice(0, 24),
+        correo,
+      }
+      const cambiaSecreto = !!tokenNuevo || !!secretoNuevo
+      const { error } = await usuario.rpc('integracion_guardar', { p_proveedor: 'meta_leads', p_secreto: cambiaSecreto ? JSON.stringify({ token, appSecret }) : null, p_config: config })
+      if (error) throw new Falla('No se pudo guardar: ' + error.message)
+      const r = await conectarPagina({ ...c, config, token, appSecret, paginaId, empresa: config.empresa as string })
+      await estado((r.ok ? 'ok: ' : 'error: ') + r.mensaje)
+      return responder({ ...r, guardado: true })
+    }
+
     if (!c.token || !c.appSecret) throw new Falla('Falta guardar el token y la clave secreta de la app.')
     if (!/^\d{5,30}$/.test(c.paginaId)) throw new Falla('Falta el ID de la página de Facebook.')
 
     if (accion === 'probar') {
-      let ok = false, mensaje = ''
-      try {
-        const p = await graph(c, `/${c.paginaId}?fields=id,name`)
-        // Suscribir la página a la app para recibir «leadgen» (si ya estaba, Meta lo deja igual).
-        let suscrita = false, motivo = ''
-        try { const s = await graph(c, `/${c.paginaId}/subscribed_apps?subscribed_fields=leadgen`, { method: 'POST' }); suscrita = s?.success === true } catch (e) { motivo = (e as Error).message }
-        ok = suscrita
-        mensaje = suscrita ? `Conexión correcta · página «${p.name}» · recibiendo clientes potenciales.` : `Se leyó la página «${p.name}», pero no se pudo suscribir a los formularios: ${motivo}`
-      } catch (e) { mensaje = (e as Error).message }
-      await estado((ok ? 'ok: ' : 'error: ') + mensaje)
-      return responder({ ok, mensaje })
+      const r = await conectarPagina(c)
+      await estado((r.ok ? 'ok: ' : 'error: ') + r.mensaje)
+      return responder(r)
     }
 
     if (accion === 'traer') {
       const dias = Math.max(1, Math.min(90, Number(b.dias) || 7))
       const desde = Math.floor(Date.now() / 1000) - dias * 86400
       const filtro = encodeURIComponent(JSON.stringify([{ field: 'time_created', operator: 'GREATER_THAN', value: desde }]))
-      const forms = ((await graph(c, `/${c.paginaId}/leadgen_forms?fields=id,name&limit=100`)).data ?? []) as { id: string; name: string }[]
+      const forms = ((await graphPagina(c, `/${c.paginaId}/leadgen_forms?fields=id,name&limit=100`)).data ?? []) as { id: string; name: string }[]
       let nuevos = 0, ya = 0, pruebas = 0, fallos = 0
       for (const f of forms) {
         let ruta: string | null = `/${f.id}/leads?fields=${CAMPOS_LEAD}&limit=100&filtering=${filtro}`
         for (let pag = 0; ruta && pag < 10; pag++) {
-          const r: Cualquiera = await graph(c, ruta)
+          const r: Cualquiera = await graphPagina(c, ruta)
           for (const L of (r.data ?? []) as LeadMeta[]) {
             try { const x = await registrar(c, L, f.name || ''); if (x === 'nuevo') nuevos++; else if (x === 'ya') ya++; else pruebas++ } catch { fallos++ }
           }
           const sig = String(r.paging?.next || '')
-          ruta = sig ? sig.replace(/^https:\/\/graph\.facebook\.com\/v[\d.]+/, '').replace(/([?&])access_token=[^&]*&?/, '$1') : null
+          // La página siguiente trae el token y la prueba en la URL: se quitan (el token va en el encabezado y la prueba se recalcula).
+          ruta = sig ? sig.replace(/^https:\/\/graph\.facebook\.com\/v[\d.]+/, '').replace(/([?&])(access_token|appsecret_proof)=[^&]*/g, '$1').replace(/([?&])&+/g, '$1').replace(/[?&]+$/, '') : null
         }
       }
       return responder({ ok: true, formularios: forms.length, nuevos, ya, pruebas, fallos, dias })

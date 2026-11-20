@@ -99,7 +99,18 @@ function TarjetaMetaLeads({ est, aviso, cambio }: { est: Estado; aviso: (t: stri
   const [vistaSel, setVistaSel] = useState(1)
   const [paginaId, setPaginaId] = useState(cfg.paginaId ?? '')
   const [empresa, setEmpresa] = useState(cfg.empresa === 'FEMEDICS' ? 'FEMEDICS' : 'VIMEDIC')
-  const [verifyToken] = useState(() => cfg.verifyToken || 'vm-' + crypto.randomUUID().replace(/-/g, '').slice(0, 24))
+  // Token de verificación del webhook: lo crea el servidor una sola vez y no cambia (la pantalla solo lo muestra).
+  const [verifyToken, setVerifyToken] = useState(cfg.verifyToken ?? '')
+  useEffect(() => {
+    if (cfg.verifyToken) { setVerifyToken(cfg.verifyToken); return }
+    llamar<{ verifyToken: string }>('preparar', {}, 'meta-leads').then((r) => setVerifyToken(r.verifyToken)).catch((e) => aviso((e as Error).message))
+  }, [cfg.verifyToken]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Lo guardado manda: al recargar (después de guardar) los campos muestran lo que quedó en la base.
+  const guardadoTxt = JSON.stringify({ p: cfg.paginaId, e: cfg.empresa, c: cfg.correo })
+  useEffect(() => {
+    setPaginaId(cfg.paginaId ?? ''); setEmpresa(cfg.empresa === 'FEMEDICS' ? 'FEMEDICS' : 'VIMEDIC')
+    setCorreoActivo(cfg.correo?.activo !== false); setDiseno([1, 2, 3].includes(Number(cfg.correo?.diseno)) ? Number(cfg.correo?.diseno) : 1); setCopia(cfg.correo?.copia ?? '')
+  }, [guardadoTxt]) // eslint-disable-line react-hooks/exhaustive-deps
   const [token, setToken] = useState('')
   const [appSecret, setAppSecret] = useState('')
   const [dias, setDias] = useState(7)
@@ -107,16 +118,18 @@ function TarjetaMetaLeads({ est, aviso, cambio }: { est: Estado; aviso: (t: stri
   const prueba = est.estado_prueba ?? '', ok = prueba.startsWith('ok')
   const webhook = String(import.meta.env.VITE_SUPABASE_URL || '').replace(/\/$/, '') + '/functions/v1/meta-leads'
   const copiar = (t: string, que: string) => { navigator.clipboard?.writeText(t).then(() => aviso(que + ' copiado.'), () => aviso('No se pudo copiar: selecciónalo y cópialo a mano.')) }
+  /* Guardar en el servidor: combina con lo guardado (los campos vacíos de token y clave secreta no borran nada; el token de
+     verificación no cambia; diseño y copia se conservan) y conecta y verifica la página. «Conectado» solo si Meta lo confirma. */
   async function guardar() {
     if (!/^\d{5,30}$/.test(paginaId.trim())) { aviso('Pon el ID de la página de Facebook (solo números).'); return }
-    if (!!token.trim() !== !!appSecret.trim()) { aviso('Pega el token y la clave secreta de la app juntos.'); return }
-    if (!token.trim() && !est.configurado) { aviso('Pega el token de acceso y la clave secreta de la app.'); return }
+    if (!token.trim() && !appSecret.trim() && !est.configurado) { aviso('Pega el token de acceso y la clave secreta de la app.'); return }
     setOcupado('guardar')
-    const { error } = await supabase.rpc('integracion_guardar', { p_proveedor: 'meta_leads', p_secreto: token.trim() ? JSON.stringify({ token: token.trim(), appSecret: appSecret.trim() }) : null, p_config: { paginaId: paginaId.trim(), empresa, verifyToken, appUrl: location.origin, correo: { activo: correoActivo, diseno, copia: copia.trim() } } })
-    setOcupado('')
-    if (error) { aviso('No se pudo guardar: ' + error.message); return }
-    const nueva = !!token.trim(); setToken(''); setAppSecret(''); aviso(nueva ? 'Guardado. Probando y conectando la página…' : 'Configuración guardada.'); cambio()
-    if (nueva) probar()
+    try {
+      const r = await llamar<{ ok: boolean; mensaje: string }>('guardar', { paginaId: paginaId.trim(), empresa, token: token.trim(), appSecret: appSecret.trim(), appUrl: location.origin, correo: { activo: correoActivo, diseno, copia: copia.trim() } }, 'meta-leads')
+      setToken(''); setAppSecret('')
+      aviso((r.ok ? 'Guardado. ' : 'Guardado, pero ') + r.mensaje)
+    } catch (e) { aviso('No se pudo guardar: ' + (e as Error).message) }
+    setOcupado(''); cambio()
   }
   async function probar() {
     setOcupado('probar')
@@ -165,15 +178,15 @@ function TarjetaMetaLeads({ est, aviso, cambio }: { est: Estado; aviso: (t: stri
           <label className="block text-[11px] font-bold text-slate-500">Los leads son de
             <select value={empresa} onChange={(e) => setEmpresa(e.target.value)} className="inp w-full mt-1"><option value="VIMEDIC">VIMEDIC</option><option value="FEMEDICS">FEMEDICS</option></select></label>
           <label className="block text-[11px] font-bold text-slate-500">Token de acceso (usuario del sistema){est.configurado && <span className="font-mono-spec font-normal text-slate-400"> · actual {est.vista}</span>}
-            <input type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} className="inp w-full mt-1" placeholder={est.configurado ? 'Pega uno nuevo para reemplazarlo' : 'Pega aquí el token'} /></label>
+            <input type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} className="inp w-full mt-1" placeholder={est.configurado ? 'Vacío = se mantiene el guardado' : 'Pega aquí el token'} /></label>
           <label className="block text-[11px] font-bold text-slate-500">Clave secreta de la app (App Secret)
-            <input type="password" autoComplete="off" value={appSecret} onChange={(e) => setAppSecret(e.target.value)} className="inp w-full mt-1" placeholder={est.configurado ? 'Solo si cambias el token' : 'Configuración de la app › Básica'} /></label>
+            <input type="password" autoComplete="off" value={appSecret} onChange={(e) => setAppSecret(e.target.value)} className="inp w-full mt-1" placeholder={est.configurado ? 'Vacío = se mantiene la guardada' : 'Configuración de la app › Básica'} /></label>
         </div>
         <div className="space-y-2">
           <p className="text-[11px] font-bold text-slate-500">Para el webhook en la app de Meta (objeto «Page», campo «leadgen»)</p>
           {fila('URL de devolución', webhook, 'URL')}
-          {fila('Token de verificación', verifyToken, 'Token de verificación')}
-          {!cfg.verifyToken && <p className="text-[10.5px] text-amber-700">Primero pulsa «Guardar»: Meta comprueba este token al guardar el webhook.</p>}
+          {verifyToken ? fila('Token de verificación', verifyToken, 'Token de verificación') : <p className="text-[10.5px] text-slate-400">Preparando el token de verificación…</p>}
+          <p className="text-[10.5px] text-slate-500">Este token no cambia al guardar: pégalo una vez en el webhook de Meta.</p>
           <div className="mkml-correo">
             <div className="flex items-center gap-2 text-[11.5px] font-bold text-slate-700"><Interruptor activo={correoActivo} cambiar={() => setCorreoActivo((a) => !a)} />Correo urgente al asesor que recibe el lead</div>
             {correoActivo && <>
