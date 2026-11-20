@@ -88,8 +88,22 @@ export function Configuracion({ aviso, alCambiar }: { aviso: (t: string) => void
   )
 }
 
+type SyncMeta = {
+  programada: boolean
+  ultima: { started_at: string; finished_at: string | null; source: string; inserted: number; duplicates: number; errors: { nombre?: string; error: string }[]; aviso: string | null } | null
+  ultimaOk: string | null
+  nuevos24h: number
+}
+const haceTiempo = (iso: string) => {
+  const m = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000))
+  if (m < 1) return 'hace un momento'
+  if (m < 60) return `hace ${m} min`
+  if (m < 1440) return `hace ${Math.floor(m / 60)} h`
+  return new Date(iso).toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' })
+}
+
 /* Meta Lead Ads → CRM: los formularios de Facebook e Instagram entran solos como leads y se reparten entre los
-   asesores (Edge Function meta-leads). Token y clave secreta de la app cifrados en Vault. */
+   asesores (Edge Function meta-leads; respaldo por consulta en meta-leads-poll). Token y clave secreta cifrados en Vault. */
 function TarjetaMetaLeads({ est, aviso, cambio }: { est: Estado; aviso: (t: string) => void; cambio: () => void }) {
   const cfg = est.config as { paginaId?: string; empresa?: string; verifyToken?: string; correo?: { activo?: boolean; diseno?: number; copia?: string } }
   const [correoActivo, setCorreoActivo] = useState(cfg.correo?.activo !== false)
@@ -136,13 +150,32 @@ function TarjetaMetaLeads({ est, aviso, cambio }: { est: Estado; aviso: (t: stri
     try { const r = await llamar<{ ok: boolean; mensaje: string }>('probar', {}, 'meta-leads'); aviso(r.mensaje) } catch (e) { aviso((e as Error).message) }
     setOcupado(''); cambio()
   }
+  /* Sincronización por consulta (meta-leads-poll): respaldo del webhook, cada 5 min con pg_cron. */
+  const [sync, setSync] = useState<SyncMeta | null>(null)
+  const cargarSync = useCallback(() => {
+    supabase.rpc('meta_sync_estado').then(({ data, error }) => { if (!error) setSync(data as SyncMeta) })
+  }, [])
+  useEffect(() => {
+    if (!est.configurado) return
+    cargarSync()
+    const t = setInterval(cargarSync, 120_000)
+    return () => clearInterval(t)
+  }, [est.configurado, cargarSync])
+  async function cambiarSync() {
+    const activo = !sync?.programada
+    setOcupado('sync')
+    try { setSync(await llamar<SyncMeta>('programar', { activo }, 'meta-leads-poll')); aviso(activo ? 'Sincronización automática encendida: cada 5 minutos.' : 'Sincronización automática apagada.') }
+    catch (e) { aviso('No se pudo cambiar: ' + (e as Error).message) }
+    setOcupado('')
+  }
+  /* «Traer leads»: la misma sincronización, manual y con la ventana elegida. */
   async function traer() {
     setOcupado('traer')
     try {
-      const r = await llamar<{ formularios: number; nuevos: number; ya: number; pruebas: number; fallos: number }>('traer', { dias }, 'meta-leads')
-      aviso(`${r.formularios} formulario${r.formularios === 1 ? '' : 's'} revisado${r.formularios === 1 ? '' : 's'}: ${r.nuevos} lead${r.nuevos === 1 ? '' : 's'} nuevo${r.nuevos === 1 ? '' : 's'} en el CRM, ${r.ya} ya estaba${r.ya === 1 ? '' : 'n'}${r.pruebas ? ', ' + r.pruebas + ' de prueba' : ''}${r.fallos ? ', ' + r.fallos + ' con error' : ''}.`)
+      const r = await llamar<{ forms: number; inserted: number; duplicates: number; pruebas: number; errors: { error: string }[] }>('sincronizar', { lookback_minutes: dias * 1440 }, 'meta-leads-poll')
+      aviso(`${r.forms} formulario${r.forms === 1 ? '' : 's'} revisado${r.forms === 1 ? '' : 's'}: ${r.inserted} lead${r.inserted === 1 ? '' : 's'} nuevo${r.inserted === 1 ? '' : 's'} en el CRM, ${r.duplicates} ya estaba${r.duplicates === 1 ? '' : 'n'}${r.pruebas ? ', ' + r.pruebas + ' de prueba' : ''}${r.errors?.length ? ' · ' + r.errors.length + ' con error: ' + r.errors[0].error : ''}.`)
     } catch (e) { aviso((e as Error).message) }
-    setOcupado('')
+    setOcupado(''); cargarSync()
   }
   async function verDisenos() {
     setOcupado('vista')
@@ -212,6 +245,24 @@ function TarjetaMetaLeads({ est, aviso, cambio }: { est: Estado; aviso: (t: stri
         </div>
       </div>
       {prueba && <p className="text-[11px] mt-3 rounded-lg px-3 py-2" style={ok ? { background: '#ecfaf5', color: '#04896f' } : { background: '#fdecea', color: '#a3341f' }}>{prueba.replace(/^(ok|error): /, '')}{est.probado_en ? ' · ' + new Date(est.probado_en).toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' }) : ''}</p>}
+      {est.configurado && (() => {
+        const u = sync?.ultima, errs = u?.errors ?? []
+        return (
+          <div className="mkml-correo mt-3">
+            <div className="flex items-center gap-2 text-[11.5px] font-bold text-slate-700">
+              <Interruptor activo={!!sync?.programada} cambiar={() => { if (!ocupado && sync) void cambiarSync() }} />Sincronización automática cada 5 min
+              {ocupado === 'sync' && <span className="font-normal text-slate-400">· guardando…</span>}
+            </div>
+            <p className="text-[11px] text-slate-600 mt-1.5">{!sync ? 'Cargando…' : u
+              ? `Última sincronización: ${haceTiempo(u.finished_at ?? u.started_at)} · ${u.inserted} lead${u.inserted === 1 ? '' : 's'} nuevo${u.inserted === 1 ? '' : 's'}${u.source === 'manual' ? ' (manual)' : ''}${sync.nuevos24h ? ` · ${sync.nuevos24h} en las últimas 24 h` : ''}`
+              : 'Todavía no hay sincronizaciones.'}</p>
+            {errs.length > 0 && <p className="text-[11px] mt-2 rounded-lg px-3 py-2" style={{ background: '#fdecea', color: '#a3341f' }}>
+              {errs[0].nombre ? `Formulario «${errs[0].nombre}»: ` : ''}{errs[0].error}{errs.length > 1 ? ` (y ${errs.length - 1} error${errs.length > 2 ? 'es' : ''} más)` : ''}</p>}
+            {u?.aviso && <p className="text-[11px] mt-2 rounded-lg px-3 py-2" style={{ background: '#fff7e6', color: '#92400e' }}>{u.aviso}</p>}
+            <p className="text-[10.5px] text-slate-500 mt-1.5">Si Meta bloquea el webhook, la sincronización automática trae los leads igual.</p>
+          </div>
+        )
+      })()}
       <div className="flex gap-2 flex-wrap items-center mt-4">
         <button type="button" className="btn btn-primary" onClick={guardar} disabled={!!ocupado}><Check />{ocupado === 'guardar' ? 'Guardando…' : 'Guardar'}</button>
         <button type="button" className="btn" onClick={probar} disabled={!!ocupado || !est.configurado}><Plug />{ocupado === 'probar' ? 'Probando…' : 'Probar conexión'}</button>
