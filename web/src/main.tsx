@@ -2,6 +2,8 @@ import { StrictMode, Suspense, lazy } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
 import { ErrorPantalla, recargarPorVersionNueva } from './ErrorPantalla'
+import { MODULOS } from './modulos'
+import { rutaAntigua } from './rutasAntiguas'
 import './styles.css'
 
 // Páginas públicas (sin iniciar sesión): encuesta de satisfacción, seguimiento del servicio técnico
@@ -12,6 +14,9 @@ const MaterialPublico = lazy(() => import('./MaterialPublico'))
 const SeguimientoPublico = lazy(() => import('./SeguimientoPublico'))
 // Botones «WhatsApp» y «Llamar» del correo del lead: registran el contacto en el CRM y abren el chat o la llamada.
 const ContactoLead = lazy(() => import('./ContactoLead'))
+// Enlaces de la app anterior (app.vimedic.com.ec/crm/, /acceso/, /espacio/…) → módulo equivalente de esta app.
+const antigua = rutaAntigua(window.location.pathname, window.location.search, new Set(Object.keys(MODULOS)))
+if (antigua !== null) window.history.replaceState(null, '', antigua)
 const ruta = window.location.pathname
 const esEncuesta = /^\/encuesta\/?$/.test(ruta)
 const esServicio = /^\/servicio\/?$/.test(ruta)

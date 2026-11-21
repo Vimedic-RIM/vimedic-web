@@ -96,7 +96,11 @@ export function servicioMeta(admin: Admin) {
   const ajustesCorreo = (c: ConfMeta) => {
     const k = (c.config.correo ?? {}) as { activo?: boolean; diseno?: number; copia?: string }
     const copia = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(String(k.copia || '').trim()) ? String(k.copia).trim() : ''
-    const appUrl = /^https:\/\/[\w.-]+/.test(String(c.config.appUrl || '')) ? String(c.config.appUrl).replace(/\/+$/, '') : 'https://qa.vimedic.com.ec'
+    // Dominio de la app para los enlaces del correo: el guardado al conectar Meta (desde donde se abrió la app); si no
+    // hay, el secreto APP_URL de este proyecto (producción: https://app.vimedic.com.ec); si tampoco, el de pruebas.
+    const respaldo = String((globalThis as { Deno?: { env: { get: (k: string) => string | undefined } } }).Deno?.env.get('APP_URL') || '')
+    const appUrl = /^https:\/\/[\w.-]+/.test(String(c.config.appUrl || '')) ? String(c.config.appUrl).replace(/\/+$/, '')
+      : /^https:\/\/[\w.-]+$/.test(respaldo) ? respaldo : 'https://qa.vimedic.com.ec'
     return { activo: k.activo !== false, diseno: [1, 2, 3].includes(Number(k.diseno)) ? Number(k.diseno) : 1, copia, appUrl, crmUrl: appUrl + '/#crm' }
   }
   /** Enlaces de WhatsApp y Llamar que pasan por /contacto-lead/ (registran el contacto en el CRM). Sin clave: directos. */
