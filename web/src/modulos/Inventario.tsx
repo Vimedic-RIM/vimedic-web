@@ -18,6 +18,8 @@ import { ofertaDeLinea, pctTexto } from './ofertaLinea'
 import '../estilos/inventario-ofertas.css'
 // Pantalla "Ofertas vigentes" con el PDF: se descarga solo al abrirla.
 const OfertasVigentes = lazy(() => import('./InventarioOfertas'))
+// Ficha técnica (diseño C3): se descarga solo al abrirla.
+const VentanaFicha = lazy(() => import('../fichaTecnica').then((m) => ({ default: m.VentanaFicha })))
 
 // Mismo lote que la app original: 24 productos por carga, al desplazarse.
 const LOTE = 24
@@ -405,6 +407,7 @@ function Panel({ p, editar, abrirEditar, car }: { p: Fila; editar: boolean; abri
   const nCot = car?.cant(p.id) ?? 0
   const [descripcion, setDescripcion] = useState<string | null>(null)
   const [verGrande, setVerGrande] = useState(false)
+  const [verFicha, setVerFicha] = useState(false)
   useEffect(() => {
     setDescripcion(null); setVerGrande(false)
     supabase.from('productos').select('descripcion').eq('id', p.id).single().then(({ data }) => setDescripcion((data as { descripcion: string | null } | null)?.descripcion ?? ''))
@@ -434,12 +437,13 @@ function Panel({ p, editar, abrirEditar, car }: { p: Fila; editar: boolean; abri
         <h3 className="font-display font-bold text-lg leading-snug text-slate-800">{p.nombre}</h3>
       </div>
       <div className="inv-acts">
-        {(p.ficha_tecnica_url || p.drive_carpeta_url) && (
-          <div className="flex flex-col items-center gap-3">
-            {p.ficha_tecnica_url && <a className="inv-act" href={p.ficha_tecnica_url} target="_blank" rel="noopener noreferrer"><span className="ic" style={{ ['--c' as string]: '#04896f' }}><FileText /></span>Ficha técnica</a>}
-            {p.drive_carpeta_url && <a className="inv-act" href={p.drive_carpeta_url} target="_blank" rel="noopener noreferrer"><span className="ic" style={{ ['--c' as string]: '#055c9d' }}><Images /></span>Multimedia</a>}
-          </div>
-        )}
+        <div className="flex flex-col items-center gap-3">
+          {/* Ficha técnica C3 generada con los datos del producto (HTML → PDF). La que está guardada en Drive sigue como «PDF guardado». */}
+          <button type="button" className="inv-act" onClick={() => setVerFicha(true)}><span className="ic" style={{ ['--c' as string]: '#04896f' }}><FileText /></span>Ficha técnica</button>
+          {p.ficha_tecnica_url && <a className="inv-act" href={p.ficha_tecnica_url} target="_blank" rel="noopener noreferrer"><span className="ic" style={{ ['--c' as string]: '#64748b' }}><FileText /></span>PDF guardado</a>}
+          {p.drive_carpeta_url && <a className="inv-act" href={p.drive_carpeta_url} target="_blank" rel="noopener noreferrer"><span className="ic" style={{ ['--c' as string]: '#055c9d' }}><Images /></span>Multimedia</a>}
+        </div>
+        {verFicha && <Suspense fallback={null}><VentanaFicha productoId={p.id} cerrar={() => setVerFicha(false)} /></Suspense>}
         {car && <button type="button" className={'inv-act inv-act-cot' + (nCot ? ' is-added' : '')} onClick={(e) => car.agregar(p, e.currentTarget)}><span className="ic" style={{ ['--c' as string]: '#04896f' }}>{nCot ? <Check /> : <ShoppingCart />}</span>{nCot ? 'Agregado' + (nCot > 1 ? ' ×' + nCot : '') : 'Cotizar'}</button>}
         {editar && <button type="button" className="inv-act" onClick={() => abrirEditar(p.id)}><span className="ic" style={{ ['--c' as string]: '#c98a1f' }}><Pencil /></span>Editar</button>}
         <button type="button" className={'inv-act' + (bp ? ' black' : '')} onClick={(e) => copiar(p, 'pvp', e.currentTarget, bp)} title={bp ? 'Copiar para WhatsApp con la promoción: precio anterior tachado y precio nuevo' : 'Copiar nombre, código y precio PVP'}><span className="ic" style={{ ['--c' as string]: bp ? '#111827' : '#055c9d' }}><ClipboardCopy /></span>{bp ? 'Copiar ' + etiquetaOferta(bp.o, true) : 'Copiar PVP'}</button>

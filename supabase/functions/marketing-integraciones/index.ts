@@ -677,10 +677,68 @@ Deno.serve(async (req) => {
         if (!pdf) pdf = await fichaPdf(String(p.ficha_tecnica_url))
         if (pdf) { partes.push({ inline_data: { mime_type: 'application/pdf', data: pdf } }); leidos.push('Ficha técnica del producto') }
       }
-      if (!leidos.length) throw new Falla('La IA no tiene documentos técnicos en PDF para leer' + (omitidos.length ? ': ' + omitidos.join('; ') + '.' : '. Sube la hoja de datos o el manual del fabricante en «Documentos técnicos».'))
+      // La ficha técnica también se puede mejorar solo con los datos de la app (sin documentos).
+      if (!leidos.length && b.modo !== 'ficha') throw new Falla('La IA no tiene documentos técnicos en PDF para leer' + (omitidos.length ? ': ' + omitidos.join('; ') + '.' : '. Sube la hoja de datos o el manual del fabricante en «Documentos técnicos».'))
       // deno-lint-ignore no-explicit-any
       const cat = (p as any).categoria?.nombre
       const corto = (v: unknown, n: number) => String(v ?? '').replace(/[<>]/g, '').slice(0, n)
+      /* Modo «ficha»: datos para la ficha técnica C3 (A4): especificaciones en filas agrupadas con su unidad, 3 indicadores
+         destacados, descripción y características cortas, modelo (del documento) e «Incluye». No se guarda nada aquí:
+         la pantalla lo muestra para revisar y se guarda con ficha_guardar. */
+      if (b.modo === 'ficha') {
+        const [{ data: fa }, { data: ea }] = await Promise.all([
+          admin.from('producto_fichas').select('modelo,descripcion,caracteristicas,accesorios').eq('producto_id', b.id).is('deleted_at', null).maybeSingle(),
+          admin.from('producto_especificaciones').select('grupo,etiqueta,valor,unidad,destacado').eq('producto_id', b.id).is('deleted_at', null).order('orden').limit(150),
+        ])
+        const filasAntes = ((ea ?? []) as Cualquiera[]).map((e) => `${e.grupo} › ${e.etiqueta}: ${e.valor}${e.unidad ? ' ' + e.unidad : ''}${e.destacado ? ' (destacado)' : ''}`).join('\n')
+        partes.push({ text: [
+          'Eres el redactor técnico de VIMEDIC, importadora y distribuidora de equipos médicos en Ecuador. Preparas la FICHA TÉCNICA de una hoja A4 (columna lateral con indicadores y características; columna principal con descripción y especificaciones agrupadas).',
+          leidos.length ? 'Adjuntos van los documentos técnicos del fabricante (' + leidos.join('; ') + ').' : 'No hay documentos técnicos legibles: trabaja SOLO con los datos de la app y no completes nada que no esté ahí.',
+          'Producto: ' + p.nombre + (cat ? '\nCategoría: ' + cat : '') + (p.marca ? '\nMarca: ' + p.marca : ''),
+          '\nDatos que ya tiene en la app (pueden estar incompletos o con errores):',
+          'Descripción web: ' + (corto(p.descripcion, 1200) || '—'), 'Características web: ' + (corto(p.caracteristicas, 1500) || '—'), 'Especificaciones web: ' + (corto(p.especificaciones, 3000) || '—'),
+          'Accesorios: ' + (corto(p.accesorios, 800) || '—'), 'Certificaciones: ' + (corto(p.certificaciones, 300) || '—'), 'Garantía: ' + (corto(p.garantia, 100) || '—'),
+          fa || filasAntes ? '\nFicha actual: modelo ' + (fa?.modelo || '—') + ' · descripción ' + (corto(fa?.descripcion, 400) || '—') + '\nEspecificaciones actuales de la ficha:\n' + (corto(filasAntes, 3000) || '—') : '',
+          '\nReglas:',
+          '- Usa solo datos de los documentos o de la app. Si algo no aparece, déjalo vacío. Nunca inventes cifras, certificaciones, registros ni garantías. Español de Ecuador; traduce si hace falta.',
+          '- modelo: el modelo exacto que declara el fabricante en el documento (vacío si no aparece).',
+          '- descripcion: 2 frases, máximo 260 caracteres: qué es, para qué sirve y dónde se usa. Sin precios ni emojis.',
+          '- caracteristicas: 4 a 6 beneficios concretos, máximo 48 caracteres cada uno (una línea), sin emojis ni punto final.',
+          '- especificaciones: todos los datos medibles (hasta 60) agrupados por tipo según el equipo (ej. Generales, Esterilización, Óptica, Eléctricas, Físicas, Ambientales): Generales primero; Eléctricas y Físicas al final. etiqueta corta (máx. 32 caracteres). Si la unidad es simple, va aparte (valor «18», unidad «L»); si el valor es compuesto («121 °C / 134 °C», «220 V · 60 Hz») va completo en valor y la unidad vacía. Sin repetir.',
+          '- destacados: exactamente 3 etiquetas de especificaciones (copiadas tal cual) que más le importan a un comprador hospitalario; prefiere las de valor corto (se muestran en grande, máx. 10 caracteres con la unidad).',
+          '- accesorios: lo que viene incluido, uno por elemento, con «×cantidad» si se indica (ej. «Bandejas ×3»).',
+          '- notas: una o dos frases sobre lo que no encontraste o conviene revisar.',
+        ].join('\n') })
+        const ESQ_F = {
+          type: 'object', additionalProperties: false,
+          required: ['modelo', 'descripcion', 'caracteristicas', 'especificaciones', 'destacados', 'accesorios', 'notas'],
+          properties: {
+            modelo: { type: 'string' }, descripcion: { type: 'string' }, caracteristicas: { type: 'array', items: { type: 'string' } },
+            especificaciones: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['grupo', 'etiqueta', 'valor', 'unidad'],
+              properties: { grupo: { type: 'string' }, etiqueta: { type: 'string' }, valor: { type: 'string' }, unidad: { type: 'string' } } } },
+            destacados: { type: 'array', items: { type: 'string' } }, accesorios: { type: 'array', items: { type: 'string' } }, notas: { type: 'string' },
+          },
+        }
+        const o = json(await ia(partes, { temperature: 0.2, maxOutputTokens: 8192, responseMimeType: 'application/json' }, 'medium', ESQ_F))
+        const limF = (t: unknown, n: number) => String(t ?? '').replace(/[<>]/g, '').replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]/gu, '').replace(/\s+/g, ' ').trim().slice(0, n)
+        const vistos = new Set<string>()
+        const especs = (Array.isArray(o.especificaciones) ? o.especificaciones : []).map((x: Cualquiera) => ({
+          grupo: limF(x?.grupo, 40) || 'Generales', etiqueta: limF(x?.etiqueta, 80).replace(/:+$/, ''), valor: limF(x?.valor, 200), unidad: limF(x?.unidad, 20), destacado: false,
+        })).filter((e: { grupo: string; etiqueta: string; valor: string }) => e.etiqueta && e.valor && !vistos.has((e.grupo + '|' + e.etiqueta).toLowerCase()) && vistos.add((e.grupo + '|' + e.etiqueta).toLowerCase())).slice(0, 60)
+        for (const d of (Array.isArray(o.destacados) ? o.destacados : []).slice(0, 3)) {
+          const f = especs.find((e: { etiqueta: string; destacado: boolean }) => !e.destacado && e.etiqueta.toLowerCase() === limF(d, 80).toLowerCase())
+          if (f) f.destacado = true
+        }
+        return responder({
+          ficha: {
+            modelo: limF(o.modelo, 80), descripcion: limF(o.descripcion, 400),
+            caracteristicas: (Array.isArray(o.caracteristicas) ? o.caracteristicas : []).map((x: unknown) => limF(x, 70)).filter(Boolean).slice(0, 6),
+            accesorios: (Array.isArray(o.accesorios) ? o.accesorios : []).map((x: unknown) => limF(x, 140)).filter(Boolean).slice(0, 20),
+            especificaciones: especs,
+          },
+          notas: limF(o.notas, 500), leidos, omitidos,
+        })
+      }
       partes.push({ text: [
         'Eres el redactor técnico de VIMEDIC, importadora y distribuidora de equipos médicos en Ecuador. Adjuntos van los documentos técnicos del fabricante de este producto.',
         'Producto: ' + p.nombre + (cat ? '\nCategoría: ' + cat : '') + (p.marca ? '\nMarca registrada en la app: ' + p.marca : '') + (p.codigo_unico ? '\nModelo registrado en la app: ' + p.codigo_unico : ''),

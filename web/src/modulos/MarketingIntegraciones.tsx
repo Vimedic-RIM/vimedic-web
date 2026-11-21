@@ -8,10 +8,9 @@ import { IconoRed } from '../redes'
 import { VisorMedios } from '../VisorMedios'
 import { puede } from '../permisos'
 import { imagen, Interruptor } from './inventarioUtil'
-import { leerAjustesFicha, type AjustesFicha } from './MarketingRevision'
 import { imagenWebp, subirCatalogo } from './audiovisualMedios'
-import { encabezadoDocHtml, pieDocHtml } from '../documentoMarca'
 import { PorCompletar, VideosPendientes, type DatosPendientes } from './MarketingPendientes'
+import { FichaEditor } from './FichaEditor'
 import type { PendientePlan } from './MarketingPlan'
 
 /* Conexiones de Marketing: Zernio (redes) y la IA (Claude; Gemini de respaldo). Las claves viven en el servidor (Edge Function): el navegador nunca las ve. */
@@ -701,40 +700,6 @@ const DOC_OBLIGATORIOS = ['Manual de usuario', 'Hoja de datos del fabricante', '
 type Ficha = { version: number; url: string; fecha: string }
 type Especificacion = { dato: string; valor: string }
 
-function construirFichaHtml(full: ProdFull, codigo: string, destacadosSel: string[], especs: Especificacion[], aj?: AjustesFicha | null): string {
-  const esc = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  const car = full.caracteristicas.split('\n').map((x) => x.trim()).filter(Boolean)
-  // Certificaciones del producto; si no tiene, las de los Ajustes de la ficha (Revisión › Ajustes).
-  const certs = (full.certificaciones.trim() ? full.certificaciones : aj?.certificaciones ?? '').split(/[,;·\n]/).map((x) => x.trim()).filter(Boolean)
-  const contacto = [aj?.web || 'vimedic.com.ec', aj?.telefono, aj?.correo].filter(Boolean).map((x) => esc(x)).join(' · ')
-  const destacadosEsp = destacadosSel.length ? especs.filter((e) => destacadosSel.includes(e.dato)) : especs.slice(0, 3)
-  return `<style>
-    .ft-page{font-family:Arial,sans-serif;color:#0b2545;font-size:12px;width:210mm;min-height:297mm;box-sizing:border-box;padding:16mm;margin:0 auto;background:#fff}
-    .ft-head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #055c9d;padding-bottom:10px;margin-bottom:14px}
-    .ft-tag{display:inline-block;border:2px solid #055c9d;color:#055c9d;font-weight:bold;letter-spacing:2px;padding:4px 12px;border-radius:8px;font-size:12px}
-    .ft-img{display:block;margin:0 auto 14px;max-width:70mm;max-height:60mm;object-fit:contain}
-    .ft-destacados{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
-    .ft-chip{background:#eef6fd;border:1px solid #cfe3f5;border-radius:8px;padding:6px 10px;font-size:10.5px}
-    .ft-tabla{width:100%;border-collapse:collapse;margin:8px 0}
-    .ft-tabla td{padding:5px 8px;border-bottom:1px solid #e2e8f0;font-size:11px}
-    .ft-car{margin:0;padding:0;list-style:none}
-    .ft-car li{padding:3px 0;font-size:11px}
-    .ft-cert{display:inline-block;background:#f0fdf8;border:1px solid #bfe6da;color:#04896f;border-radius:999px;padding:3px 10px;font-size:10px;margin:0 4px 4px 0}
-  </style>
-  <div class="ft-page">
-    ${encabezadoDocHtml({ titulo: 'Ficha técnica', etiqueta: 'CÓDIGO', numero: codigo, fecha: new Date().toLocaleDateString('es-EC') })}
-    <h1 style="font-size:17px;margin:0 0 2px">${esc(full.nombre)}</h1>
-    <p style="font-size:11px;color:#64748b;margin:0 0 12px">${[full.marca, full.codigo_unico, full.categoria].filter(Boolean).map(esc).join(' · ')}</p>
-    ${full.imagen_url ? `<img class="ft-img" src="${esc(full.imagen_url)}">` : ''}
-    ${destacadosEsp.length ? `<div class="ft-destacados">${destacadosEsp.map((e) => `<span class="ft-chip"><b>${esc(e.dato)}:</b> ${esc(e.valor)}</span>`).join('')}</div>` : ''}
-    ${full.descripcion ? `<p style="font-size:11.5px;line-height:1.5">${esc(full.descripcion)}</p>` : ''}
-    ${car.length ? `<h3 style="font-size:12px;margin:14px 0 4px">Características</h3><ul class="ft-car">${car.map((c) => `<li>✓ ${esc(c)}</li>`).join('')}</ul>` : ''}
-    ${especs.length ? `<h3 style="font-size:12px;margin:14px 0 4px">Especificaciones técnicas</h3><table class="ft-tabla">${especs.map((e) => `<tr><td style="font-weight:bold;width:40%">${esc(e.dato)}</td><td>${esc(e.valor)}</td></tr>`).join('')}</table>` : ''}
-    ${full.garantia ? `<p style="font-size:11px;margin-top:10px"><b>Garantía:</b> ${esc(full.garantia)}</p>` : ''}
-    ${certs.length ? `<div style="margin-top:8px">${certs.map((c) => `<span class="ft-cert">${esc(c)}</span>`).join('')}</div>` : ''}
-    ${pieDocHtml(null, `${contacto} · ${esc(codigo)}`)}
-  </div>`
-}
 const WEB = 'vimedic.com.ec'
 const money = (n: number) => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -768,9 +733,6 @@ export function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso
   const [iaCompMsg, setIaCompMsg] = useState('')
   const [aplicandoIa, setAplicandoIa] = useState(false)
   const [ficha, setFicha] = useState<Ficha | null>(null)
-  const [ajustes, setAjustes] = useState<AjustesFicha | null>(null)
-  useEffect(() => { leerAjustesFicha().then(setAjustes).catch(() => undefined) }, [])
-  const [generando, setGenerando] = useState(false)
   const [optimizando, setOptimizando] = useState(false)
   const aprobar = puede(perfil, 'marketing', 'aprobar')
   const puedeDocs = puede(perfil, 'documentos_tecnicos', 'crear') || puede(perfil, 'documentos_tecnicos', 'editar')
@@ -805,56 +767,24 @@ export function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso
     if (!full) return []
     return full.especificaciones.split('\n').map((l) => { const i = l.indexOf(':'); return i > 0 ? { dato: l.slice(0, i).trim(), valor: l.slice(i + 1).trim() } : null }).filter(Boolean) as Especificacion[]
   }, [full])
-  const destacadosSel = full?.destacados ? full.destacados.split('|').filter(Boolean) : []
-
-  function toggleDestacado(dato: string) {
-    if (!full) return
-    const on = destacadosSel.includes(dato)
-    if (!on && destacadosSel.length >= 3) { aviso('Elige máximo 3 datos destacados.'); return }
-    const nuevos = (on ? destacadosSel.filter((x) => x !== dato) : [...destacadosSel, dato]).join('|')
-    set('destacados', nuevos)
-    guardarCampo('destacados', nuevos)
-  }
-
-  function fichaVistaPrevia() {
-    if (!full) return
-    const html = construirFichaHtml(full, prod.codigo, destacadosSel, especs, ajustes)
-    const blob = new Blob([`<!doctype html><html><head><meta charset="utf-8"><title>Ficha técnica</title></head><body style="margin:0;background:#e2e8f0">${html}</body></html>`], { type: 'text/html;charset=utf-8' })
-    window.open(URL.createObjectURL(blob), '_blank', 'noopener')
-  }
-
-  async function fichaGenerar() {
-    if (!full || fichaFaltan.length) return
-    setGenerando(true)
-    try {
-      const html2pdf = (await import('html2pdf.js')).default
-      const htmlStr = construirFichaHtml(full, prod.codigo, destacadosSel, especs, ajustes)
-      const blob = await html2pdf().set({
-        margin: 0, image: { type: 'jpeg', quality: 0.96 },
-        html2canvas: { scale: 2, useCORS: true, allowTaint: false, logging: false, windowWidth: 794 },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-      }).from(htmlStr, 'string').toPdf().output('blob') as Blob
-      const base64 = await new Promise<string>((ok, fail) => {
-        const r = new FileReader()
-        r.onerror = () => fail(new Error('No se pudo leer el PDF.'))
-        r.onload = () => ok(String(r.result).split(',')[1] || '')
-        r.readAsDataURL(blob)
-      })
-      const { resp: data, error } = await drive({ accion: 'subir', modulo: 'marketing', carpeta: 'fichas_tecnicas/' + prod.codigo, nombre: 'Ficha tecnica ' + prod.codigo + '.pdf', mime: 'application/pdf', base64 })
-      const resp = data as { id?: string; enlace?: string; error?: string } | null
-      if (error || resp?.error || !resp?.enlace) { aviso('No se pudo subir la ficha: ' + (resp?.error || error?.message)); return }
-      const nuevaVersion = (ficha?.version ?? 0) + 1
-      await supabase.from('fichas_tecnicas').insert({ id: crypto.randomUUID(), producto_id: prod.id, version: nuevaVersion, url: resp.enlace, drive_id: resp.id, generada_por: perfil.id, anterior_url: ficha?.url ?? null })
-      await supabase.from('productos').update({ ficha_tecnica_url: resp.enlace }).eq('id', prod.id)
-      set('ficha_tecnica_url', resp.enlace)
-      setBase((b) => ({ ...b, ficha: resp.enlace as string }))
-      setFicha({ version: nuevaVersion, url: resp.enlace, fecha: new Date().toISOString() })
-      aviso('Ficha técnica generada (versión ' + nuevaVersion + ').')
-    } catch (e) {
-      aviso('No se pudo generar la ficha: ' + (e as Error).message)
-    } finally {
-      setGenerando(false)
-    }
+  /** Guarda en Drive el PDF de la ficha técnica C3 como nueva versión (y queda como la ficha del producto). */
+  async function guardarVersionFicha(blob: Blob) {
+    const base64 = await new Promise<string>((ok, fail) => {
+      const r = new FileReader()
+      r.onerror = () => fail(new Error('No se pudo leer el PDF.'))
+      r.onload = () => ok(String(r.result).split(',')[1] || '')
+      r.readAsDataURL(blob)
+    })
+    const { resp: data, error } = await drive({ accion: 'subir', modulo: 'marketing', carpeta: 'fichas_tecnicas/' + prod.codigo, nombre: 'Ficha tecnica ' + prod.codigo + '.pdf', mime: 'application/pdf', base64 })
+    const resp = data as { id?: string; enlace?: string; error?: string } | null
+    if (error || resp?.error || !resp?.enlace) throw new Error(resp?.error || error?.message || 'Drive no respondió')
+    const nuevaVersion = (ficha?.version ?? 0) + 1
+    await supabase.from('fichas_tecnicas').insert({ id: crypto.randomUUID(), producto_id: prod.id, version: nuevaVersion, url: resp.enlace, drive_id: resp.id, generada_por: perfil.id, anterior_url: ficha?.url ?? null })
+    await supabase.from('productos').update({ ficha_tecnica_url: resp.enlace }).eq('id', prod.id)
+    set('ficha_tecnica_url', resp.enlace)
+    setBase((b) => ({ ...b, ficha: resp.enlace as string }))
+    setFicha({ version: nuevaVersion, url: resp.enlace, fecha: new Date().toISOString() })
+    aviso('Ficha técnica guardada en Drive (versión ' + nuevaVersion + ').')
   }
 
   async function fichaSubirManual(file: File | null) {
@@ -1118,7 +1048,6 @@ export function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso
 
   const falta = full ? [!full.imagen_url && 'Imagen principal', !full.nombre.trim() && 'Nombre', !full.categoria.trim() && 'Categoría', !full.marca.trim() && 'Marca', !full.descripcion.trim() && 'Descripción', !full.caracteristicas.trim() && 'Características', !full.especificaciones.trim() && 'Especificaciones técnicas', galeria.filter((g) => g.tipo === 'imagen').length < 3 && 'Al menos 3 fotos'].filter(Boolean) as string[] : []
   const fotosOk = galeria.filter((g) => g.tipo === 'imagen').length >= 3
-  const fichaFaltan = full ? [!full.imagen_url && 'Imagen principal', !full.descripcion.trim() && 'Descripción', !full.especificaciones.trim() && 'Especificaciones técnicas', !fotosOk && 'Al menos 3 fotos', !full.caracteristicas.trim() && 'Características'].filter(Boolean) as string[] : []
   const seo = full ? (() => {
     const avisos = [
       { ok: full.nombre.trim().length > 8, texto: 'Nombre descriptivo (qué es + marca/modelo)' },
@@ -1278,38 +1207,8 @@ export function EditorProducto({ perfil, prod, categorias, marcas, cerrar, aviso
       {full && (
         <div className="space-y-2">
           <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5"><FileText className="w-3.5 h-3.5 text-[var(--teal)]" />Ficha técnica</p>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-1.5">
-            <div className="grid sm:grid-cols-2 gap-x-3 gap-y-1">
-              {['Imagen principal', 'Descripción', 'Especificaciones técnicas', 'Al menos 3 fotos', 'Características'].map((t) => (
-                <div key={t} className={'flex items-center gap-1.5 text-[11.5px] ' + (fichaFaltan.includes(t) ? 'text-red-600' : 'text-emerald-700')}>
-                  <span className="font-bold">{fichaFaltan.includes(t) ? '✕' : '✓'}</span>{t}
-                </div>
-              ))}
-            </div>
-            {fichaFaltan.length === 0
-              ? <p className="text-[11px] font-semibold text-emerald-700">✓ Completo: la ficha se puede generar.</p>
-              : <p className="text-[11px] text-slate-500">La ficha se puede generar cuando esté todo lo obligatorio.</p>}
-            {ficha && <p className="text-[11px] text-slate-500">Versión {ficha.version} · {new Date(ficha.fecha).toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' })} · <a href={ficha.url} target="_blank" rel="noopener noreferrer" className="font-bold text-[var(--primary)]">Abrir PDF</a></p>}
-            <div className="flex gap-2 flex-wrap">
-              <button type="button" className="btn !py-1.5" onClick={fichaVistaPrevia}><Eye className="w-3.5 h-3.5" />Vista previa</button>
-              {aprobar && <button type="button" className="btn btn-primary !py-1.5" onClick={fichaGenerar} disabled={generando || fichaFaltan.length > 0}><RefreshCw className="w-3.5 h-3.5" />{generando ? 'Generando…' : 'Generar ahora'}</button>}
-            </div>
-          </div>
-
-          {especs.length > 0 && (
-            <div className="space-y-1">
-              <p className="text-[11px] font-semibold text-slate-600">Datos destacados de la ficha (elige hasta 3)</p>
-              <div className="flex flex-wrap gap-1.5">
-                {especs.slice(0, 18).map((e) => (
-                  <button type="button" key={e.dato} onClick={() => toggleDestacado(e.dato)}
-                    className={'text-[10.5px] font-semibold px-3 py-1.5 rounded-full border ' + (destacadosSel.includes(e.dato) ? 'bg-[var(--primary)] text-white border-[var(--primary)]' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300')}>
-                    {e.dato}
-                  </button>
-                ))}
-              </div>
-              {!destacadosSel.length && <p className="text-[10.5px] text-slate-400">Sin elegir: se usan las 3 primeras.</p>}
-            </div>
-          )}
+          <FichaEditor productoId={prod.id} puedeEditar={puede(perfil, 'marketing', 'editar')} aviso={aviso} guardarVersion={aprobar ? guardarVersionFicha : undefined} />
+          {ficha && <p className="text-[11px] text-slate-500">Versión guardada {ficha.version} · {new Date(ficha.fecha).toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' })} · <a href={ficha.url} target="_blank" rel="noopener noreferrer" className="font-bold text-[var(--primary)]">Abrir PDF</a></p>}
 
           {aprobar && (
             <div className="space-y-1.5">
