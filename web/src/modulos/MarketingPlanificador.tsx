@@ -1,10 +1,10 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CalendarClock, Check, ChevronLeft, ChevronRight, ExternalLink, LayoutGrid, Pencil, Plug, RefreshCw, RotateCcw, Search, Send, Sparkles, Trash2, Upload, X } from 'lucide-react'
+import { CalendarClock, Check, ChevronLeft, ChevronRight, ExternalLink, Flame, LayoutGrid, Pencil, Plug, RefreshCw, RotateCcw, Search, Send, Sparkles, Trash2, Upload, X } from 'lucide-react'
 import { MiniProducto } from './inventarioUtil'
 import { supabase, type Perfil } from '../supabase'
 import { puede } from '../permisos'
 import { llamar } from './MarketingIntegraciones'
-import { PuntoRed } from '../redes'
+import { nombreRed, PuntoRed } from '../redes'
 
 /* ============================ Planificador de contenido (Zernio) ============================
    Igual que el original (Marketing.html + Data Marketing.gs): calendario por semana (con horas), por
@@ -47,6 +47,33 @@ const keyLabel = (k: string, o: Intl.DateTimeFormatOptions) => new Date(k + 'T12
 const weekStart = (k: string) => keyAdd(k, -keyDow(k))
 const ecIso = (k: string, h: number, m: number) => `${k}T${pad(h)}:${pad(m)}:00-05:00`
 const hm = (h: number, m: number) => pad(h) + ':' + pad(m)
+
+/* Mejores horas para publicar (como Metricool): calor de 0 a 1 por día (0 = lunes) y hora de Ecuador, por red.
+   Lo calcula marketing-integraciones › zernio_mejores_horas (interacción en Zernio + hora en que escriben los clientes). */
+type FranjaMH = { dia: number; hora: number; calor: number; interaccion: number | null; publicaciones: number; clientes: number }
+type RedMH = { calor: number[][]; mejores: FranjaMH[]; interaccion: boolean; clientes: number }
+type MejoresHoras = {
+  generado: string; zernio: 'ok' | 'sin_complemento' | 'sin_cuentas' | 'error'; clientes: number; redes: Record<string, RedMH>
+  ia: { resumen: string; consejos: string[]; redes: { red: string; mejores: { dia: number; hora: number; motivo: string }[] }[] } | null
+}
+const DIAS_CORTOS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+/** Las 3 mejores franjas de una red: las que eligió la IA (con su motivo) o, sin IA, las calculadas. */
+function mejoresDe(mh: MejoresHoras, red: string): { dia: number; hora: number; motivo: string }[] {
+  const deIA = mh.ia?.redes.find((r) => r.red === red)?.mejores ?? []
+  if (deIA.length) return deIA
+  return (mh.redes[red]?.mejores ?? []).slice(0, 3).map((f) => ({
+    dia: f.dia, hora: f.hora,
+    motivo: [f.interaccion ? `interacción promedio ${Math.round(f.interaccion)} (${f.publicaciones} publ.)` : '', f.clientes ? `${f.clientes} cliente${f.clientes === 1 ? '' : 's'} escribieron a esta hora` : ''].filter(Boolean).join(' · '),
+  }))
+}
+/** Próximo día (clave AAAA-MM-DD) con ese día de la semana y esa hora todavía por venir (hora de Ecuador). */
+function proximoDia(dia: number, hora: number): string {
+  const a = ecAhora()
+  for (let i = 0; i < 8; i++) { const k = keyAdd(a.key, i); if (keyDow(k) === dia && (i > 0 || hora > a.h)) return k }
+  return keyAdd(a.key, 7)
+}
+/** Color del calor (naranja) para el fondo de una casilla de la semana. */
+const fondoCalor = (v: number) => v < 0.05 ? undefined : `linear-gradient(rgba(249,115,22,${(0.06 + 0.4 * v).toFixed(2)}),rgba(249,115,22,${(0.06 + 0.4 * v).toFixed(2)}))`
 const httpsUrl = (v: string) => { try { return new URL(v).protocol === 'https:' ? v : '' } catch { return '' } }
 const largo = (t: string) => [...t].length
 const fechaCorta = (iso: string) => { const d = ecDate(iso); return d ? keyLabel(d.key, { day: 'numeric', month: 'short', year: 'numeric' }) + ' · ' + hm(d.h, d.m) : '' }
@@ -110,6 +137,24 @@ export function Planificador({ perfil, piezas, piezaInicial, limpiarPieza, irCon
   const [trabajos, setTrabajos] = useState<Trabajo[]>([])
   const crear = puede(perfil, 'marketing', 'crear')
   const setVista = (v: Vista) => { setVistaS(v); try { localStorage.setItem('vm_mk_vista', v) } catch { /* sin almacenamiento */ } }
+  // Mejores horas para publicar (mapa de calor como Metricool)
+  const [verCalor, setVerCalorS] = useState(() => { try { return localStorage.getItem('vm_mk_calor') === '1' } catch { return false } })
+  const setVerCalor = (v: boolean) => { setVerCalorS(v); try { localStorage.setItem('vm_mk_calor', v ? '1' : '0') } catch { /* sin almacenamiento */ } }
+  const [mh, setMh] = useState<MejoresHoras | null>(null)
+  const [mhCargando, setMhCargando] = useState(false)
+  const [mhRed, setMhRed] = useState('general')
+  const cargarMh = useCallback(async (forzar = false) => {
+    setMhCargando(true)
+    try { setMh(await llamar<MejoresHoras>('zernio_mejores_horas', { forzar })); if (forzar) aviso('Mejores horas actualizadas.') }
+    catch (e) { aviso('No se pudieron calcular las mejores horas: ' + (e as Error).message) }
+    setMhCargando(false)
+  }, [aviso])
+  useEffect(() => { if (verCalor && !mh && !mhCargando) cargarMh() }, [verCalor]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Si se filtra el calendario por una red, el calor muestra esa red.
+  useEffect(() => { if (fRed && mh?.redes[fRed]) setMhRed(fRed) }, [fRed, mh])
+  const redCalor = mh?.redes[mhRed] ? mhRed : 'general'
+  const calorDe = (dia: number, hora: number) => (verCalor && mh?.redes[redCalor]?.calor?.[dia]?.[hora]) || 0
+  const topCalor = useMemo(() => new Set(mh ? mejoresDe(mh, redCalor).map((f) => f.dia + '@' + f.hora) : []), [mh, redCalor])
 
   const cargar = useCallback(async (mas = false) => {
     setCargando(true)
@@ -249,9 +294,12 @@ export function Planificador({ perfil, piezas, piezaInicial, limpiarPieza, irCon
                 {dias.map((k) => {
                   const id = k + '|' + h, pasado = k < hoy || (k === hoy && h < ahora.h)
                   const items = (por[id] ?? []).sort((a, b) => Date.parse(a.fecha) - Date.parse(b.fecha))
+                  const dw = keyDow(k), calor = pasado ? 0 : calorDe(dw, h), fuego = verCalor && !pasado && topCalor.has(dw + '@' + h)
                   return (
                     <div key={id} className={'slot' + (pasado ? ' past' : '') + (sobre === id ? ' drop' : '')} onClick={() => { if (!pasado && crear) setComposer({ modo: 'new', dia: k, hora: h }) }}
+                      style={calor ? { backgroundImage: fondoCalor(calor) } : undefined} title={calor ? `Calor ${Math.round(calor * 100)} %${fuego ? ' · de las mejores horas' : ''}` : undefined}
                       {...zonaDrop(id, !pasado, k, h)}>
+                      {fuego && <span className="slot-fuego" aria-hidden>🔥</span>}
                       {k === hoy && h === ahora.h && <div className="now-line" style={{ top: Math.round((ahora.m / 60) * 100) + '%' }} />}
                       {crear && <span className="slot-add">+ {hm(h, 0)}</span>}
                       {items.map((p) => chip(p))}
@@ -278,6 +326,13 @@ export function Planificador({ perfil, piezas, piezaInicial, limpiarPieza, irCon
             <div key={k} className={'mday' + (k.slice(0, 7) !== primero.slice(0, 7) ? ' out' : '') + (k === hoy ? ' today' : '') + (pasado ? ' past' : '') + (sobre === k ? ' drop' : '')}
               onClick={() => { if (!pasado && crear) setComposer({ modo: 'new', dia: k, hora: 10 }) }} {...zonaDrop(k, !pasado, k)}>
               <span className="mnum">{Number(k.slice(8))}</span>
+              {verCalor && mh && !pasado && (() => {
+                // Mejor hora de ese día de la semana (entre 6:00 y 22:00)
+                const fila = mh.redes[redCalor]?.calor?.[keyDow(k)] ?? []
+                let mejor = -1
+                for (let h = 6; h <= 22; h++) if ((fila[h] ?? 0) > (fila[mejor] ?? 0)) mejor = h
+                return mejor >= 0 && (fila[mejor] ?? 0) >= 0.4 ? <span className="mh-dia" title="Mejor hora para publicar ese día">🔥 {hm(mejor, 0)}</span> : null
+              })()}
               {items.map((p) => chip(p))}
             </div>
           )
@@ -315,6 +370,7 @@ export function Planificador({ perfil, piezas, piezaInicial, limpiarPieza, irCon
           <select className="inp" style={{ width: 'auto' }} value={fRed} onChange={(e) => setFRed(e.target.value)} aria-label="Red social">
             <option value="">Todas las redes</option>{redes.map((r) => <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>)}
           </select>
+          <button type="button" className={'btn' + (verCalor ? ' mh-activo' : '')} onClick={() => setVerCalor(!verCalor)} aria-pressed={verCalor} title="Mapa de calor: las mejores horas para publicar"><Flame />Mejores horas</button>
           <button type="button" className="btn" onClick={() => cargar()} disabled={cargando}><RefreshCw className={cargando ? 'animate-spin' : ''} />Sincronizar</button>
           {crear && <button type="button" className="btn btn-primary" onClick={() => setComposer({ modo: 'new' })} disabled={!!error}><CalendarClock />Nueva publicación</button>}
         </div>
@@ -324,6 +380,37 @@ export function Planificador({ perfil, piezas, piezaInicial, limpiarPieza, irCon
         {crear && vista !== 'list' && posts && posts.length > 0 && ' · Arrastra una publicación pendiente para cambiar su fecha; toca un espacio libre para crear una.'}
         {rol.requiere && ' · Tus publicaciones las aprueba Coordinación antes de salir (los borradores no).'}
       </p>
+      {verCalor && (
+        <div className="card p-3 mb-3 mh-panel">
+          <div className="flex items-center gap-2 flex-wrap">
+            <b className="font-display text-sm text-slate-800">🔥 Mejores horas para publicar</b>
+            {mh && <div className="seg">{Object.keys(mh.redes).map((r) => (
+              <button key={r} type="button" className={redCalor === r ? 'active' : ''} onClick={() => setMhRed(r)}>
+                {r === 'general' ? 'Todas' : <span className="inline-flex items-center gap-1"><PuntoRed red={r} />{nombreRed(r)}</span>}
+              </button>))}</div>}
+            <span className="ml-auto" />
+            <button type="button" className="btn" onClick={() => cargarMh(true)} disabled={mhCargando}><Sparkles className={mhCargando ? 'animate-spin' : ''} />{mhCargando ? 'Analizando…' : 'Actualizar con IA'}</button>
+          </div>
+          {!mh ? <p className="text-[11px] text-slate-400 mt-2">{mhCargando ? 'Analizando la interacción de las publicaciones y la hora a la que escriben los clientes…' : 'Sin datos todavía.'}</p> : <>
+            {mh.ia?.resumen && <p className="text-[12px] text-slate-700 mt-2">{mh.ia.resumen}</p>}
+            <div className="mh-franjas">
+              {mejoresDe(mh, redCalor).map((f) => (
+                <button key={f.dia + '@' + f.hora} type="button" className="mh-franja" disabled={!crear} title={crear ? 'Programar una publicación en esta franja' : undefined}
+                  onClick={() => { const k = proximoDia(f.dia, f.hora); setCursor(k); setComposer({ modo: 'new', dia: k, hora: f.hora }) }}>
+                  <b>🔥 {DIAS_CORTOS[f.dia]} {hm(f.hora, 0)}</b>{f.motivo && <small>{f.motivo}</small>}
+                </button>))}
+              {!mejoresDe(mh, redCalor).length && <p className="text-[11px] text-slate-400">Todavía no hay suficientes datos para esta red.</p>}
+            </div>
+            {!!mh.ia?.consejos?.length && <ul className="mh-consejos">{mh.ia.consejos.map((c, i) => <li key={i}>{c}</li>)}</ul>}
+            <p className="text-[10.5px] text-slate-400 mt-2 flex items-center gap-2 flex-wrap">
+              <span className="mh-leyenda"><i style={{ background: 'rgba(249,115,22,.12)' }} /><i style={{ background: 'rgba(249,115,22,.28)' }} /><i style={{ background: 'rgba(249,115,22,.46)' }} /> menos → más</span>
+              <span>{mh.zernio === 'ok' ? 'Según la interacción real de tus publicaciones (Zernio) y la hora a la que escriben los clientes (CRM, últimos 6 meses).'
+                : mh.zernio === 'sin_complemento' ? 'Zernio no comparte la interacción de las publicaciones (falta su complemento de analíticas): se usa la hora a la que escriben los clientes (CRM, últimos 6 meses).'
+                  : 'Según la hora a la que escriben los clientes (CRM, últimos 6 meses).'} {mh.clientes} clientes · hora de Ecuador · actualizado {new Date(mh.generado).toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' })}.</span>
+            </p>
+          </>}
+        </div>
+      )}
       {crear && !error && listos.length > 0 && (
         <div className="card p-3 mb-3">
           <p className="text-[11px] font-bold text-slate-600 mb-2">🎬 Listo para publicar ({listos.length}) <span className="font-normal text-slate-400">· arrastra al calendario o toca para programar</span></p>
@@ -353,7 +440,7 @@ export function Planificador({ perfil, piezas, piezaInicial, limpiarPieza, irCon
       {!error && posts && pagina < paginas && <div className="text-center mt-3"><button type="button" className="btn" onClick={() => cargar(true)} disabled={cargando}>Cargar publicaciones anteriores</button></div>}
 
       {detalle && <DetallePost p={detalle} crear={crear} cerrar={() => setDetalle(null)} borrar={() => borrar(detalle)} editar={() => { setComposer({ modo: 'edit', post: detalle }); setDetalle(null) }} />}
-      {composer && <Composer {...composer} cuentas={cuentas} piezas={piezas} rol={rol} aviso={aviso} encolar={encolar}
+      {composer && <Composer {...composer} cuentas={cuentas} piezas={piezas} rol={rol} aviso={aviso} encolar={encolar} mh={mh}
         posts={posts ?? []} hayMas={pagina < paginas} cargandoPosts={cargando} cargarMas={() => cargar(true)}
         cerrar={() => { setComposer(null); limpiarPieza() }}
         enviado={(fecha) => { setComposer(null); limpiarPieza(); if (fecha) setCursor(fecha.slice(0, 10)) }}
@@ -511,11 +598,12 @@ function ElegirPieza({ piezas, posts, actual, hayMas, cargando, cargarMas, elegi
   )
 }
 
-function Composer({ modo, post, dia, hora, pieza: piezaIni, cuentas, piezas, rol, aviso, encolar, cerrar, enviado, terminado, posts, hayMas, cargandoPosts, cargarMas }: {
+function Composer({ modo, post, dia, hora, pieza: piezaIni, cuentas, piezas, rol, aviso, encolar, cerrar, enviado, terminado, posts, hayMas, cargandoPosts, cargarMas, mh }: {
   modo: 'new' | 'edit'; post?: Post; dia?: string; hora?: number; pieza?: PiezaMin | null; cuentas: Cuenta[]; piezas: PiezaMin[]; rol: Rol; aviso: (t: string) => void
   encolar: (titulo: string, fn: (p: Progreso) => Promise<unknown>, alTerminar?: (r: unknown) => void) => void
   cerrar: () => void; enviado: (fecha: string) => void; terminado: () => void
   posts: Post[]; hayMas: boolean; cargandoPosts: boolean; cargarMas: () => void
+  mh?: MejoresHoras | null
 }) {
   const [verPiezas, setVerPiezas] = useState(false)
   // WhatsApp que se agrega al publicar en Facebook / Instagram (Marketing › Configuración): nombre del contacto si está activo.
@@ -737,6 +825,18 @@ function Composer({ modo, post, dia, hora, pieza: piezaIni, cuentas, piezas, rol
               <input type="datetime-local" value={fecha} onChange={(e) => setFecha(e.target.value)} className="inp w-full mt-1" /></label>
             {(!editar || post!.estado === 'draft') && <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 pb-2"><input type="checkbox" checked={borrador} onChange={(e) => setBorrador(e.target.checked)} />{editar ? 'Seguir como borrador' : 'Guardar como borrador'}</label>}
           </div>
+          {mh && (() => {
+            // Mejores horas de la red elegida (si se publica en una sola) o de todas.
+            const redesSel = [...new Set(cuentas.filter((c) => sel.includes(c.id)).map((c) => c.plataforma.toLowerCase()))]
+            const red = redesSel.length === 1 && mh.redes[redesSel[0]] ? redesSel[0] : 'general'
+            const fs = mejoresDe(mh, red)
+            return fs.length ? (
+              <div className="mh-atajos"><span>🔥 Mejores horas{red !== 'general' ? ' en ' + nombreRed(red) : ''}:</span>
+                {fs.map((f) => { const v = proximoDia(f.dia, f.hora) + 'T' + hm(f.hora, 0); return (
+                  <button key={f.dia + '@' + f.hora} type="button" className={fecha === v ? 'on' : ''} title={f.motivo || undefined} onClick={() => setFecha(v)}>
+                    {DIAS_CORTOS[f.dia]} {keyLabel(v.slice(0, 10), { day: 'numeric', month: 'short' })} · {hm(f.hora, 0)}</button>) })}
+              </div>) : null
+          })()}
           <p className="text-[10.5px] text-slate-400">Hora de Ecuador.{rol.requiere && !borrador ? ' Se enviará a Coordinación para aprobación antes de salir.' : ''}</p>
         </div>
 

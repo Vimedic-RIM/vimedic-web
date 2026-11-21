@@ -4,6 +4,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
 import { credencialGemini, estadoModelos, generarGemini } from '../_shared/gemini.ts'
 import { credencialClaude, generarClaude, generarIA, type Esfuerzo, type ParteIA } from '../_shared/ia.ts'
 import { conWhatsapp, numeroWa, temaPublicacion, type ContactoWa } from '../_shared/whatsapp.ts'
+import { calcularMejoresHoras, resumenParaIA, type FilaClientes, type SlotZernio } from '../_shared/mejoresHoras.ts'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -344,6 +345,67 @@ Deno.serve(async (req) => {
       }
 
       if (accion === 'zernio_cuentas') return responder({ cuentas: await cuentasZ() })
+      /* Mejores horas para publicar (como Metricool): interacción real de las publicaciones por día y hora (Zernio
+         /analytics/best-time, por red) + a qué hora escriben los clientes (CRM, 6 meses). La IA lo explica y elige.
+         Se guarda 12 h en marketing_ajustes 'mejores_horas'; «forzar» recalcula. */
+      if (accion === 'zernio_mejores_horas') {
+        const CLAVE = 'mejores_horas', VIGENCIA_MS = 12 * 3600 * 1000
+        const { data: aj } = await admin.from('marketing_ajustes').select('id,valor').eq('clave', CLAVE).is('deleted_at', null).maybeSingle()
+        const guardado = (aj?.valor ?? null) as Cualquiera
+        if (b.forzar !== true && guardado?.generado && Date.now() - Date.parse(guardado.generado) < VIGENCIA_MS) return responder(guardado)
+        // 1) Zernio: mejores horas por red (requiere el complemento de analíticas de Zernio)
+        let plataformas: string[] = [], zernioEstado: 'ok' | 'sin_complemento' | 'sin_cuentas' | 'error' = 'ok'
+        try { plataformas = [...new Set((await cuentasZ()).map((c) => c.plataforma.toLowerCase()).filter(Boolean))] } catch { zernioEstado = 'error' }
+        if (zernioEstado === 'ok' && !plataformas.length) zernioEstado = 'sin_cuentas'
+        const porRed: Record<string, SlotZernio[]> = {}
+        for (const p of zernioEstado === 'ok' ? plataformas : []) {
+          const r = await zernio('/analytics/best-time?source=all&platform=' + encodeURIComponent(p))
+          if (r.status === 402 || r.status === 403) { zernioEstado = 'sin_complemento'; break }
+          if (!r.ok) { zernioEstado = 'error'; continue }
+          porRed[p] = ((r.data?.slots ?? []) as SlotZernio[]).filter((s) => s && typeof s.day_of_week === 'number' && typeof s.hour === 'number')
+        }
+        // 2) Clientes: a qué día y hora llegan los leads (solo totales)
+        const { data: hc, error: eHc } = await usuario.rpc('mkt_horas_clientes', { p_dias: 180 })
+        if (eHc) throw new Falla('No se pudieron leer los horarios de los clientes: ' + eHc.message)
+        const filas = (hc ?? []) as FilaClientes[]
+        const redes = calcularMejoresHoras(porRed, filas, plataformas)
+        // 3) IA: explica y elige las 3 mejores por red (solo entre las franjas calculadas)
+        let analisis: { resumen: string; consejos: string[]; redes: { red: string; mejores: { dia: number; hora: number; motivo: string }[] }[] } | null = null
+        try {
+          const ESQ_HORAS = {
+            type: 'object', additionalProperties: false, required: ['resumen', 'consejos', 'redes'],
+            properties: {
+              resumen: { type: 'string' }, consejos: { type: 'array', items: { type: 'string' } },
+              redes: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['red', 'mejores'], properties: {
+                red: { type: 'string' },
+                mejores: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['dia', 'hora', 'motivo'], properties: { dia: { type: 'integer' }, hora: { type: 'integer' }, motivo: { type: 'string' } } } },
+              } } },
+            },
+          }
+          const texto = [
+            'Eres analista de redes sociales de VIMEDIC, importador de equipos médicos en Ecuador (clientes: hospitales, clínicas, médicos y laboratorios).',
+            'Con estos datos (hora de Ecuador; «calor» de 0 a 1 = 60 % interacción de las publicaciones y 40 % hora en que escriben los clientes) recomienda cuándo publicar.',
+            'Para cada red elige las 3 mejores franjas SOLO entre las que aparecen en los datos (dia: 0 = lunes … 6 = domingo; hora: 0–23) con un motivo corto (máx. 90 caracteres).',
+            'resumen: 2 frases claras para el equipo de marketing. consejos: 3 consejos prácticos y concretos para equipos médicos B2B. Español de Ecuador, sin inventar cifras.',
+            '', resumenParaIA(redes),
+          ].join('\n')
+          const o = json(await ia([{ text: texto }], { temperature: 0.3, maxOutputTokens: 1500, responseMimeType: 'application/json' }, 'low', ESQ_HORAS))
+          const validas = (red: string) => new Set((redes[red]?.mejores ?? []).map((f) => f.dia + '@' + f.hora))
+          analisis = {
+            resumen: String(o?.resumen || '').slice(0, 600),
+            consejos: (Array.isArray(o?.consejos) ? o.consejos : []).map((x: unknown) => String(x).slice(0, 220)).slice(0, 4),
+            redes: (Array.isArray(o?.redes) ? o.redes : []).map((x: Cualquiera) => ({
+              red: String(x?.red || '').toLowerCase().replace(/^todas las redes$/, 'general'),
+              mejores: (Array.isArray(x?.mejores) ? x.mejores : []).filter((f: Cualquiera) => validas(String(x?.red || '').toLowerCase().replace(/^todas las redes$/, 'general')).has(Number(f?.dia) + '@' + Number(f?.hora)))
+                .map((f: Cualquiera) => ({ dia: Number(f.dia), hora: Number(f.hora), motivo: String(f.motivo || '').slice(0, 120) })).slice(0, 3),
+            })).filter((x: { red: string }) => x.red in redes),
+          }
+        } catch (e) { console.error('[mejores_horas] IA: ' + (e as Error).message) }
+        const datos = { generado: new Date().toISOString(), zernio: zernioEstado, clientes: filas.reduce((a, f) => a + (Number(f.n) || 0), 0), redes, ia: analisis }
+        if (aj) await admin.from('marketing_ajustes').update({ valor: datos }).eq('id', aj.id)
+        else await admin.from('marketing_ajustes').insert({ clave: CLAVE, valor: datos })
+        return responder(datos)
+      }
       /* Anuncios con su inversión y resultados en las redes (mkAnuncios). Solo con "Ver indicadores de Marketing". */
       if (accion === 'zernio_anuncios') {
         const rol = (await miRol()) as { indicadores?: boolean }
