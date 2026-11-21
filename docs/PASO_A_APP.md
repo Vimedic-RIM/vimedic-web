@@ -1,5 +1,27 @@
 # Paso de la app nueva a app.vimedic.com.ec
 
+## ✅ HECHO el 21-nov-2026 (sábado, fuera de horario) — opción B: la base de pruebas pasó a ser producción
+- Respaldo previo de todos los datos: `Documents/Vimedic/Respaldos_BD/qa_datos_20261121_0522` (91 tablas, 30 843 filas).
+- Baja (borrado lógico con motivo) de 3 registros de prueba: lead de prueba de Meta, cliente «Prueba», cotización COT-CA166F.
+- `qa` → `main` (avance directo) y flujo `deploy-main.yml`: proyecto de Cloudflare Pages `vimedic-app`, dominio
+  `app.vimedic.com.ec` (CNAME en Hostinger → vimedic-app.pages.dev).
+- Supabase Auth: Redirect URLs con app.vimedic.com.ec y vimedic-app.pages.dev; Site URL → app.vimedic.com.ec.
+- Correos de leads: secreto `APP_URL=https://app.vimedic.com.ec` y `integraciones.meta_leads.config.appUrl` al nuevo dominio.
+- `qa.vimedic.com.ec` redirige a app con el mismo enlace (páginas públicas incluidas); vista previa: vimedic-qa.pages.dev.
+- Revisado en vivo: carga y login, enlaces viejos (/crm/, /espacio/), páginas públicas, seguimiento dentro de vimedic.com.ec,
+  cron de Meta cada 5 min sin errores.
+
+### Pendiente
+- Web pública: `public_html/seguimiento/index.html` → `var APP = 'https://app.vimedic.com.ec'` (hoy funciona igual por la
+  redirección de qa; es para quitar el salto).
+- Última corrida de `herramientas/excel_a_supabase/` con el Excel exportado tras el cambio (desde el 19-nov tarde hubo
+  feriado y fin de semana: debería ser casi nada).
+- Base de pruebas aparte (parte 2): proyecto nuevo con las migraciones y sin integraciones reales; `deploy-qa.yml` con sus
+  propios secretos. Hasta entonces se trabaja sobre producción con las reglas de CLAUDE.md.
+- Renombrar el proyecto de Supabase a «vimedic-produccion» (solo el nombre).
+
+(Lo de abajo es la revisión previa, que suponía la opción A con un proyecto de producción aparte.)
+
 Hoy la app nueva vive en **qa.vimedic.com.ec** (Cloudflare Pages, proyecto `vimedic-qa`, rama `qa`, base **vimedic-pruebas**) y
 **app.vimedic.com.ec** sigue siendo la app de Apps Script: una página en **Hostinger** que muestra la app antigua dentro de un
 marco (rutas `/acceso/`, `/espacio/`, `/<módulo>/`). Revisión completa: 21-nov-2026.

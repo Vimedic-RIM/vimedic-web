@@ -3,7 +3,8 @@
 ## Qué es
 Sistema interno de VIMEDIC (importador y distribuidor de equipos médicos, Ecuador).
 Se está migrando la "Web App Vimedic" de **Google Apps Script + Google Sheets** a un stack propio.
-La app actual sigue funcionando en `app.vimedic.com.ec` mientras se construye la nueva en `qa.vimedic.com.ec`.
+**Desde el 21-nov-2026 la app nueva está en producción en `app.vimedic.com.ec`.** La app de Apps Script queda solo
+para consulta (su URL /exec sigue funcionando) y Google Sheets como respaldo. `qa.vimedic.com.ec` redirige a app.
 
 FEMEDICS es distribuidor autorizado de la marca y comparte el sistema: las tablas con columna
 `empresa` ('VIMEDIC' | 'FEMEDICS') separan sus datos.
@@ -12,7 +13,7 @@ FEMEDICS es distribuidor autorizado de la marca y comparte el sistema: las tabla
 | Parte | Servicio |
 |---|---|
 | Base de datos, login, tiempo real | Supabase (Postgres), región us-east-1 |
-| App web | Cloudflare Pages (rama `qa` → qa.vimedic.com.ec, `main` → app.vimedic.com.ec) |
+| App web | Cloudflare Pages: `main` → proyecto `vimedic-app` → **app.vimedic.com.ec**; `qa` → proyecto `vimedic-qa` → vimedic-qa.pages.dev (vista previa) |
 | Documentos internos (PDF, facturas, contratos) | Google Drive — unidad compartida "VIMEDIC Sistema" vía cuenta de servicio |
 | Imágenes del catálogo y videos | Cloudflare R2 (`media.vimedic.com.ec`) |
 | App móvil sin conexión | Expo (React Native) + PowerSync, se distribuye como APK |
@@ -20,7 +21,14 @@ FEMEDICS es distribuidor autorizado de la marca y comparte el sistema: las tabla
 | Facturación electrónica | Contífico (se guarda el número en `facturas.numero_contifico`) |
 | Mensajería | Zernio (WhatsApp / redes) |
 
-Dos proyectos de Supabase: **vimedic-pruebas** (QA) y **vimedic-produccion**. Nunca probar contra producción.
+**Supabase: el proyecto `qwkziqjozfeemvjshvsp` (antes «vimedic-pruebas») ES PRODUCCIÓN desde el 21-nov-2026**
+(datos reales, usuarios, Meta, Gmail, Zernio, cron, web pública). Todavía no hay base de pruebas aparte (pendiente).
+Mientras tanto, sobre esa base:
+- Pruebas de SQL solo dentro de `begin; … rollback;` (las de `supabase/tests/` ya lo hacen) y ensayo de cada migración en
+  una transacción que se deshace antes del `db push`.
+- Nada que mande correos, WhatsApp o publicaciones a clientes o asesores para «probar».
+- Respaldo de datos antes de cambios grandes (`Documents/Vimedic/Respaldos_BD`, sin Docker: exportación por tabla).
+- `supabase config push` NO: pisaría la clave del login con Google. Los ajustes de Auth se cambian en el panel.
 
 ## Reglas de la base de datos (obligatorias)
 - Toda tabla nueva: `id uuid primary key default gen_random_uuid()` y después `select app.estandarizar('public.tabla');`
@@ -75,10 +83,11 @@ docs/MAPEO_HOJAS.md    qué hoja de Sheets va a qué tabla y problemas de datos 
 ## Forma de trabajar
 - Idioma: español en código de negocio, comentarios, mensajes de commit y textos de la interfaz.
 - Una rama por módulo (`migracion-catalogo`, `migracion-crm`…) → merge a `qa` → probar → merge a `main`.
-- Antes de dar algo por terminado: aplicar las migraciones en el Supabase de pruebas y correr `supabase/tests/`.
+- Antes de dar algo por terminado: ensayar la migración en una transacción que se deshace, aplicarla y correr `supabase/tests/`
+  (todo sobre producción con cuidado, ver arriba, hasta que exista la base de pruebas aparte).
 - Migrar un módulo a la vez; Google Sheets queda como respaldo hasta comparar los datos.
 - Pedidos y seguimiento: cada cambio entra como un Issue en GitHub (ver `docs/FLUJO_DE_TRABAJO.md`).
-- **Despliegue del front (web) a qa: automático.** Un push a la rama `qa` dispara
-  `.github/workflows/deploy-qa.yml`, que compila y publica solo en Cloudflare Pages
-  (proyecto `vimedic-qa`). No correr `wrangler pages deploy` a mano salvo para probar
-  algo puntual antes de subir el commit. Producción (`main`) sigue siendo manual.
+- **Despliegue del front (web): automático.** Un push a `qa` publica en `vimedic-qa.pages.dev` (vista previa,
+  `deploy-qa.yml`); un push/merge a `main` publica en **app.vimedic.com.ec** (`deploy-main.yml`, proyecto `vimedic-app`).
+  Flujo: `qa` → revisar en vimedic-qa.pages.dev → pasar a `main` solo con lo revisado. Ojo: la vista previa usa la misma
+  base de producción. Las Edge Functions y migraciones se aplican al único proyecto (producción) al desplegarlas.
