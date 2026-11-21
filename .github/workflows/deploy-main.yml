@@ -1,0 +1,58 @@
+name: Publicar en producción (Cloudflare Pages · app.vimedic.com.ec)
+
+# Cada push a la rama main compila la web y la publica en el proyecto de Cloudflare Pages
+# «vimedic-app» (dominio app.vimedic.com.ec). La base es la misma de qa (el proyecto de Supabase
+# qwkziqjozfeemvjshvsp pasó a ser producción el 21-nov-2026), por eso usa los mismos secretos.
+# Flujo: qa → probar en qa.vimedic.com.ec → merge a main → se publica aquí.
+on:
+  push:
+    branches: [main]
+    paths: ["web/**", ".github/workflows/deploy-main.yml"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  build-y-publicar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: Instalar dependencias
+        working-directory: web
+        run: npm ci
+
+      - name: Compilar
+        working-directory: web
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_URL_SEGUIMIENTO: ${{ vars.VITE_URL_SEGUIMIENTO }}
+
+      # La primera vez crea el proyecto de Cloudflare Pages; las siguientes ya existe y se sigue.
+      - name: Crear el proyecto de Cloudflare Pages (solo la primera vez)
+        continue-on-error: true
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: be54638b025a158aea91b0d3946b764e
+          command: pages project create vimedic-app --production-branch=main
+
+      - name: Publicar en Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: be54638b025a158aea91b0d3946b764e
+          command: pages deploy web/dist --project-name=vimedic-app --branch=main --commit-dirty=true
