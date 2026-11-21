@@ -14,6 +14,12 @@ const MaterialPublico = lazy(() => import('./MaterialPublico'))
 const SeguimientoPublico = lazy(() => import('./SeguimientoPublico'))
 // Botones «WhatsApp» y «Llamar» del correo del lead: registran el contacto en el CRM y abren el chat o la llamada.
 const ContactoLead = lazy(() => import('./ContactoLead'))
+// Desde el 21-nov-2026 la app vive en app.vimedic.com.ec y qa.vimedic.com.ec ya no se usa: quien lo abra pasa allá con el
+// mismo enlace (también las páginas públicas: encuestas, seguimiento, material… siguen funcionando).
+// Para probar cambios antes de main queda vimedic-qa.pages.dev (no se redirige).
+if (window.location.hostname === 'qa.vimedic.com.ec') {
+  window.location.replace('https://app.vimedic.com.ec' + window.location.pathname + window.location.search + window.location.hash)
+}
 // Enlaces de la app anterior (app.vimedic.com.ec/crm/, /acceso/, /espacio/…) → módulo equivalente de esta app.
 const antigua = rutaAntigua(window.location.pathname, window.location.search, new Set(Object.keys(MODULOS)))
 if (antigua !== null) window.history.replaceState(null, '', antigua)
