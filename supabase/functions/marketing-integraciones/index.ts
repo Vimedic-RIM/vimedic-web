@@ -704,9 +704,9 @@ Deno.serve(async (req) => {
           '- modelo: el modelo exacto que declara el fabricante en el documento (vacío si no aparece).',
           '- descripcion: 2 frases, máximo 260 caracteres: qué es, para qué sirve y dónde se usa. Sin precios ni emojis.',
           '- caracteristicas: 4 a 6 beneficios concretos, máximo 48 caracteres cada uno (una línea), sin emojis ni punto final.',
-          '- especificaciones: todos los datos medibles (hasta 60) agrupados por tipo según el equipo (ej. Generales, Esterilización, Óptica, Eléctricas, Físicas, Ambientales): Generales primero; Eléctricas y Físicas al final. etiqueta corta (máx. 32 caracteres). Si la unidad es simple, va aparte (valor «18», unidad «L»); si el valor es compuesto («121 °C / 134 °C», «220 V · 60 Hz») va completo en valor y la unidad vacía. Sin repetir.',
+          '- especificaciones: la ficha debe caber en UNA hoja, así que solo los datos que pesan en la compra (ideal 14 a 24 filas, máximo 30), agrupados en 3 a 5 grupos según el equipo (ej. Generales, Esterilización, Óptica, Eléctricas, Físicas): Generales primero; Eléctricas y Físicas al final. Une en una fila los datos relacionados (ej. «Temperatura» «121 / 134 °C»; «Dimensiones (an × pr × al)» «48 × 62 × 41 cm»; «Peso neto / bruto» «45 / 52 kg»). Omite lo secundario: tolerancias, errores de medición, datos de embalaje, fusibles y normas repetidas. etiqueta corta (máx. 28 caracteres) y valor corto (máx. 40). Si la unidad es simple, va aparte (valor «18», unidad «L»); si el valor es compuesto («121 °C / 134 °C», «220 V · 60 Hz») va completo en valor y la unidad vacía. Sin repetir.',
           '- destacados: exactamente 3 etiquetas de especificaciones (copiadas tal cual) que más le importan a un comprador hospitalario; prefiere las de valor corto (se muestran en grande, máx. 10 caracteres con la unidad).',
-          '- accesorios: lo que viene incluido, uno por elemento, con «×cantidad» si se indica (ej. «Bandejas ×3»).',
+          '- accesorios: lo que viene incluido (máximo 8), uno por elemento, con «×cantidad» si se indica (ej. «Bandejas ×3»).',
           '- notas: una o dos frases sobre lo que no encontraste o conviene revisar.',
         ].join('\n') })
         const ESQ_F = {

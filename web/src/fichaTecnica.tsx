@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import qrcode from 'qrcode-generator'
 import { supabase } from './supabase'
@@ -7,7 +7,7 @@ import { LOGO_COLOR, LOGO_RATIO } from './catalogoAssets'
 
 /* Ficha técnica por producto — diseño C3 «Columna lateral» (A4 vertical, 794 × 1123 px).
    Se construye en HTML (se ve al instante y se actualiza al editar); el PDF sale de estas mismas hojas.
-   Si las especificaciones no caben, siguen en otra hoja con el mismo encabezado, sin achicar la letra.
+   Se compacta sola (espaciado y letra) para caber en UNA hoja; solo si ni así cabe, sigue en otra hoja con el mismo encabezado.
    Lo que falta se oculta: nunca salen corchetes ni textos de ejemplo. Nunca costo, stock, proveedor ni importación
    (la consulta ficha_tecnica solo entrega lo publicable). Marca y contacto: VIMEDIC. */
 
@@ -103,31 +103,42 @@ function armarItems(especs: FilaEspec[]): Item[] {
   }
   return items
 }
-function ItemEspec({ it, colEtiqueta = 190 }: { it: Item; colEtiqueta?: number }) {
-  if (it.t === 'g') return <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 1.5, padding: '12px 0 4px', textTransform: 'uppercase' }}>{it.grupo}{it.cont ? ' (continuación)' : ''}</div>
+/** Densidad de la columna principal. Se usa la más amplia con la que todo cabe en UNA hoja;
+ *  solo si ni la más compacta alcanza, la ficha sigue en otra hoja (con NIVEL_HOJAS). */
+type Dens = { fs: number; lh: number; fila: string; grupo: string; gfs: number; dfs: number; dlh: number; dm: string; pfs: number; plh: number; pp: number; sep: number }
+const DENS: Dens[] = [
+  { fs: 11.5, lh: 1.4, fila: '5px 8px', grupo: '12px 0 4px', gfs: 10.5, dfs: 12, dlh: 1.55, dm: '12px 0 6px', pfs: 11.5, plh: 1.6, pp: 10, sep: 12 },
+  { fs: 11, lh: 1.4, fila: '3.5px 8px', grupo: '9px 0 3px', gfs: 10.5, dfs: 11.5, dlh: 1.5, dm: '10px 0 4px', pfs: 11, plh: 1.5, pp: 8, sep: 10 },
+  { fs: 10.5, lh: 1.3, fila: '2.5px 8px', grupo: '7px 0 2px', gfs: 10, dfs: 11, dlh: 1.45, dm: '8px 0 4px', pfs: 10.5, plh: 1.45, pp: 7, sep: 8 },
+  { fs: 10, lh: 1.25, fila: '2px 6px', grupo: '6px 0 2px', gfs: 9.5, dfs: 10.5, dlh: 1.4, dm: '8px 0 3px', pfs: 10, plh: 1.4, pp: 6, sep: 8 },
+]
+const NIVEL_HOJAS = 2
+
+function ItemEspec({ it, dn, colEtiqueta = 190 }: { it: Item; dn: Dens; colEtiqueta?: number }) {
+  if (it.t === 'g') return <div style={{ fontSize: dn.gfs, fontWeight: 700, letterSpacing: 1.5, padding: dn.grupo, textTransform: 'uppercase' }}>{it.grupo}{it.cont ? ' (continuación)' : ''}</div>
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: `${colEtiqueta}px minmax(0, 1fr)`, padding: '5px 8px', background: it.alt ? C.alterna : undefined }}>
+    <div style={{ display: 'grid', gridTemplateColumns: `${colEtiqueta}px minmax(0, 1fr)`, padding: dn.fila, fontSize: dn.fs, lineHeight: dn.lh, background: it.alt ? C.alterna : undefined }}>
       <span style={{ color: C.gris, paddingRight: 8 }}>{it.fila.etiqueta}</span><span style={{ fontWeight: 600 }}>{valorCon(it.fila)}</span>
     </div>
   )
 }
-function CabeceraDerecha({ d }: { d: DatosFicha }) {
+function CabeceraDerecha({ d, dn }: { d: DatosFicha; dn: Dens }) {
   return (
     <div style={{ display: 'flow-root' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderBottom: `2px solid ${C.celeste}`, paddingBottom: 10 }}>
         <h2 style={{ margin: 0, fontFamily: SG, fontSize: 20, fontWeight: 700 }}>Ficha técnica</h2>
         {d.codigo && <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1 }}>CÓD. {d.codigo}</span>}
       </div>
-      {d.descripcion && <p style={{ margin: '12px 0 6px', fontSize: 12, lineHeight: 1.55, color: C.texto }}>{d.descripcion}</p>}
+      {d.descripcion && <p style={{ margin: dn.dm, fontSize: dn.dfs, lineHeight: dn.dlh, color: C.texto }}>{d.descripcion}</p>}
     </div>
   )
 }
-function Pie({ d }: { d: DatosFicha }) {
+function Pie({ d, dn }: { d: DatosFicha; dn: Dens }) {
   const contacto = [d.contacto.web, d.contacto.telefono].filter(Boolean).join(' · ')
   return (
     <div style={{ display: 'flow-root' }}>
-      {d.accesorios.length > 0 && <div style={{ borderTop: `1px solid ${C.linea}`, paddingTop: 10, fontSize: 11.5, lineHeight: 1.6, color: C.texto }}><strong style={{ color: C.marino }}>Incluye:</strong> {d.accesorios.join(', ')}.</div>}
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginTop: 10, fontSize: 11, borderTop: d.accesorios.length ? undefined : `1px solid ${C.linea}`, paddingTop: d.accesorios.length ? 0 : 10 }}>
+      {d.accesorios.length > 0 && <div style={{ borderTop: `1px solid ${C.linea}`, paddingTop: dn.pp, fontSize: dn.pfs, lineHeight: dn.plh, color: C.texto }}><strong style={{ color: C.marino }}>Incluye:</strong> {d.accesorios.join(', ')}.</div>}
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginTop: dn.pp, fontSize: dn.pfs - 0.5, borderTop: d.accesorios.length ? undefined : `1px solid ${C.linea}`, paddingTop: d.accesorios.length ? 0 : dn.pp }}>
         <span style={{ fontWeight: 600 }}>{d.certificaciones.join(' · ')}</span>
         <span style={{ color: C.gris, textAlign: 'right' }}>{contacto ? contacto + ' · ' : ''}Imágenes referenciales</span>
       </div>
@@ -184,7 +195,7 @@ const TEXTO_BASE: CSSProperties = { fontFamily: 'Inter, system-ui, sans-serif', 
 const estiloHoja: CSSProperties = { ...TEXTO_BASE, width: ANCHO, height: ALTO, boxSizing: 'border-box', background: '#ffffff', overflow: 'hidden', position: 'relative' }
 type Pagina = { items: Item[]; pie: boolean }
 
-/** Reparte las especificaciones en hojas midiendo cada bloque (la letra nunca se achica). */
+/** Reparte las especificaciones en hojas midiendo cada bloque (solo cuando ni la densidad más compacta cabe en una). */
 function paginar(items: Item[], alto: (clave: string) => number): Pagina[] {
   const paginas: Pagina[] = []
   let i = 0
@@ -219,42 +230,52 @@ function paginar(items: Item[], alto: (clave: string) => number): Pagina[] {
 export function HojasFicha({ d }: { d: DatosFicha }) {
   const items = useMemo(() => armarItems(d.especificaciones), [d.especificaciones])
   const medir = useRef<HTMLDivElement>(null)
-  const [paginas, setPaginas] = useState<Pagina[] | null>(null)
+  const [plan, setPlan] = useState<{ nivel: number; paginas: Pagina[] } | null>(null)
   useLayoutEffect(() => {
     let vivo = true
     const calcular = () => {
       if (!vivo || !medir.current) return
       const altos = new Map<string, number>()
       medir.current.querySelectorAll<HTMLElement>('[data-m]').forEach((el) => altos.set(el.dataset.m!, el.getBoundingClientRect().height))
-      setPaginas(paginar(items, (k) => altos.get(k) ?? 0))
+      const a = (k: string) => altos.get(k) ?? 0
+      // Primero se intenta todo en una hoja, de la densidad más amplia a la más compacta.
+      for (let n = 0; n < DENS.length; n++) {
+        if (a('cab1_' + n) + a('todo_' + n) + a('pie1_' + n) <= ALTO_UTIL) { setPlan({ nivel: n, paginas: [{ items, pie: true }] }); return }
+      }
+      setPlan({ nivel: NIVEL_HOJAS, paginas: paginar(items, (k) => a(k === 'cab1' || k === 'pie1' ? k + '_' + NIVEL_HOJAS : k)) })
     }
     calcular()
     // Con las fuentes ya cargadas las alturas son las definitivas.
     ;(document.fonts?.ready ?? Promise.resolve()).then(calcular)
     return () => { vivo = false }
   }, [d, items])
-  const total = paginas?.length ?? 1
+  const paginas = plan?.paginas ?? [{ items, pie: true }]
+  const total = paginas.length
+  const dn = DENS[plan?.nivel ?? 0], dh = DENS[NIVEL_HOJAS]
   return (
     <>
       {/* La medición va fuera de la vista reducida (zoom), para medir en tamaño real. */}
       {createPortal(<div ref={medir} aria-hidden style={{ ...TEXTO_BASE, position: 'fixed', left: -20000, top: 0, visibility: 'hidden' }}>
-        <div data-m="cab1" style={{ width: ANCHO_DER }}><CabeceraDerecha d={d} /></div>
+        {DENS.map((x, n) => <Fragment key={n}>
+          <div data-m={'cab1_' + n} style={{ width: ANCHO_DER }}><CabeceraDerecha d={d} dn={x} /></div>
+          <div data-m={'todo_' + n} style={{ width: ANCHO_DER }}>{items.map((it, k) => <ItemEspec key={k} it={it} dn={x} />)}</div>
+          <div data-m={'pie1_' + n} style={{ width: ANCHO_DER }}><div style={{ height: x.sep }} /><Pie d={d} dn={x} /></div>
+        </Fragment>)}
         <div data-m="cabN" style={{ width: ANCHO_CONT }}><CabeceraContinuacion d={d} hoja={2} total={2} /><div style={{ height: 6 }} /></div>
-        <div data-m="pie1" style={{ width: ANCHO_DER, fontSize: 11.5 }}><div style={{ height: 12 }} /><Pie d={d} /></div>
-        <div data-m="pieN" style={{ width: ANCHO_CONT, fontSize: 11.5 }}><div style={{ height: 12 }} /><Pie d={d} /></div>
-        <div data-m="ag" style={{ width: ANCHO_DER, fontSize: 11.5 }}><ItemEspec it={{ t: 'g', grupo: 'X', cont: true }} /></div>
-        <div data-m="bg" style={{ width: ANCHO_CONT, fontSize: 11.5 }}><ItemEspec it={{ t: 'g', grupo: 'X', cont: true }} /></div>
-        {items.map((it, k) => <div key={'a' + k} data-m={'a' + k} style={{ width: ANCHO_DER, fontSize: 11.5 }}><ItemEspec it={it} /></div>)}
-        {items.map((it, k) => <div key={'b' + k} data-m={'b' + k} style={{ width: ANCHO_CONT, fontSize: 11.5 }}><ItemEspec it={it} colEtiqueta={230} /></div>)}
+        <div data-m="pieN" style={{ width: ANCHO_CONT }}><div style={{ height: dh.sep }} /><Pie d={d} dn={dh} /></div>
+        <div data-m="ag" style={{ width: ANCHO_DER }}><ItemEspec it={{ t: 'g', grupo: 'X', cont: true }} dn={dh} /></div>
+        <div data-m="bg" style={{ width: ANCHO_CONT }}><ItemEspec it={{ t: 'g', grupo: 'X', cont: true }} dn={dh} /></div>
+        {items.map((it, k) => <div key={'a' + k} data-m={'a' + k} style={{ width: ANCHO_DER }}><ItemEspec it={it} dn={dh} /></div>)}
+        {items.map((it, k) => <div key={'b' + k} data-m={'b' + k} style={{ width: ANCHO_CONT }}><ItemEspec it={it} dn={dh} colEtiqueta={230} /></div>)}
       </div>, document.body)}
-      {(paginas ?? [{ items, pie: true }]).map((pg, n) => n === 0 ? (
-        <div key={n} data-hoja style={{ ...estiloHoja, display: 'flex' }}>
+      {paginas.map((pg, n) => n === 0 ? (
+        <div key={n} data-hoja data-densidad={plan?.nivel ?? 0} style={{ ...estiloHoja, display: 'flex' }}>
           <Lateral d={d} />
           <div style={{ flexGrow: 1, minWidth: 0, padding: `${PAD_ARRIBA}px ${PAD_LADO}px ${PAD_ABAJO}px`, display: 'flex', flexDirection: 'column' }}>
-            <CabeceraDerecha d={d} />
-            <div style={{ fontSize: 11.5 }}>{pg.items.map((it, k) => <ItemEspec key={k} it={it} />)}</div>
+            <CabeceraDerecha d={d} dn={dn} />
+            <div>{pg.items.map((it, k) => <ItemEspec key={k} it={it} dn={dn} />)}</div>
             <div style={{ flexGrow: 1 }} />
-            {pg.pie && <div style={{ paddingTop: 12 }}><Pie d={d} /></div>}
+            {pg.pie && <div style={{ paddingTop: dn.sep }}><Pie d={d} dn={dn} /></div>}
             {!pg.pie && <div style={{ fontSize: 10.5, color: C.gris, textAlign: 'right', paddingTop: 8 }}>Continúa en la hoja 2 →</div>}
           </div>
         </div>
@@ -262,7 +283,7 @@ export function HojasFicha({ d }: { d: DatosFicha }) {
         <div key={n} data-hoja style={{ ...estiloHoja, padding: `${PAD_ARRIBA}px ${PAD_LADO}px ${PAD_ABAJO}px`, display: 'flex', flexDirection: 'column' }}>
           <CabeceraContinuacion d={d} hoja={n + 1} total={total} />
           <div style={{ height: 6 }} />
-          <div style={{ fontSize: 11.5 }}>{pg.items.map((it, k) => <ItemEspec key={k} it={it} colEtiqueta={230} />)}</div>
+          <div>{pg.items.map((it, k) => <ItemEspec key={k} it={it} dn={dh} colEtiqueta={230} />)}</div>
           <div style={{ flexGrow: 1 }} />
           <div style={{ fontSize: 10.5, color: C.gris, textAlign: 'right', paddingTop: 8 }}>Continúa en la hoja {n + 2} →</div>
         </div>
@@ -270,9 +291,9 @@ export function HojasFicha({ d }: { d: DatosFicha }) {
         <div key={n} data-hoja style={{ ...estiloHoja, padding: `${PAD_ARRIBA}px ${PAD_LADO}px ${PAD_ABAJO}px`, display: 'flex', flexDirection: 'column' }}>
           <CabeceraContinuacion d={d} hoja={n + 1} total={total} />
           <div style={{ height: 6 }} />
-          <div style={{ fontSize: 11.5 }}>{pg.items.map((it, k) => <ItemEspec key={k} it={it} colEtiqueta={230} />)}</div>
+          <div>{pg.items.map((it, k) => <ItemEspec key={k} it={it} dn={dh} colEtiqueta={230} />)}</div>
           <div style={{ flexGrow: 1 }} />
-          {pg.pie && <div style={{ paddingTop: 12 }}><Pie d={d} /></div>}
+          {pg.pie && <div style={{ paddingTop: dh.sep }}><Pie d={d} dn={dh} /></div>}
         </div>
       ))}
     </>
